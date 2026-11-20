@@ -250,7 +250,7 @@ class RuntimeCommandMessage:
     receiver_instance_id: str | None = None
 
     def __post_init__(self) -> None:
-        if self.session_id is None and self.command_type not in ({"register_controller", "read_controller_admission", "check_readiness", "get_inventory", "list_storage_sessions", "list_artifact_destinations", "register_artifact_destination", "update_artifact_destination", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
+        if self.session_id is None and self.command_type not in ({"register_controller", "read_controller_admission", "check_readiness", "get_inventory", "update_device_configuration", "list_storage_sessions", "list_artifact_destinations", "register_artifact_destination", "update_artifact_destination", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
             raise ValueError("Session-specific command requires session_id")
         if self.session_id is not None:
             _validate_subject_token("session_id", self.session_id)
@@ -617,6 +617,7 @@ EXTERNAL_CONTROLLER_OPERATIONS = {
     "take_browser_control": "take_browser_control",
     "view_only": "view_only",
     "get_node_inventory": "get_node_inventory",
+    "update_device_configuration": "update_device_configuration",
     "read_session_configuration": "read_session_configuration",
     "start_launched_session": "start_session",
     "start_launched_experiment": "start_experiment",
@@ -644,7 +645,7 @@ EXTERNAL_CONTROLLER_SESSIONLESS_OPERATIONS = frozenset({
     "list_artifact_destinations", "register_artifact_destination", "update_artifact_destination",
     *SERVICE_RECOVERY_COMMAND_TYPES,
     "read_storage_sessions", "read_controller_state", "read_operation_outcome",
-    "take_browser_control", "view_only", "get_node_inventory", "read_service_status",
+    "take_browser_control", "view_only", "get_node_inventory", "update_device_configuration", "read_service_status",
     "stop_service", "kill_service", "cancel_service", "shutdown_framework",
 })
 
@@ -684,6 +685,7 @@ class ExternalControllerRequest:
             "take_browser_control": (set(), set()),
             "view_only": (set(), set()),
             "get_node_inventory": ({"node_id"}, set()),
+            "update_device_configuration": ({"node_id", "device_id", "parameters", "expected_revision", "administrator_id", "authorized"}, set()),
             "read_session_configuration": (set(), set()),
             "start_launched_session": (set(), set()),
             "start_launched_experiment": ({"experiment_id", "configuration", "scientific_outputs"}, {"details", "runtime_health_mapping"}),
@@ -711,11 +713,18 @@ class ExternalControllerRequest:
         for name in ("target_request_id", "instance_id", "node_id"):
             if name in self.parameters:
                 _validate_subject_token(name, self.parameters[name])
-        if self.operation in ({"stop_service", "kill_service", "cancel_service", "shutdown_framework"} | SERVICE_RECOVERY_COMMAND_TYPES):
+        if self.operation in ({"update_device_configuration", "stop_service", "kill_service", "cancel_service", "shutdown_framework"} | SERVICE_RECOVERY_COMMAND_TYPES):
             if (self.parameters["authorized"] is not True
                     or not isinstance(self.parameters["administrator_id"], str)
                     or not self.parameters["administrator_id"].strip()):
                 raise ValueError("Explicit administrator identity and operation authorization are required")
+        if self.operation == 'update_device_configuration':
+            if (not isinstance(self.parameters['device_id'], str) or not self.parameters['device_id']
+                    or not isinstance(self.parameters['parameters'], dict) or not self.parameters['parameters']
+                    or not isinstance(self.parameters['expected_revision'], str)
+                    or len(self.parameters['expected_revision']) != 64
+                    or any(c not in '0123456789abcdef' for c in self.parameters['expected_revision'])):
+                raise ValueError('Exact device, administrative values and saved revision are required')
         if self.operation in SERVICE_RECOVERY_COMMAND_TYPES:
             if (any(not isinstance(self.parameters[name], str) or not self.parameters[name]
                     for name in ("recovery_command_id", "authorization_evidence_id"))

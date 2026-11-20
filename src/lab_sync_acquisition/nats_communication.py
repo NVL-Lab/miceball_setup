@@ -1023,6 +1023,7 @@ class NatsExternalSessionLaunchReceiver:
     async def _execute(self, request, record):
         try:
             new_work = isinstance(request, ExternalSessionLaunchRequest) or request.operation in {
+                "update_device_configuration",
                 "start_launched_session", "start_launched_experiment", "delete_original_artifacts",
                 "collect_saved_session_artifacts_remote"}
             # Retirement must not count its own issuer as unfinished Controller work.
@@ -1080,6 +1081,14 @@ class NatsExternalSessionLaunchReceiver:
                 result = await self._controller.get_node_inventory(matches[0], communication=self._communication,
                     result_window_s=self._window)
                 return ControllerCommandResult(request.operation, True, result)
+            if request.operation == 'update_device_configuration':
+                matches = [p for p in self._participants if p.component_type == 'acquisition_node'
+                           and p.component_id == request.parameters['node_id']]
+                if len(matches) != 1:
+                    raise ValueError('Configuration update requires a configured AcquisitionNode')
+                return await self._controller.update_device_configuration(matches[0],
+                    **{k: v for k, v in request.parameters.items() if k != 'node_id'},
+                    communication=self._communication, result_window_s=self._window)
             if request.operation in ({"read_service_status", "stop_service", "kill_service", "cancel_service"} | SERVICE_RECOVERY_COMMAND_TYPES):
                 participant = RuntimeParticipant.from_dict(request.parameters["participant"])
                 if participant not in (*self._participants, self._maintenance.participant):
@@ -1509,7 +1518,7 @@ class NatsControllerCommunication:
                                       *, command_id: str | None = None) -> RuntimeCommandResultMessage | None:
         """Issue scoped runtime work with fresh per-attempt reply correlation."""
         if (((not isinstance(session_id, str) or not session_id)
-                and not (session_id is None and command_type in ({"check_readiness", "get_inventory", "stop", "kill", "cancel"} | SERVICE_RECOVERY_COMMAND_TYPES)))
+                and not (session_id is None and command_type in ({"check_readiness", "get_inventory", "update_device_configuration", "stop", "kill", "cancel"} | SERVICE_RECOVERY_COMMAND_TYPES)))
                 or "request_nonce" in payload
                 or not isinstance(participant, RuntimeParticipant)):
             raise ValueError("An explicit Session, participant and caller payload are required")
@@ -1984,7 +1993,7 @@ class NatsAcquisitionNodeCommunication:
             "start_runtime",
             "run_one_iteration",
             "stop_runtime",
-            "get_inventory", "reserve", "release_reservation",
+            "get_inventory", "update_device_configuration", "reserve", "release_reservation",
             "initialize_session", "abort_session_initialization",
             "prepare_experiment_scientific_outputs",
             "read_local_time", "accept_synchronization_quality", "activate_experiment_runtime",
@@ -2256,14 +2265,20 @@ class NatsAcquisitionNodeCommunication:
         try:
             if command.target_id != self._boundary.component_id:
                 raise ValueError("Command target does not match participant")
-            if command.command_type not in {"check_readiness", "get_inventory", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"}:
+            if command.command_type not in {"check_readiness", "get_inventory", "update_device_configuration", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"}:
                 AcquisitionNode._validate_session_id(command.session_id)
-            if command.command_type not in {"check_readiness", "get_inventory", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"} and command.session_id != self._acquisition_node.status()["session_id"]:
+            if command.command_type not in {"check_readiness", "get_inventory", "update_device_configuration", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"} and command.session_id != self._acquisition_node.status()["session_id"]:
                 raise RuntimeError("Command session_id does not match AcquisitionNode")
             if command.command_type == "get_inventory":
                 payload = self._acquisition_node.get_inventory()
                 if "request_nonce" in command.payload:
                     payload["request_nonce"] = command.payload["request_nonce"]
+            elif command.command_type == 'update_device_configuration':
+                required = {'device_id', 'parameters', 'expected_revision', 'administrator_id', 'authorized', 'request_nonce'}
+                if command.session_id is not None or set(command.payload) != required:
+                    raise ValueError('Administrative configuration requires exact Session-independent scope')
+                payload = self._acquisition_node.update_device_configuration(
+                    **{k: v for k, v in command.payload.items() if k != 'request_nonce'})
             elif command.command_type == "read_local_time":
                 payload = {"received_local_time_s": monotonic(), "sent_local_time_s": monotonic(),
                            "acquisition_node_id": self._boundary.component_id,
@@ -2354,7 +2369,9 @@ class NatsAcquisitionNodeCommunication:
                 raise ValueError(
                     f"Unsupported AcquisitionNode command: {command.command_type}"
                 )
-            result = self._result(command, "succeeded", True, None, payload)
+            unconfirmed = command.command_type == 'update_device_configuration' and payload.get('outcome') == 'unconfirmed'
+            result = self._result(command, "failed" if unconfirmed else "succeeded", not unconfirmed,
+                                  payload.get('reason') if unconfirmed else None, payload)
         except Exception as error:
             result = self._result(command, "failed", False, str(error), {})
         self._results_by_command_id[command.command_id] = result
@@ -2599,11 +2616,18 @@ class NatsIngestorCommunication:
                     intake.admit_kill_closeout(command.session_id)
                 payload = {"session_id": command.session_id, "kill_admitted": True}
             elif operation == "preserve_session_acquisition":
-                if supplied != {"mode", "marker", "session_record", "controller_evidence", "uncertainties"}:
+                required = {"mode", "marker", "session_record", "controller_evidence", "uncertainties"}
+                if supplied - {"acceptance_window_s"} != required:
                     raise ValueError("Closeout preservation payload is incomplete")
                 mode = command.payload["mode"]
                 if mode not in {"normal", "kill"}:
                     raise ValueError("Unknown closeout mode")
+                window = command.payload.get("acceptance_window_s")
+                if "acceptance_window_s" in supplied:
+                    from math import isfinite
+                    if (mode != "normal" or type(window) not in (int, float)
+                            or not isfinite(window) or window < 0):
+                        raise ValueError("Normal closeout requires a finite nonnegative acceptance window")
                 if intake.session_id is None:
                     payload = intake.read_session_closeout(command.session_id)
                     if (payload["session_record"]["accepted_session_config"] != command.payload["session_record"]["accepted_session_config"]
@@ -2614,7 +2638,27 @@ class NatsIngestorCommunication:
                     return _participant_result(self._boundary, command, True, None,
                         {**payload, "request_nonce": nonce, "request_payload": deepcopy(command.payload)})
                 if mode == "normal":
-                    marker = RuntimeEvidenceMessage.from_dict(command.payload["marker"])
+                    try:
+                        marker = RuntimeEvidenceMessage.from_dict(command.payload["marker"])
+                    except (ValueError, TypeError, KeyError):
+                        raise ValueError("invalid_completion_marker") from None
+                    if marker.session_id != command.session_id:
+                        raise ValueError("session_mismatch")
+                    if marker.source_id != command.source_id:
+                        raise ValueError("marker_source_mismatch")
+                    journal = intake.recovery_journal_path
+                    failure = self._marker_acceptance_failure(marker)
+                    if failure == "marker_not_durably_accepted" and window is not None:
+                        accepted = await intake.await_durable_runtime_evidence(marker, window)
+                        if intake.session_id != command.session_id:
+                            raise RuntimeError("session_mismatch")
+                        if intake.recovery_journal_path != journal:
+                            raise RuntimeError("journal_binding_changed")
+                        failure = self._marker_acceptance_failure(marker)
+                        if not accepted and failure == "marker_not_durably_accepted":
+                            failure = "durable_acceptance_deadline_expired"
+                    if failure is not None:
+                        raise RuntimeError(f"Completion marker acceptance unconfirmed: {failure}")
                     receipt = await self.verify_acquisition_evidence_receipt(marker)
                     if not receipt.get("durable_receipt_confirmed"):
                         raise RuntimeError(f"Complete acquisition receipt is unconfirmed: {receipt.get('reason')}")
@@ -2930,6 +2974,25 @@ class NatsIngestorCommunication:
                 and 0 <= floor.consumer_seq <= delivered.consumer_seq
                 and 0 <= floor.stream_seq <= delivered.stream_seq <= last_sequence)
 
+    def _marker_acceptance_failure(self, marker):
+        """Distinguish pending exact intake from definite marker or journal failures."""
+        intake = self._ingestor
+        with intake._intake_lock:
+            if (marker.evidence_type != "acquisition_evidence_completion" or marker.is_persistent is not True
+                    or any(not isinstance(value, str) or not value for value in (marker.evidence_id, marker.source_id))):
+                return "invalid_completion_marker"
+            if marker.session_id is None or marker.session_id != intake.session_id:
+                return "session_mismatch"
+            if intake.recovery_journal_path is None:
+                return "journal_unavailable"
+            if intake._journal_failed:
+                return "journal_failed"
+            if not intake.has_durable_runtime_evidence(marker):
+                if any(item.evidence_id == marker.evidence_id for item in intake.accepted_runtime_evidence):
+                    return "conflicting_marker_contents"
+                return "marker_not_durably_accepted"
+        return None
+
     async def verify_acquisition_evidence_receipt(
         self, marker: RuntimeEvidenceMessage,
     ) -> dict[str, Any]:
@@ -2943,10 +3006,9 @@ class NatsIngestorCommunication:
                 result["reason"] = "finalized_marker_mismatch"
                 return result
             return deepcopy(finalized["receipt"])
-        if (session_id is None or self._ingestor.session_id != session_id
-                or marker.evidence_type != "acquisition_evidence_completion"
-                or not self._ingestor.has_durable_runtime_evidence(marker)):
-            result["reason"] = "marker_not_durably_accepted"
+        failure = self._marker_acceptance_failure(marker)
+        if failure is not None:
+            result["reason"] = failure
             return result
         journal = self._ingestor.recovery_journal_path
         try:
@@ -3479,7 +3541,8 @@ class NatsSynchronizationManagerCommunication:
                         return
                     for node_id in node_ids:
                         try:
-                            await self._measure_node(session_id, node_id, replace_mapping=False)
+                            await self._measure_node(session_id, node_id,
+                                replace_mapping=owner._mapping_renewal_due(node_id))
                         except Exception:
                             quality = owner._measured_mapping_quality[node_id]
                             try:

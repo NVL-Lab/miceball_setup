@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import h5py
 import numpy as np
@@ -22,6 +22,7 @@ from lab_sync_acquisition import (
 from tests.test_distributed_synchronization import configuration
 from tests.test_scientific_camera_collection import FakeCV2
 from tests.test_session_launch import _Boundary, _Broker
+from tests.nats_server_fixture import acquire_test_controller_authority
 
 
 class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
@@ -29,6 +30,7 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        (self.root / "artifacts").mkdir()
         self.frame = np.arange(24, dtype=np.uint16).reshape(2, 4, 3)
         self.camera = FakeCV2(repeat(self.frame), {0: 12.5})
         self.adapter = SeeedIMX219OpenCVCameraAdapter(
@@ -37,9 +39,9 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
             ScientificProductDeclaration("frames", "camera_frames",
                 {"frame_shape": [2, 4, 3], "frame_dtype": "uint16"}, "hdf5"),))
         self.broker = _Broker()
-        self.storage = PersistentStorageManager(self.root / "storage")
-        await NatsStorageManagerCommunication(_Boundary("storage_manager", "storage", self.broker),
-                                              self.storage).subscribe_commands()
+        self.storage = PersistentStorageManager(self.root / "storage", global_artifact_root=self.root / "artifacts")
+        self.storage_handler = NatsStorageManagerCommunication(_Boundary("storage_manager", "storage", self.broker), self.storage)
+        await self.storage_handler.subscribe_commands()
         self.ingestor = InMemoryIngestor(storage_manager=self.storage,
             recovery_journal_root=self.root / "journals", framework_recovery_journal_path=self.root / "framework.jsonl")
         self.intake = NatsIngestorCommunication(_Boundary("ingestor", "ingestor", self.broker), self.ingestor)
@@ -57,13 +59,26 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         await self.handler.start_acquisition_execution()
         await self.handler.subscribe_commands()
         self.controller = Controller()
-        self.pc = _Boundary("controller", "controller", self.broker)
+        maintenance = ServiceMaintenanceInterface(self.controller, RuntimeParticipant("controller", "controller"),
+            ingestor=self.ingestor, storage_manager=self.storage, preservation_window_s=2,
+            close_resources=AsyncMock(return_value=True))
+        self.pc = await acquire_test_controller_authority(self, maintenance)
+        self.pc._require_jetstream = lambda: self.broker
+        for handler, owner in ((self.storage_handler, self.storage), (self.intake, self.ingestor),
+                (self.sync, self.clock), (self.handler, self.node)):
+            boundary = handler._boundary
+            boundary._client, boundary._jetstream = self.pc._client, self.pc._jetstream
+            boundary.configure_controller_authority(account="LAB", bucket="AUTHORITY", key="controller", timeout_s=2)
+            ServiceMaintenanceInterface(owner, RuntimeParticipant(boundary.component_type, boundary.component_id),
+                ingestor=self.ingestor, storage_manager=self.storage, preservation_window_s=2,
+                close_resources=AsyncMock(return_value=True))
         self.communication = NatsControllerCommunication(self.pc)
         self.target = RuntimeParticipant("acquisition_node", "node")
         result = await self.controller.launch_session({"node": (self.declaration,)},
             communication=self.communication, participants=(RuntimeParticipant("ingestor", "ingestor"),
+                RuntimeParticipant("storage_manager", "storage"),
                 RuntimeParticipant("synchronization_manager", "sync"), self.target),
-            config_parameters={"storage_location": str(self.root / "record"), "protocol_plan": {},
+            config_parameters={"storage_location": "default", "protocol_plan": {},
                 "error_evidence_location": str(self.root / "errors"),
                 "synchronization_configuration": configuration()}, result_window_s=2)
         self.assertTrue(result.succeeded, result.error)

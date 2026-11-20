@@ -41,7 +41,7 @@ export async function verifyActivityHistory(browser, origin, fixture, section, d
           if (launchMode === 'backend-rejected') return route.send(JSON.stringify({type: 'result', id: message.id, status: 'rejected', error: 'Launch configuration was not accepted by the GUI backend.'}));
           if (launchMode === 'uncertain') return result(route, message, 'uncertain', {}, 'Controller response timed out.');
           if (launchMode === 'pending') { pendingLaunch = message; return result(route, message, 'pending'); }
-          accept(message.parameters); break;
+          accept(message.parameters); return result(route, message, 'succeeded', {session_id: 'activity-session'});
         case 'start_launched_session': sessionState = 'running'; break;
         case 'start_launched_experiment':
           descriptor = {experiment_id: message.parameters.experiment_id, configuration: message.parameters.configuration, scientific_outputs: message.parameters.scientific_outputs};
@@ -92,7 +92,8 @@ export async function verifyActivityHistory(browser, origin, fixture, section, d
     launchMode = 'succeeded'; await section(page, 'setup'); await page.locator('.launch-session-demo').click();
     await page.locator('#panel-session:not([hidden])').waitFor();
     assert.match(await page.locator('.session-information').innerText(), /Controller-confirmed/);
-    await page.locator('[data-start-session]').click();
+    await page.locator('[data-start-session]:disabled').waitFor();
+    assert.equal(requests.filter(entry => entry.operation === 'start_launched_session').length, 1);
     await page.locator('[data-prepare-free-operation]').click();
     await page.locator('.experiment-additional-devices > summary').click();
     await page.locator('[data-session-experiment-device]').first().check();

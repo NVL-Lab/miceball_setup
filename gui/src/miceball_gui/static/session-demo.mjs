@@ -1,5 +1,5 @@
 // Presentation scenarios only: no execution, dependency policy or scientific results.
-import { clone, declaredCoverage, operations } from './protocol-demo.mjs';
+import { clone, declaredCoverage, operations, devices } from './protocol-demo.mjs';
 import { experimentView, experimentIssues, captureExperiment } from './experiment-demo.mjs';
 import { executionContext, executionProtocol, executionSteps } from './session-context.mjs';
 
@@ -75,7 +75,11 @@ export function sessionStepView(state, step) {
     actions.splice(0, actions.length);
     if (experiment && ready && !running && !experiment.readOnly && !operation.unavailable) actions.push('run');
   }
-  return { record, status, stopPending: !!record.stopRequested, operation, experiment, issues, supports, required, optional, ready, included, actions, running };
+  const preparationLabel = state.connected && status === 'unavailable' && experiment
+    ? experiment.configuration.participants.some(id => !devices.find(device => device.id === id)?.available)
+      ? 'Inventory unconfirmed' : issues.length ? 'Configuration incomplete' : 'Required participants unavailable'
+    : null;
+  return { record, status, preparationLabel, stopPending: !!record.stopRequested, operation, experiment, issues, supports, required, optional, ready, included, actions, running };
 }
 
 export function selectedStepContext(state) {

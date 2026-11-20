@@ -14910,6 +14910,10 @@ unresolved unless an existing accepted classification is established. Budget
 estimation/admission changes, catalog removal, service discovery, installer work,
 Decision 450 framework feedback changes and new authentication are excluded.
 
+**Subsequent clarification:** Decision 454 resolves the deferred
+`frames_per_collect` classification below; the preceding text preserves the
+historical Decision 451 boundary, not a continuing classification question.
+
 ---
 
 ## Decision 452: Catalog uniqueness, removal and historical identity independence
@@ -15080,6 +15084,111 @@ The assessment is not a complete packaging qualification: further feasibility wo
 initialization-default selection, implementation, independent validation and audit
 remain outstanding. Existing Decisions 450-452 implementations and their validation
 baselines are unchanged; no graphical installer or NATS provisioning is implemented.
+
+---
+
+## Decision 454: Device-specific technical batching settings are administrator-adjustable
+
+**Status:** Accepted; documentation synchronized, implementation and independent
+verification pending.
+
+This records the explicitly user-approved LLC clarification of Decisions 370,
+449 and 451. `frames_per_collect` is a device-specific technical parameter for
+acquisition batching, not an experimenter-adjustable scientific parameter and not
+an installation-only setting. It does not define scientific sampling frequency
+or Experiment duration. `frame_width`, `frame_height` and `fps` remain
+experimenter-adjustable through the existing Experiment/Step Parameters editor.
+
+`frames_per_collect` is editable exclusively through the existing Parameters
+workspace in global Administrator mode. Supply its initial value at installation
+with optional Advanced Settings modification, and display its actual configured
+value through authoritative device parameter readback. No new numerical default
+is established by this decision. Persist administrative changes for subsequent
+Sessions, independently for each device; do not store them as a global GUI backend
+default or transfer device-configuration authority to the GUI backend.
+
+Ordinary Experiment/Step overrides must not modify this parameter. Enforcement
+must preserve the adapter-driven contract beyond GUI visibility, including direct
+framework requests and retained reusable configurations. Administrative changes
+must not modify active acquisition or previously accepted execution configurations;
+preserve historical accepted/executed snapshots rather than silently rewriting
+them. Existing Controller authority, NATS communication and operation-specific
+authorization requirements remain applicable; selecting Administrator mode alone
+does not grant framework authority.
+
+Preserve Decision 370/W069's adapter-owned definitions and validation, Decision
+449's one Parameters workspace, and Decision 451's client-wide Administrator mode.
+No additional editor/tab, generic administrative configuration system or separate
+persistence mechanism is authorized. The existing ownership, durable mutation and
+configuration-application/restart mechanisms must be assessed before implementation;
+any missing contract returns through ICC for LLC clarification rather than being
+invented in code. This decision resolves classification, not an unspecified update
+protocol. Package A/B and broader validation remain open; Decision 453 stays deferred.
+
+**Subsequent clarification:** Decision 455 settles the persistent owner-side update
+and restart/readback contract and approves the OpenCV-specific initialization value.
+
+---
+
+## Decision 455: AcquisitionNode durably saves administrative device settings for restart
+
+**Status:** Accepted; bounded Package C developer implementation present;
+independent validation and audit pending.
+
+This records the explicitly user-accepted LLC clarification supplementing Decision
+454 and resolving its owner/persistence/application blockers. Preserve Decisions
+368, 370, 449 and 451 and W069's adapter-driven boundary.
+
+AcquisitionNode owns and executes persistent modifications to its existing hardware
+configuration file. Retain the actual startup source path, including explicitly
+supplied paths, and reuse `devices[].configuration`, preserving unrelated settings,
+declarations and configuration fields. No additional store, database, service or
+GUI-owned authoritative configuration copy is authorized.
+
+Use GUI -> Controller -> NATS -> AcquisitionNode. Preserve Controller control
+authorization and Administrator requirements; mode selection alone does not grant
+authority. Controller conveys the authorized request, and the node validates and
+modifies its local configuration. Controller/GUI must not directly write remote
+files. Accept modifications only while the node is unreserved, outside an active
+Session and free of conflicting lifecycle work, using existing serialization.
+
+Reuse adapter-owned declarations and validation. The mechanism is device-independent;
+future adapters may declare different administrative parameters without generic
+GUI/Controller/communication/publication changes. OpenCV's `frames_per_collect`
+retains its positive-integer constraint, including boolean rejection. Generic
+consumers must not hard-code its name, constraints or initialization default.
+Complete initialization validation remains distinct from administrative modification
+permission and ordinary Session/Experiment/Step override permission.
+
+Safely and durably publish the complete validated hardware configuration without
+silent concurrent-update overwrite. Confirm success only after durable publication.
+Preserve valid persistent and loaded configuration on pre-commit failure. Distinguish
+definitive failure from unconfirmed outcomes; after uncertainty, obtain authoritative
+saved readback before another modification, without automatic retry or fabricated
+success. Reuse existing validation/publication mechanisms where suitable.
+
+Expose saved and currently loaded administrative values through authoritative
+readback in the existing Administrator Parameters workspace. Derive restart-required
+feedback from their difference, not a separate independently maintained state.
+Saving does not change loaded execution configuration. Preserve Decision 368:
+changes take effect only after a normal AcquisitionNode restart; no live reload,
+automatic restart or new restart manager. Until then, loaded values govern execution;
+post-restart inventory confirms the new loaded values. Accepted Session baselines,
+active acquisition and historical accepted/executed configurations remain unchanged.
+Retained reusable configurations are not silently rewritten or stripped; explain
+and refuse prohibited future overrides through existing validation/preparation.
+
+The approved initial value for newly configured OpenCV cameras is
+`frames_per_collect=1`, with optional CLI installer Advanced Settings override.
+Preserve valid retained per-device values on updates. This adapter-specific initial
+value is neither a universal batching policy nor an experimentally validated optimum.
+Keep OpenCV-specific initialization separate from generic publication. No mandatory
+extra prompt, parallel loader/editor/store or graphical installer work is authorized.
+
+Package C implements adapter classification, node-owned guarded publication,
+saved/loaded inventory, Controller/NATS transport, Administrator Parameters and
+CLI Advanced initialization. Developer checks are not independent validation or
+audit. Package A/B status and Decision 453's deferral are unchanged.
 
 ---
 

@@ -70,8 +70,10 @@ class AcquisitionNode:
         device_declarations: Iterable[DeviceDeclaration] | None = None,
         synchronization_source_id: str | None = None,
         deployment_device_configurations: dict[str, Any] | None = None,
+        configuration_source_path: str | Path | None = None,
     ) -> None:
         self._session_id = session_id
+        self._configuration_source_path = Path(configuration_source_path).absolute() if configuration_source_path is not None else None
         self._service_operation_lock = RLock()
         self._active_service_operations = 0
         # Explicitly pre-bound nodes retain the historical caller-prepared workflow.
@@ -163,13 +165,115 @@ class AcquisitionNode:
         return self._declared_devices
 
     def get_inventory(self) -> dict[str, Any]:
-        """Return installed declarations and adapter-owned Session parameter definitions."""
-        declared_ids = {d.device_id for d in self.declared_devices}
-        return {"devices": [d.to_dict() for d in self.declared_devices],
-                "synchronization_source_id": self.synchronization_source_id,
-                "session_parameter_definitions": {
-                    adapter.device_id: deepcopy(adapter.get_session_parameter_definitions())
-                    for adapter in self._device_manager.adapters if adapter.device_id in declared_ids}}
+        """Return declarations and scoped requested settings, never measured hardware values."""
+        with self._reservation_lock:
+            declared_ids = {d.device_id for d in self.declared_devices}
+            definitions = {adapter.device_id: deepcopy(adapter.get_session_parameter_definitions())
+                           for adapter in self._device_manager.adapters if adapter.device_id in declared_ids}
+            session_scope = self._session_prepared and self._session_device_configurations is not None
+            configurations = (self._session_device_configurations if session_scope
+                              else self._deployment_device_configurations)
+            values = {}
+            for identity, configuration in configurations.items():
+                if identity not in definitions:
+                    continue
+                configuration = asdict(configuration) if is_dataclass(configuration) else configuration
+                if isinstance(configuration, Mapping):
+                    values[identity] = {name: deepcopy(configuration[name]) for name in definitions[identity]
+                                        if name in configuration}
+            return {"devices": [d.to_dict() for d in self.declared_devices],
+                    "synchronization_source_id": self.synchronization_source_id,
+                    "session_parameter_definitions": definitions,
+                    "administrative_configuration": self._administrative_configuration(definitions),
+                    "configured_parameters": {"scope": "session" if session_scope else "installation",
+                        "session_id": self._session_id if session_scope else None, "values": values}}
+
+    def _configuration_blockers(self, *, own_operation=False):
+        interface = getattr(self, '_maintenance', None)
+        blockers = []
+        if self._configuration_source_path is None:
+            blockers.append('No persistent configuration source')
+        if self._reserved_for_session_id is not None or self._session_id is not None:
+            blockers.append('Node is reserved or participating in a Session')
+        if (self._running or not self._initialization_cleanup_confirmed
+                or self._active_service_operations > int(own_operation)
+                or interface is not None and (interface.terminated or interface._attempt is not None or interface._closeout_started)):
+            blockers.append('Conflicting lifecycle or service operation')
+        return blockers
+
+    def _read_saved_configuration(self):
+        from lab_sync_acquisition.configuration_publication import read_configuration_bytes, configuration_revision
+        from lab_sync_acquisition.deployment_configuration import _unique_object, validate_acquisition_node_configuration
+        if self._configuration_source_path is None:
+            raise ValueError('No persistent configuration source')
+        contents = read_configuration_bytes(self._configuration_source_path)
+        data = validate_acquisition_node_configuration(json.loads(contents, object_pairs_hook=_unique_object),
+            adapters={a.device_id: a for a in self._device_manager.adapters})
+        if (data['node_id'] != self._node_id or tuple(DeviceDeclaration.from_dict(item['declaration'])
+                for item in data['devices']) != self._declared_devices):
+            raise ValueError('Saved configuration identity or declarations differ from this node')
+        return data, configuration_revision(contents)
+
+    def _administrative_configuration(self, definitions, *, own_operation=False):
+        def project(configurations):
+            result = {}
+            for identity, configuration in configurations.items():
+                configuration = asdict(configuration) if is_dataclass(configuration) else configuration
+                if isinstance(configuration, Mapping):
+                    result[identity] = {name: deepcopy(configuration[name]) for name, definition in definitions.get(identity, {}).items()
+                        if definition.get('adjustment_scope', 'experimenter') == 'administrator' and name in configuration}
+            return result
+        report = {'available': False, 'revision': None, 'saved': {},
+                  'loaded': project(self._deployment_device_configurations),
+                  'blockers': self._configuration_blockers(own_operation=own_operation), 'reason': None}
+        try:
+            data, revision = self._read_saved_configuration()
+            report.update(available=True, revision=revision,
+                saved=project({item['declaration']['device_id']: item['configuration'] for item in data['devices']}))
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+            report['reason'] = 'Persistent configuration is unavailable, invalid or changed'
+        return report
+
+    @service_operation(new_work=True)
+    def update_device_configuration(self, device_id, parameters, *, expected_revision, administrator_id, authorized):
+        """Durably save administrative settings for normal restart, never apply them live."""
+        from lab_sync_acquisition.configuration_publication import publish_configuration, ConfigurationPublicationUnconfirmed
+        from lab_sync_acquisition.deployment_configuration import validate_acquisition_node_configuration
+        from lab_sync_acquisition.device_adapter import validate_device_parameter_values
+        if authorized is not True or not isinstance(administrator_id, str) or not administrator_id.strip():
+            raise PermissionError('Explicit administrator authorization is required')
+        with self._service_operation_lock:
+            if not self._reservation_lock.acquire(blocking=False):
+                raise RuntimeError('Conflicting reservation or lifecycle operation')
+            try:
+                blockers = self._configuration_blockers(own_operation=True)
+                if blockers:
+                    raise RuntimeError('; '.join(blockers))
+                adapters = {a.device_id: a for a in self._device_manager.adapters}
+                if not isinstance(device_id, str) or device_id not in adapters or not isinstance(parameters, dict) or not parameters:
+                    raise ValueError('An installed device and nonempty administrative values are required')
+                definitions = adapters[device_id].get_session_parameter_definitions()
+                validate_device_parameter_values(parameters, definitions)
+                if any(definitions[name].get('adjustment_scope', 'experimenter') != 'administrator' for name in parameters):
+                    raise ValueError('Only administrator parameters may be saved')
+                data, revision = self._read_saved_configuration()
+                if expected_revision != revision:
+                    raise ValueError('Saved configuration revision changed; refresh and review')
+                item = next(item for item in data['devices'] if item['declaration']['device_id'] == device_id)
+                item['configuration'].update(deepcopy(parameters))
+                validate_acquisition_node_configuration(data, adapters=adapters)
+                contents = (json.dumps(data, indent=2, allow_nan=False) + '\n').encode('utf-8')
+                try:
+                    published_revision = publish_configuration(self._configuration_source_path, expected_revision, contents)
+                except ConfigurationPublicationUnconfirmed:
+                    return {'outcome': 'unconfirmed', 'reason': 'Publication unconfirmed; read saved configuration before another attempt'}
+                report = self._administrative_configuration(
+                    {identity: adapter.get_session_parameter_definitions() for identity, adapter in adapters.items()}, own_operation=True)
+                if not report['available'] or report['revision'] != published_revision:
+                    return {'outcome': 'unconfirmed', 'reason': 'Saved configuration readback is unconfirmed'}
+                return {'outcome': 'succeeded', 'administrative_configuration': report}
+            finally:
+                self._reservation_lock.release()
 
     @service_operation()
     def read_historical_artifacts(self, *, session_id: str | None = None) -> dict[str, Any]:

@@ -19,6 +19,66 @@ from tests.nats_server_fixture import NATS_SERVER, restartable_jetstream_server
 
 
 class FrameworkInstallerTests(unittest.TestCase):
+    def test_new_device_uses_adapter_initial_value_without_changing_unrelated_fields(self):
+        self.answers['Local roles'] = 'acquisition-node'
+        path = self.hardware()
+        document = json.loads(path.read_bytes())
+        del document['devices'][0]['configuration']['frames_per_collect']
+        path.write_text(json.dumps(document))
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        expected = json.loads(json.dumps(document))
+        expected['devices'][0]['configuration']['frames_per_collect'] = 1
+        self.assertEqual(json.loads(path.read_bytes()), expected)
+        self.assertIn('takes effect on normal node restart', output)
+
+    def test_device_advanced_settings_preserve_independent_values_and_existing_role_bytes(self):
+        self.answers['Local roles'] = 'acquisition-node'
+        path = self.hardware()
+        document = json.loads(path.read_bytes())
+        other = json.loads(json.dumps(document['devices'][0]))
+        other['declaration']['device_id'] = 'other'
+        other['configuration']['frames_per_collect'] = 7
+        document['devices'].append(other)
+        path.write_text(json.dumps(document))
+        self.assertEqual(self.run_setup()[0], 0)
+        service = self.config / 'acquisition-node-service.json'
+        original = service.read_bytes()
+        self.answers['Advanced administrative device settings'] = 'yes'
+        self.answers['camera / frames_per_collect'] = '3'
+        self.answers['other / frames_per_collect'] = '9'
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(service.read_bytes(), original)
+        self.assertEqual([item['configuration']['frames_per_collect'] for item in json.loads(path.read_bytes())['devices']], [3, 9])
+        retained = path.read_bytes()
+        self.answers['Advanced administrative device settings'] = 'no'
+        self.assertEqual(self.run_setup()[0], 0)
+        self.assertEqual(path.read_bytes(), retained)
+
+    def test_invalid_or_cancelled_device_advanced_settings_preserve_hardware(self):
+        self.answers['Local roles'] = 'acquisition-node'
+        path = self.hardware()
+        original = path.read_bytes()
+        self.answers['Advanced administrative device settings'] = 'yes'
+        self.answers['camera / frames_per_collect'] = 'true'
+        self.assertEqual(self.run_setup()[0], 1)
+        self.assertEqual(path.read_bytes(), original)
+        self.answers['camera / frames_per_collect'] = '3'
+        self.answers['Install the displayed'] = 'no'
+        self.assertEqual(self.run_setup()[0], 2)
+        self.assertEqual(path.read_bytes(), original)
+
+    def test_duplicate_hardware_fields_are_not_silently_repaired(self):
+        self.answers['Local roles'] = 'acquisition-node'
+        path = self.hardware()
+        original = path.read_text().replace('"frames_per_collect": 1', '"frames_per_collect": 1, "frames_per_collect": 2')
+        path.write_text(original)
+        code, _, _ = self.run_setup()
+        self.assertEqual(code, 1)
+        self.assertEqual(path.read_text(), original)
+        self.assertFalse(any('pip' in call for call in self.calls))
+
     def gui_package(self):
         package = self.checkout / 'gui'
         package.mkdir(exist_ok=True)
@@ -208,7 +268,9 @@ class FrameworkInstallerTests(unittest.TestCase):
         before = path.read_bytes()
         self.gui_package()
         for failure, expected in ((OSError('replace failed'), 1), (KeyboardInterrupt(), 130)):
-            with self.subTest(failure=type(failure).__name__), patch.object(installer, '_replace_controller_file', side_effect=failure):
+            with self.subTest(failure=type(failure).__name__), patch.dict(
+                    installer._PUBLICATION['publish_configuration'].__globals__,
+                    {'replace_configuration_file': unittest.mock.Mock(side_effect=failure)}):
                 code, output, errors = self.run_setup()
             self.assertEqual(code, expected)
             self.assertEqual(path.read_bytes(), before)
@@ -1173,6 +1235,10 @@ class FrameworkInstallerTests(unittest.TestCase):
                     else:
                         result = INITIAL_SYNCHRONIZATION_CONFIGURATION.to_dict()
                     return json.dumps(result)
+            elif installer.NODE_PARAMETERS in args:
+                source = Path(__file__).resolve().parents[1] / 'src'
+                return installer_run([sys.executable, '-I', '-B', '-c', installer.NODE_PARAMETERS, source],
+                    timeout=timeout, input=input)
             elif installer.CONNECT in args:
                 self.connections.append(json.loads(input) if input is not None else json.loads(args[-2]))
                 if self.execute_connection_check:

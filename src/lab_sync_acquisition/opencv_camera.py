@@ -66,8 +66,7 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
             config = OpenCVCameraConfig(**config)
         if not isinstance(config, OpenCVCameraConfig):
             raise TypeError("SeeedIMX219OpenCVCameraAdapter requires OpenCVCameraConfig")
-        self.validate_session_parameters({name: getattr(config, name)
-                                          for name in self.get_session_parameter_definitions()})
+        self.validate_configuration(config)
 
         super().initialize(config=config)
         self._camera_config = config
@@ -89,11 +88,23 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
     def get_session_parameter_definitions(self) -> dict[str, dict[str, Any]]:
         """Expose acquisition settings, never installation source or backend selection."""
         return {
-            "frames_per_collect": {"type": "integer", "minimum": 1},
+            "frames_per_collect": {"type": "integer", "minimum": 1,
+                                   "adjustment_scope": "administrator", "initial_value": 1},
             "frame_width": {"type": "integer", "minimum": 1, "nullable": True},
             "frame_height": {"type": "integer", "minimum": 1, "nullable": True},
             "fps": {"type": "number", "exclusive_minimum": 0, "nullable": True},
         }
+
+    def validate_configuration(self, configuration: Any) -> None:
+        """Validate explicit connection and requested capture settings without opening hardware."""
+        config = OpenCVCameraConfig(**configuration) if isinstance(configuration, Mapping) else configuration
+        if not isinstance(config, OpenCVCameraConfig):
+            raise TypeError("OpenCV camera configuration is required")
+        super().validate_configuration(config)
+        if (type(config.api_preference) is not int
+                or not (type(config.camera_source) is int and config.camera_source >= 0
+                        or isinstance(config.camera_source, str) and config.camera_source.strip())):
+            raise ValueError("Invalid OpenCV installation connection settings")
 
     def check_ready(self) -> DeviceReadiness:
         """Report declared eligibility or verify that an initialized capture is open."""

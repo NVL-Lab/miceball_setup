@@ -12,6 +12,51 @@ from typing import Any, Iterable
 from lab_sync_acquisition.device import ScientificProductDeclaration
 
 
+def validate_device_parameter_values(parameters: Mapping[str, Any], definitions: Mapping[str, Any]) -> None:
+    """Validate partial configured values against the adapter-owned declarations."""
+    if not isinstance(parameters, Mapping):
+        raise TypeError("Session device parameters must be a mapping")
+    for name, value in parameters.items():
+        if name not in definitions:
+            raise ValueError(f"Unsupported Session parameter: {name}")
+        definition = definitions[name]
+        if value is None and definition.get("nullable", False):
+            continue
+        kind = definition["type"]
+        valid = {"integer": type(value) is int, "number": type(value) in {int, float},
+                 "boolean": type(value) is bool, "string": type(value) is str}.get(kind, False)
+        if not valid or (type(value) in {int, float} and not isfinite(value)):
+            raise ValueError(f"Invalid type or nonfinite value for Session parameter: {name}")
+        if ("allowed_values" in definition and value not in definition["allowed_values"]
+                or "minimum" in definition and value < definition["minimum"]
+                or "maximum" in definition and value > definition["maximum"]
+                or "exclusive_minimum" in definition and value <= definition["exclusive_minimum"]):
+            raise ValueError(f"Session parameter violates adapter constraints: {name}")
+
+
+def validate_administrative_readback(report, definitions):
+    """Validate the optional filtered saved/loaded consumer contract."""
+    if (not isinstance(report, dict) or set(report) != {'available', 'revision', 'saved', 'loaded', 'blockers', 'reason'}
+            or type(report['available']) is not bool or not isinstance(report['blockers'], list)
+            or any(not isinstance(reason, str) for reason in report['blockers'])
+            or report['reason'] is not None and not isinstance(report['reason'], str)):
+        raise ValueError('Invalid administrative configuration readback')
+    if report['available']:
+        revision = report['revision']
+        if not isinstance(revision, str) or len(revision) != 64 or any(c not in '0123456789abcdef' for c in revision):
+            raise ValueError('Invalid saved configuration revision')
+    elif report['revision'] is not None or report['saved'] != {} or not report['reason']:
+        raise ValueError('Unavailable configuration must not claim saved values')
+    for kind in ('saved', 'loaded'):
+        values = report[kind]
+        if not isinstance(values, dict) or not set(values).issubset(definitions):
+            raise ValueError('Unknown administrative device identity')
+        for identity, parameters in values.items():
+            validate_device_parameter_values(parameters, definitions[identity])
+            if any(definitions[identity][name].get('adjustment_scope', 'experimenter') != 'administrator' for name in parameters):
+                raise ValueError('Readback contains non-administrative values')
+
+
 class DeviceAdapterState(str, Enum):
     """Minimum lifecycle states for a live device adapter."""
 
@@ -147,27 +192,19 @@ class DeviceAdapter:
 
     def validate_session_parameters(self, parameters: Mapping[str, Any]) -> None:
         """Reject unsupported overrides and values outside adapter-owned constraints."""
-        if not isinstance(parameters, Mapping):
-            raise TypeError("Session device parameters must be a mapping")
         definitions = self.get_session_parameter_definitions()
-        for name, value in parameters.items():
-            if name not in definitions:
-                raise ValueError(f"Unsupported Session parameter: {name}")
-            definition = definitions[name]
-            if value is None and definition.get("nullable", False):
-                continue
-            kind = definition["type"]
-            valid = {"integer": type(value) is int,
-                     "number": type(value) in {int, float},
-                     "boolean": type(value) is bool,
-                     "string": type(value) is str}.get(kind, False)
-            if not valid or (type(value) in {int, float} and not isfinite(value)):
-                raise ValueError(f"Invalid type or nonfinite value for Session parameter: {name}")
-            if ("allowed_values" in definition and value not in definition["allowed_values"]
-                    or "minimum" in definition and value < definition["minimum"]
-                    or "maximum" in definition and value > definition["maximum"]
-                    or "exclusive_minimum" in definition and value <= definition["exclusive_minimum"]):
-                raise ValueError(f"Session parameter violates adapter constraints: {name}")
+        validate_device_parameter_values(parameters, definitions)
+        if any(definitions[name].get("adjustment_scope", "experimenter") != "experimenter" for name in parameters):
+            raise ValueError("Ordinary overrides cannot modify administrator parameters")
+
+    def validate_configuration(self, configuration: Any) -> None:
+        """Validate complete configured values without granting override permission."""
+        from dataclasses import asdict
+        values = asdict(configuration) if is_dataclass(configuration) else configuration
+        if not isinstance(values, Mapping):
+            raise TypeError("Device configuration must provide named values")
+        definitions = self.get_session_parameter_definitions()
+        validate_device_parameter_values({name: values[name] for name in definitions if name in values}, definitions)
 
     def resolve_session_configuration(self, deployment_config: Any, overrides=None) -> Any:
         """Validate partial Session overrides without changing installation defaults."""

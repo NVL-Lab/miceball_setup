@@ -1,10 +1,24 @@
 import { configurationIdentity, configurationNumber } from './configuration-values.mjs';
 
+export function configuredParameterValue(state, device, field, sessionId = null) {
+  const configured = state.inventory?.[device.nodeId]?.configured_parameters;
+  if (!device.available || !configured || configured.scope !== (sessionId ? 'session' : 'installation')
+      || configured.session_id !== sessionId) return {available: false};
+  if (!configured.values || !Object.hasOwn(configured.values, device.deviceId)) return {available: false};
+  const values = configured.values[device.deviceId];
+  if (!values || typeof values !== 'object' || Array.isArray(values) || !Object.hasOwn(values, field.name)) return {available: false};
+  try {
+    if (parameterIssue(field, values[field.name])) return {available: false};
+  } catch (_) { return {available: false}; }
+  return {available: true, value: values[field.name]};
+}
+
 export function deviceParameterFields(node, device, definitions) {
   return Object.entries(definitions).map(([name, definition]) => {
     if (!['boolean', 'integer', 'number', 'string'].includes(definition.type)) throw new Error(`Unsupported declared parameter type for ${name}.`);
     return {
     id: configurationIdentity(node, device, name), name, label: name,
+    adjustmentScope: definition.adjustment_scope || 'experimenter',
     type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text',
     integer: definition.type === 'integer', min: definition.minimum, max: definition.maximum,
     exclusiveMin: definition.exclusive_minimum, nullable: definition.nullable,

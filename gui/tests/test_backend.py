@@ -190,6 +190,41 @@ class GUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 "error_evidence_location": str(self.root / "errors"), "synchronization_configuration": lifecycle.configuration()},
             "scientific_outputs": []}
 
+    async def test_administrative_device_save_uses_current_browser_authority_and_owner_persistence(self):
+        import json
+        from lab_sync_acquisition.service_startup import load_acquisition_node
+        document = {'node_id': 'node', 'role': 'acquisition', 'local_storage_root': 'local',
+            'error_evidence_location': 'errors', 'devices': [{'adapter': 'seeed_imx219_opencv',
+                'declaration': self.declaration.to_dict(), 'configuration': {
+                    'camera_source': 0, 'api_preference': 0, 'frames_per_collect': 1}}]}
+        path = self.root / 'hardware.json'
+        path.write_text(json.dumps(document))
+        await self.handler.stop_acquisition_execution()
+        self.node = load_acquisition_node(path, 'sync')
+        self.handler._acquisition_node = self.node
+        ServiceMaintenanceInterface(self.node, RuntimeParticipant('acquisition_node', 'node'),
+            ingestor=self.ingestor, storage_manager=self.storage, preservation_window_s=1,
+            close_resources=AsyncMock(return_value=True))
+        one, _ = await self.browser()
+        two, _ = await self.browser()
+        report = (await self.completed(one, 'get_node_inventory', {'node_id': 'node'}))['outcome']['details']['administrative_configuration']
+        parameters = dict(node_id='node', device_id='device', parameters={'frames_per_collect': 3},
+            expected_revision=report['revision'], administrator_id='Operator', authorized=True)
+        self.assertEqual((await self.completed(one, 'update_device_configuration', parameters))['status'], 'rejected')
+        await self.take(one)
+        invalid = await self.completed(one, 'update_device_configuration', {**parameters, 'authorized': False})
+        self.assertIn(invalid['status'], ('rejected', 'failed'))
+        saved = await self.completed(one, 'update_device_configuration', parameters)
+        self.assertEqual(saved['status'], 'succeeded', saved)
+        self.assertEqual(json.loads(path.read_bytes())['devices'][0]['configuration']['frames_per_collect'], 3)
+        readback = (await self.completed(two, 'get_node_inventory', {'node_id': 'node'}))['outcome']['details']['administrative_configuration']
+        self.assertEqual(readback['loaded']['device']['frames_per_collect'], 1)
+        self.assertEqual(readback['saved']['device']['frames_per_collect'], 3)
+        await self.take(two)
+        parameters.update(expected_revision=readback['revision'], parameters={'frames_per_collect': 4})
+        self.assertEqual((await self.completed(one, 'update_device_configuration', parameters))['status'], 'rejected')
+        self.assertEqual((await self.completed(two, 'update_device_configuration', parameters))['status'], 'succeeded')
+
     async def test_browser_session_workflow_and_takeover(self):
         one, first = await self.browser()
         two, second = await self.browser()

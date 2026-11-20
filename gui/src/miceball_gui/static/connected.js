@@ -37,12 +37,15 @@ state.actions.recordActivity = recordLocalActivity;
 serviceActions.recordActivity = state.actions.recordActivity;
 function invalidateServiceConfirmation() {
   invalidateArtifactDestinations();
+  for (const inventory of Object.values(state.inventory)) { delete inventory.configured_parameters; delete inventory.administrative_configuration; }
   // Replace projections so replies admitted before this loss cannot promote them.
   liveServices = liveServices.map(service => ({...service, current: false, diagnosticsCurrent: false, pending: false, attempt: null}));
   updateServices(liveServices, 'Controller confirmation unavailable; current service availability is unknown.');
+  if (!$('#panel-parameters').hidden) renderParameters();
 }
 
 $('.topbar').insertAdjacentHTML('beforeend', '<div class="connection-tools"><span id="connection-state" role="status">Connecting</span><button id="view-only" type="button">View Only</button><button id="take-over" type="button">Take Over</button></div>');
+$('.topbar__eyebrow').textContent = 'Connected Framework';
 $('.setup-demo-note').textContent = 'Controller connection unconfirmed. Local preparation is not acceptance or persistence.';
 const storageCard = $('[aria-labelledby="storage-title"]');
 const storageBody = storageCard.querySelector('.setup-disclosure-body') || storageCard;
@@ -77,7 +80,8 @@ $('#device-validation-maximum').disabled = true;
 $('#device-validation-maximum').closest('label').title = 'Device Validation integration unavailable';
 
 function canControl(except = null) {
-  return confirmed && current()?.control?.controlling && !busy && !outcomes.some(o => o !== except && o.controllerCommand && ['pending', 'uncertain'].includes(o.status));
+  return confirmed && current()?.control?.controlling && !busy && !outcomes.some(o => o !== except && (o.continuationPending || o.controllerCommand && ['pending', 'uncertain'].includes(o.status)
+    && !(o.operation === 'update_device_configuration' && o.status === 'uncertain' && o.configurationReconciled)));
 }
 function controls() {
   const status = current()?.status;
@@ -85,7 +89,7 @@ function controls() {
   if (!status?.session_id && launch) $('.setup-demo-note').textContent = 'Session launch not confirmed. See Activity History in Services.';
   document.documentElement.dataset.controlMode = !confirmed ? 'unconfirmed' : current()?.control?.controlling ? 'controlling' : 'view-only';
   $('.launch-session-demo').disabled = !canControl() || Boolean(status?.session_id);
-  $('.launch-session-demo span').textContent = !confirmed ? 'Controller connection unconfirmed' : status?.session_id ? 'Session accepted' : current()?.control?.controlling ? 'Request Controller launch' : 'View Only';
+  $('.launch-session-demo span').textContent = !confirmed ? 'Controller connection unconfirmed' : status?.session_id ? 'Session accepted' : current()?.control?.controlling ? 'Request Controller launch and start' : 'View Only';
   for (const control of [sessionName, sessionDate, sessionNumber, sessionNotes, errorLocation, $('#session-framework-fields')]) {
     control.readOnly = Boolean(status?.session_id);
     if (control.nextElementSibling?.hasAttribute('data-string-mode')) control.nextElementSibling.disabled = control.readOnly;
@@ -112,6 +116,7 @@ function controls() {
   syncArtifactDestinations();
 }
 state.actions.syncControls = controls;
+state.actions.canControl = canControl;
 function request(operation, parameters = {}, session_id = null, entry = null) {
   if (socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Backend disconnected; outcome unconfirmed'));
   const id = crypto.randomUUID(), request_id = `${browserId}-${id}`, instance_id = current()?.instance_id;
@@ -143,7 +148,7 @@ async function refresh() {
       document.dispatchEvent(new Event('gui-control-acquired'));
     const previousServices = liveServices;
     const changedOwner = previous?.instance_id !== snapshot.instance_id;
-    if (changedOwner) invalidateArtifactDestinations();
+    if (changedOwner) invalidateServiceConfirmation();
     if (changedOwner || !wasConfirmed) refreshArtifactDestinations();
     liveServices = (snapshot.configured_services || []).map(participant => {
       const id = configurationIdentity(participant.component_type, participant.component_id);
@@ -188,6 +193,7 @@ async function refresh() {
     let completedNavigation = null;
     for (const entry of outcomes.filter(o => o.controllerCommand && o.request_id && o.instance_id && ['pending', 'uncertain'].includes(o.status))) {
       const result = requireResult(await request('read_operation_outcome', {target_request_id: entry.request_id, instance_id: entry.instance_id}));
+      if (entry.operation === 'update_device_configuration' && entry.status === 'uncertain' && result.status === 'unknown') continue;
       updateActivity(entry, {status: result.status, result: result.result, error: result.result?.error || (result.status === 'unknown' ? 'No matching outcome is available from the current Controller.' : entry.error)});
       if (entry.status === 'succeeded' && ['launch_session', 'start_launched_experiment'].includes(entry.operation)) entry.navigationPending = true;
     }
@@ -205,6 +211,9 @@ async function refresh() {
     const signature = JSON.stringify([snapshot.instance_id, snapshot.control, snapshot.status, snapshot.configuration, snapshot.experiments]);
     if (signature !== lastRender) { lastRender = signature; renderSetup(); renderSession(); renderExperiment(); if (!$('#panel-parameters').hidden) renderParameters(); }
     if (completedNavigation) navigate(completedNavigation);
+    if (previous?.status?.session_id !== snapshot.status.session_id && snapshot.status.session_id) {
+      for (const node of Object.keys(state.inventory)) await refreshInventory(node);
+    }
   } catch (error) { noteConnectionLoss(error.message); confirmed = false; invalidateServiceConfirmation(); $('#connection-state').textContent = `Unconfirmed · ${error.message}`; }
   finally { refreshing = false; controls(); }
 }
@@ -222,8 +231,8 @@ async function command(operation, parameters = {}, session_id = current()?.statu
     try { reply = await request(operation, parameters, session_id, entry); }
     catch (error) {
       updateActivity(entry, error.request_id && error.instance_id
-        ? {source: 'controller', status: 'uncertain', request_id: error.request_id, instance_id: error.instance_id, error: error.message}
-        : {source: 'submission', status: 'failed', error: error.message, controllerCommand: false});
+        ? {source: 'controller', status: 'uncertain', responseStatus: 'uncertain', request_id: error.request_id, instance_id: error.instance_id, error: error.message}
+        : {source: 'submission', status: 'failed', responseStatus: 'failed', error: error.message, controllerCommand: false});
       return entry;
     }
     // Rendering a received result must not turn that result into a synthetic failure.
@@ -231,6 +240,7 @@ async function command(operation, parameters = {}, session_id = current()?.statu
       instance_id: reply.instance_id || reply.submitted_instance_id,
       request_id: reply.result?.request_id || reply.submitted_request_id,
       status: reply.result?.status || reply.status, result: reply.result || reply,
+      responseStatus: reply.result?.status || reply.status,
       error: reply.result?.error || reply.error || ''});
   } finally { busy = false; await refresh(); controls(); }
   return entry;
@@ -249,6 +259,7 @@ const localAction = (operation, action) => async () => {
   }
 };
 state.actions.launchSession = localAction('launch_session', async entry => {
+  if (!canControl(entry) || current()?.status?.session_id) return actionRefusal(entry, 'Session launch is unavailable or already pending. No request was sent.');
   let config;
   try { config = parseConfigurationJSON($('#session-framework-fields').value); }
   catch (error) { throw new Error(error instanceof SyntaxError ? 'Additional Session configuration: enter valid JSON framework configuration.' : `Additional Session configuration: ${error.message}`); }
@@ -283,8 +294,33 @@ state.actions.launchSession = localAction('launch_session', async entry => {
     if (!device?.available) throw new Error('Selected inventory is unconfirmed.');
     (selections[device.nodeId] ??= []).push(clone(device.declaration));
   }
-  await command('launch_session', {selections, config_parameters: config, scientific_outputs: []}, null, entry);
-  if (current()?.status.session_id) navigate('session');
+  const connection = socket, instance = current().instance_id, generation = current().control.generation;
+  entry.continuationPending = true;
+  try {
+    await command('launch_session', {selections, config_parameters: config, scientific_outputs: []}, null, entry);
+    if (!['succeeded', 'pending'].includes(entry.responseStatus)) return;
+    // Only this still-connected user action may continue a definitively completed launch.
+    // Existing outcome observation supplies completion; reconnect never resumes this chain.
+    if (entry.status === 'pending' && connection === socket && connection.readyState === WebSocket.OPEN) {
+      await new Promise(resolve => {
+        const finish = () => { document.removeEventListener('gui-activity-changed', changed); connection.removeEventListener('close', finish); resolve(); };
+        const changed = () => { if (entry.status !== 'pending') finish(); };
+        document.addEventListener('gui-activity-changed', changed);
+        connection.addEventListener('close', finish, {once: true});
+        changed();
+      });
+    }
+    if (entry.status !== 'succeeded' || connection !== socket || connection.readyState !== WebSocket.OPEN) return;
+    const sessionId = entry.result?.outcome?.details?.session_id;
+    const fresh = requireResult(await request('read_controller_state'));
+    if (!sessionId || entry.instance_id !== instance || fresh.instance_id !== instance
+        || !confirmed || connection !== socket || connection.readyState !== WebSocket.OPEN
+        || !fresh.control?.controlling || fresh.control.generation !== generation
+        || fresh.status?.session_id !== sessionId || fresh.status.session_state !== 'initialized') return;
+    entry.continuationPending = false;
+    await command('start_launched_session', {}, sessionId);
+    if (current()?.status.session_id === sessionId) navigate('session');
+  } finally { entry.continuationPending = false; controls(); }
 });
 state.actions.startSession = () => command('start_launched_session');
 state.actions.stopSession = () => { const sid = current()?.status.session_id; confirmStop('Session', () => command('normal_stop_session', {}, sid), 'Request Normal Stop and preservation. Completion requires Controller confirmation.'); };
@@ -318,8 +354,7 @@ state.actions.stopExperiment = () => { const sid = current()?.status.session_id,
 state.actions.reconcileExpiry = () => command('reconcile_launched_experiment_expiry', {experiment_id: current()?.status.active_experiment_id});
 $('#take-over').onclick = () => command('take_browser_control', {}, null);
 $('#view-only').onclick = () => command('view_only', {}, null);
-$('#load-inventory').onclick = async () => {
-  const node = $('#inventory-node').value;
+async function refreshInventory(node) {
   const entry = recordActivity('get_node_inventory');
   if (inventoryRequest || !confirmed || busy || !node) { actionRefusal(entry, 'Inventory refresh is unavailable or already pending. No request was sent.'); return; }
   const connection = socket, instance = current()?.instance_id;
@@ -331,17 +366,33 @@ $('#load-inventory').onclick = async () => {
     const inventory = requireResult(await request('get_node_inventory', {node_id: node}));
     if (connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id) throw new Error('Inventory belongs to an unconfirmed connection or Controller instance');
     state.inventory[node] = clone(inventory);
+    if (inventory.administrative_configuration?.available) {
+      for (const entry of outcomes.filter(entry => entry.operation === 'update_device_configuration'
+          && entry.status === 'uncertain' && entry.configurationNode === node && entry.instance_id === instance))
+        entry.configurationReconciled = true;
+    }
     devices.splice(0, devices.length, ...devices.filter(device => device.nodeId !== node), ...inventory.devices.map(declaration => ({id: configurationIdentity(node, declaration.device_id), nodeId: node, deviceId: declaration.device_id, declaration: clone(declaration), name: declaration.device_id, detail: node, capabilities: declaration.declared_capabilities || [], available: declaration.enabled === true})));
     for (const device of devices.filter(item => item.nodeId === node)) deviceExamples[device.id] = {acquisition: Boolean(device.declaration.scientific_products?.length), fields: deviceParameterFields(node, device.deviceId, inventory.session_parameter_definitions?.[device.deviceId] || {})};
     if (current()) applyControllerSnapshot(state, current());
     $('#inventory-status').textContent = `${node}: inventory confirmed; readiness remains Controller-owned`;
     updateActivity(entry, {status: 'succeeded'});
-  } catch (error) { updateActivity(entry, {status: 'unknown', error: error.message}); for (const device of devices.filter(item => item.nodeId === node)) device.available = false; $('#inventory-status').textContent = `${node}: unconfirmed · ${error.message}`; }
+  } catch (error) { updateActivity(entry, {status: 'unknown', error: error.message}); if (state.inventory[node]) { delete state.inventory[node].configured_parameters; delete state.inventory[node].administrative_configuration; } for (const device of devices.filter(item => item.nodeId === node)) device.available = false; $('#inventory-status').textContent = `${node}: unconfirmed · ${error.message}`; }
   finally {
     inventoryRequest = null;
     $('#inventory-status').removeAttribute('aria-busy');
     renderSetup(); renderSession(); controls();
+    if (!$('#panel-parameters').hidden) renderParameters();
   }
+}
+$('#load-inventory').onclick = () => refreshInventory($('#inventory-node').value);
+state.actions.refreshInventory = refreshInventory;
+state.actions.updateDeviceConfiguration = async (node, device, parameters, revision, administrator) => {
+  const entry = recordActivity('update_device_configuration');
+  entry.configurationNode = node;
+  await command('update_device_configuration', {node_id: node, device_id: device, parameters,
+    expected_revision: revision, administrator_id: administrator, authorized: true}, null, entry);
+  await refreshInventory(node);
+  return entry;
 };
 function connect() {
   confirmed = false; controls(); socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);

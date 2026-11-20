@@ -521,6 +521,16 @@ class SynchronizationManager:
             messages.extend(m for m in self._distributed_evidence if m.session_id == session_id)
             return tuple(RuntimeEvidenceMessage.from_dict(deepcopy(message.to_dict())) for message in messages)
 
+    def _mapping_renewal_due(self, node_id: str) -> bool:
+        """Request guarded renewal before the next assessment would outlive a mapping."""
+        with self._mapping_lock:
+            mapping = self.get_active_mapping(self._prepared_session_id, node_id)
+            quality = self._measured_mapping_quality.get(node_id)
+            config = self._distributed_configuration
+            return (mapping is None or quality is None or quality.get("acceptable") is not True
+                or self.current_session_time_s - mapping.created_session_time_s
+                    + config.assessment_interval_s >= config.max_mapping_age_s)
+
     @service_operation()
     def mark_synchronization_unavailable(self, session_id: str, node_id: str,
                                          source_id: str, reason: str, *, exchanges=None) -> dict[str, Any]:

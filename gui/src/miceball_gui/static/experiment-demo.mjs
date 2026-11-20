@@ -107,6 +107,10 @@ export function experimentIssues(state, step, configuration) {
     }
     for (const field of participants.flatMap(device => deviceExamples[device.id]?.fields || [])) {
       if (!Object.hasOwn(configuration.values, field.id)) continue;
+      if (field.adjustmentScope === 'administrator') {
+        issues.push(`${field.label} is administrator-only; remove this retained override before future execution.`);
+        continue;
+      }
       const value = configuration.values[field.id];
       const constraint = parameterIssue(field, value);
       if (constraint) issues.push(constraint);

@@ -231,6 +231,9 @@ class Controller:
             result_window_s, reason, kill=False, operator_authorized=False, expected_session_id=expected_session_id)
 
     async def _closeout_owner_request(self, session, participant, operation, payload, window):
+        if operation == "preserve_session_acquisition" and payload.get("mode") == "normal":
+            # Reserve the other half of this response window for receipt verification and handling.
+            payload = {**payload, "acceptance_window_s": window / 2}
         result = await self._launch_communication.request_persistence_command(participant,
             operation, session.session_id, payload, window,
             command_id=json.dumps([session.session_id, operation], separators=(",", ":")))
@@ -935,10 +938,75 @@ class Controller:
                     or not set(definitions).issubset(identities)
                     or any(not isinstance(value, dict) for value in definitions.values())):
                 raise ValueError("Invalid installed-device parameter inventory")
+            for fields in definitions.values():
+                if any(not isinstance(name, str) or not isinstance(definition, dict)
+                       or definition.get('type') not in ('integer', 'number', 'boolean', 'string')
+                       or definition.get('adjustment_scope', 'experimenter') not in ('experimenter', 'administrator')
+                       for name, definition in fields.items()):
+                    raise ValueError('Invalid adapter parameter definition')
+            if "configured_parameters" in inventory:
+                from lab_sync_acquisition.device_adapter import validate_device_parameter_values
+                configured = inventory["configured_parameters"]
+                if (not isinstance(configured, dict) or set(configured) != {"scope", "session_id", "values"}
+                        or configured["scope"] not in {"installation", "session"}
+                        or (configured["scope"] == "installation" and configured["session_id"] is not None)
+                        or (configured["scope"] == "session" and
+                            (self._session is None or configured["session_id"] != self._session.session_id))
+                        or not isinstance(configured["values"], dict)
+                        or not set(configured["values"]).issubset(definitions)):
+                    raise ValueError("Invalid configured-device parameter scope")
+                for identity, values in configured["values"].items():
+                    if not isinstance(values, dict) or any(not isinstance(name, str) for name in values):
+                        raise ValueError("Invalid configured-device parameter values")
+                    validate_device_parameter_values(values, definitions[identity])
+            if 'administrative_configuration' in inventory:
+                from lab_sync_acquisition.device_adapter import validate_administrative_readback
+                validate_administrative_readback(inventory['administrative_configuration'], definitions)
             inventory.pop("request_nonce", None)
             return inventory
         finally:
             await subscription.unsubscribe()
+
+    @service_operation(new_work=True)
+    @_session_command
+    async def update_device_configuration(self, participant, device_id, parameters, *, expected_revision,
+                                          administrator_id, authorized, communication, result_window_s):
+        """Convey an explicit administrative save to the configured node, without local file access."""
+        from lab_sync_acquisition.device_adapter import validate_administrative_readback, validate_device_parameter_values
+        if authorized is not True or not isinstance(administrator_id, str) or not administrator_id.strip():
+            raise PermissionError('Explicit administrator authorization is required')
+        inventory = await self.get_node_inventory(participant, communication=communication, result_window_s=result_window_s)
+        definitions = inventory['session_parameter_definitions']
+        if not isinstance(device_id, str) or device_id not in definitions or not isinstance(parameters, dict) or not parameters:
+            raise ValueError('Installed device and nonempty administrative values are required')
+        validate_device_parameter_values(parameters, definitions[device_id])
+        if any(definitions[device_id][name].get('adjustment_scope', 'experimenter') != 'administrator' for name in parameters):
+            raise ValueError('Only administrator parameters may be saved')
+        current = inventory.get('administrative_configuration')
+        if not current or not current['available'] or current['revision'] != expected_revision:
+            return self._record_failed_command('update_device_configuration', ValueError('Saved configuration unavailable or revision changed; refresh and review'))
+        result = await communication.request_runtime_command(participant, 'update_device_configuration', None,
+            {'device_id': device_id, 'parameters': deepcopy(parameters), 'expected_revision': expected_revision,
+             'administrator_id': administrator_id, 'authorized': authorized}, result_window_s)
+        if result is None:
+            return self._record_failed_command('update_device_configuration', RuntimeError('Configuration save is unconfirmed'), {'outcome': 'unconfirmed'})
+        payload = result.payload
+        if payload.get('outcome') == 'unconfirmed':
+            return self._record_failed_command('update_device_configuration', RuntimeError('Configuration publication unconfirmed; read saved configuration'), {'outcome': 'unconfirmed'})
+        if not result.success or result.status != 'succeeded':
+            return self._record_failed_command('update_device_configuration', RuntimeError(result.reason or 'Node refused configuration update'))
+        try:
+            report = payload['administrative_configuration']
+            validate_administrative_readback(report, definitions)
+            expected_saved = deepcopy(current['saved'])
+            expected_saved.setdefault(device_id, {}).update(parameters)
+            if (payload.get('outcome') != 'succeeded' or report['available'] is not True
+                    or report['saved'] != expected_saved or report['loaded'] != current['loaded']):
+                raise ValueError('Saved values do not confirm the requested update')
+        except (ValueError, TypeError, KeyError):
+            return self._record_failed_command('update_device_configuration', RuntimeError('Invalid save confirmation; read saved configuration'), {'outcome': 'unconfirmed'})
+        return self._record_successful_command('update_device_configuration', {'node_id': participant.component_id,
+            'device_id': device_id, 'administrative_configuration': deepcopy(report)})
 
     @service_operation(new_work=True)
     async def launch_session(

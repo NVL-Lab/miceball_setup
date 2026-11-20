@@ -712,6 +712,9 @@ No authentication mechanism or credential store is added.
 - _local_path(directory, value, field): Resolves an explicit local path relative to its configuration file without creating it.
 - _identity(value, kind, field): Validates configured participant identities through the existing runtime subject contract.
 - _validate_service_configuration(data, directory, role): Validates existing role-specific constructor settings, separate node installation references and local SSH/SFTP endpoint references.
+- create_installed_adapter(name, declaration): Constructs an explicitly supported adapter for hardware configuration validation or startup without opening hardware.
+- validate_acquisition_node_configuration(data, *, adapters=None): Validates the complete hardware document through concrete adapter validation, optionally confirming its correspondence with loaded adapters.
+- read_acquisition_node_configuration(path): Reads hardware JSON with duplicate-field rejection and complete validation; re-exported by service_startup for compatibility.
 
 ## tests/test_deployment_configuration.py
 
@@ -737,8 +740,7 @@ explicit checks share serialized authoritative registration and guarded startup
 completion. The dedicated configurable registration budget defaults to 180 seconds;
 preservation/release/result windows and Decision 443 remain unchanged.
 
-- read_acquisition_node_configuration(path): Validates the existing hardware JSON contract without constructing an owner or adapter, for both deployment prevalidation and node construction.
-- load_acquisition_node(path, synchronization_source_id): Validates a deployment-local JSON hardware installation, constructs explicitly selected supported adapters without opening hardware, and supplies persistent identity, local paths and per-device initialization baselines to the real node.
+- load_acquisition_node(path, synchronization_source_id): Uses shared complete validation, constructs supported adapters without opening hardware, and retains the actual absolute startup source path alongside detached loaded baselines.
 - launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id, preservation_window_s, result_window_s, synchronization_id=None, known_nodes=None, node_config=None, external_client_id=None, browser_control_required=False, controller_claim_account=None, controller_claim_bucket=None, controller_claim_key=None, registration_window_s=180.0, report=print, **nats_auth): Installs retained maintenance, client and readiness observation before registration with optional exact credentials, preserving Controller authority and automatic startup completion when Ingestor returns.
 
 ## tests/test_independent_service_startup.py
@@ -1575,10 +1577,14 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode: Owns bounded acquisition runtime execution and timestamping, stores separate active Experiment timing and health context, and emits explicitly linked ExperimentScopedHealthObservation and HealthInterpretationEvidence records without executing framework actions.
 - AcquisitionNode.status(): Includes existing local cleanup confirmation as `cleanup_confirmed` for safe Session-binding release, alongside runtime, reservation, and active-context status.
 - AcquisitionNode.scientific_acquisition_active: Reports a healthy running node with an active Experiment selecting scientific outputs, without claiming that hardware has delivered a frame.
-- AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None, synchronization_source_id=None, deployment_device_configurations=None): Configures local development synchronization or an explicit remote timing authority, local product inventory/storage and optional explicit installation baselines for every adapter.
+- AcquisitionNode.__init__(session_id=None, device_manager=None, synchronization_manager=None, ingestor=None, node_id=None, role=None, acquisition_health_policies=(), error_evidence_location=None, *, default_local_storage_root=None, device_declarations=None, synchronization_source_id=None, deployment_device_configurations=None, configuration_source_path=None): Configures runtime collaborators, detached installation baselines and an optional actual persistent hardware source for owner-side updates.
 - AcquisitionNode.maintenance_evidence(): Returns retained node operational, health and manifest evidence required at service retirement.
 - AcquisitionNode.declared_devices: Returns the node's declared DeviceDeclaration/ScientificProductDeclaration inventory independently of Session selection and device availability.
-- AcquisitionNode.get_inventory(): Returns existing installed device/product declarations, synchronization authority and detached adapter-owned Session parameter definitions without hardware initialization or Session selection.
+- AcquisitionNode.get_inventory(): Returns declarations, classified definitions, scoped configured values and filtered administrative saved/loaded readback, without measured hardware properties.
+- AcquisitionNode.update_device_configuration(device_id, parameters, *, expected_revision, administrator_id, authorized): Validates and durably publishes permitted settings under existing operation/reservation synchronization without changing loaded or accepted execution configuration.
+- AcquisitionNode._configuration_blockers(own_operation=False): Derives persistence and lifecycle restrictions from existing owner state.
+- AcquisitionNode._read_saved_configuration(): Validates safe file identity, complete hardware content and loaded declaration correspondence, returning content-derived revision.
+- AcquisitionNode._administrative_configuration(definitions, own_operation=False): Projects current saved/loaded administrative values, availability and blockers without a separate configuration cache.
 - AcquisitionNode.read_historical_artifacts(*, session_id=None): Delegates read-only manifest/metadata inventory to LocalStorageManager using the configured node root and identity without attaching historical storage, touching devices or changing the current reservation.
 - AcquisitionNode.reserved_for_session_id: Returns the current exclusive Session reservation or None under the node-owned lock.
 - AcquisitionNode.reserve(session_id): Atomically acquires an unreserved node, confirms the same owner's reservation idempotently, or rejects another owner without changing state.
@@ -1677,7 +1683,7 @@ is complete; W030 records manual validation, focused tests, and audit reassessme
 - Controller: Sequentially coordinates one Session with optional keyword-only `component_id="controller"` for producer identity, preserves existing ownership, and orchestrates preparation, lifecycle, runtime cleanup, and final persistence.
 - Controller.__init__(acquisition_node=None, ingestor=None, storage_manager=None, session_record_path=None, synchronization_manager=None, *, component_id="controller"): Supports Controller creation before Session and without remote participant references while retaining existing local collaborators.
 - Controller.launch_session(selections, *, communication, participants, config_parameters, result_window_s, scientific_outputs=()): Serializes admission and leftover original-attempt cleanup before allocating a new Session, rejecting unresolved resources before any new reservation and never resuming failed scientific initialization.
-- Controller.get_node_inventory(participant, *, communication, result_window_s): Retrieves fresh nonce-correlated installed-device/Session-parameter inventory over existing NATS get_inventory with bounded waiting and temporary response-subscription cleanup.
+- Controller.get_node_inventory(participant, *, communication, result_window_s): Retrieves fresh nonce-correlated inventory, validates optional configured-value scope/identity and adapter constraints, and retains compatibility with definitions-only responses.
 - Controller.shutdown_framework(participants, *, communication, stop_attempt_id, administrator_id, result_window_s, authorize_kill=None): Surveys an explicit Session-independent scope and coordinates progressive W036 retirement with StorageManager/Controller preparation, exact pre-Ingestor archival, separately bounded per-service authorization, and retained later confirmations in ControllerCommandResult.details.
 - Controller._coordinated_maintenance_matches(): Recognizes the active coordinator's own Controller maintenance attempt by framework, requester and participant-attempt identities so unrelated retirement must quiesce its owned task.
 - Controller.start_launched_session(*, expected_session_id=None): Checks the requested binding under existing transition admission, establishes remote synchronization and starts reserved nodes through correlated NATS commands, retaining existing rollback on failure.
@@ -2060,6 +2066,9 @@ the historical FAILED-only expectations in the preceding Alternative B report.
 - DeviceAdapter.initialize(config): Requires DECLARED and applies fresh configuration for the next initialization without a reset operation.
 - DeviceAdapter.get_session_parameter_definitions(): Returns adapter-defined plain-data constraints for operator-adjustable Session parameters; the base adapter explicitly exposes none.
 - DeviceAdapter.validate_session_parameters(parameters): Rejects unsupported keys, wrong types/nonfinite values and violations of adapter-defined choices or numeric bounds without coercion.
+- device_adapter.validate_device_parameter_values(parameters, definitions): Shares the adapter-owned partial-value checks between adapter application and Controller inventory validation without changing override policy.
+- device_adapter.validate_administrative_readback(report, definitions): Validates filtered saved/loaded administrative values, revision and unavailable-diagnostic contracts at Controller consumer boundaries.
+- DeviceAdapter.validate_configuration(configuration): Validates complete declared configured values independently of ordinary override permission, with concrete adapters retaining full connection validation.
 - DeviceAdapter.resolve_session_configuration(deployment_config, overrides=None): Validates partial overrides and returns a detached mapping or dataclass configuration without changing the installation baseline; adapters with other configuration types own their resolution.
 - DeviceAdapter.check_ready: Reports declared eligibility without opening hardware or changing state, while initialized acquisition readiness remains concrete-adapter-owned.
 - DeviceStatus.shutdown: Reports completed device cleanup even when the reusable adapter state is DECLARED, resetting on subsequent initialization.
@@ -2213,7 +2222,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsAcquisitionNodeCommunication.acquisition_execution_active: Reports whether an unfinished sustained execution task is still owned by the adapter.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
 - NatsIngestorCommunication.subscribe_commands(): Admits fresh readiness/preparation, evidence readback and serialized closeout commands, validating complete scoped resolution history and publishing owner results before command ACK.
-- NatsIngestorCommunication._execute_closeout_command(command): Executes durable Kill admission, complete/partial preservation, terminal-record persistence, restart reconciliation and guarded intake release through the existing paired owners.
+- NatsIngestorCommunication._execute_closeout_command(command): Coordinates optional bounded exact-marker acceptance before complete Normal Stop proof, and executes existing partial preservation, terminal persistence, restart reconciliation and guarded intake release.
 - read_closeout_result(boundary, record, operation): Validates persisted closeout resolution routing, canonical command identity, nonce, request payload and preservation flags.
 - read_scoped_result_history(boundary, command, validate): Scans complete owner/Session/operation result history and rejects malformed or conflicting same-attempt resolutions before mutation or reuse.
 - NatsIngestorCommunication._execute_evidence_readback(command): Delegates scoped compilation, exact journal-backed runtime-evidence acceptance and W041 marker-receipt verification to the Ingestor owner with current-request reply correlation and explicit failed/unconfirmed results.
@@ -2237,12 +2246,13 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsSynchronizationManagerCommunication._measure_node: Collects causal NATS exchanges for owner-side assessment and confirmed mapping delivery, retaining completed partial exchanges on transport failure or cancellation.
 - NatsSynchronizationManagerCommunication._deliver_quality: Requires correlated node acceptance of owner-issued mapping/quality state.
 - NatsSynchronizationManagerCommunication._publish_timing: Publishes stable owner-created timing evidence without closing Session Time.
-- NatsSynchronizationManagerCommunication._periodic_assessment: Performs configured serialized checks, retaining unconfirmed evidence across transient cycle failures until later publication or explicit closeout, without automatically resynchronizing or stopping nodes.
+- NatsSynchronizationManagerCommunication._periodic_assessment: Performs configured serialized checks with owner-directed guarded mapping renewal, retaining failed evidence and truthful degraded quality without changing cadence or stopping nodes.
 - _participant_result: Builds an existing correlated service-owned result while echoing an explicitly supplied request nonce.
 - _execute_service_command: Delegates readiness/preparation/abort to the owner, reports existing resource diagnostics and maintenance identity, and retains command-ID deduplication while refreshing only the reply nonce on redelivery.
 - NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Validates subject identity before intake and ACK, retains framework callback/subscription obligations through cleanup, and permits retired framework ACK only for complete-content duplicates verified against the physical journal; Session binding and durable-consumer checks remain unchanged.
 - NatsIngestorCommunication.subscribe_evidence.receive_evidence(message): Applies existing intake-before-ACK or retired exact-journal-duplicate handling while the enclosing callback retains failed or cancelled framework deliveries.
 - NatsIngestorCommunication.verify_acquisition_evidence_receipt(marker): Reconciles Session-filtered publications through the marker with exact retained journal evidence under the Ingestor guard, plus receiving-origin/history and contiguous ACK checks; returns receipt confirmation/reason and broker sequences without repair, Session completion, or archival confirmation.
+- NatsIngestorCommunication._marker_acceptance_failure(marker): Separates invalid scope/identity, unavailable or failed journals and conflicting content from pending exact durable acceptance without waiting or proving completeness.
 - NatsIngestorCommunication._session_consumer_name(session_id): Derives a stable broker-safe durable consumer name from the Session identity without changing evidence identities.
 - NatsIngestorCommunication._receiving_history_intact(stream): Checks retained stream-origin coverage and missing/lost history using broker metadata, not producer evidence-count expectations.
 - NatsIngestorCommunication._validate_session_consumer(consumer, stream, session_id): Rejects mismatched durable identity, stream epoch, Session filter, delivery/ACK configuration, or receiving-origin metadata.
@@ -2711,6 +2721,8 @@ Bounded adaptive-drift software is CLOSED at audited commit `321009d64043cf9e14d
 - SynchronizationManager.distributed_configuration: Exposes the immutable configured distributed measurement contract.
 - SynchronizationManager.start_distributed_session(session_id): Starts the prepared single Session clock once, refusing stopped-clock restoration and preserving its epoch on retries.
 - SynchronizationManager.assess_cross_clock_exchanges(session_id, node_id, exchanges, *, replace_mapping, source_id): Accumulates bounded affine constraints with refinement-only trusted admission and complete Session/node-local pending-candidate boundaries, assessing applied quality separately while preserving prospective replacement and rejected evidence.
+- SynchronizationManager._mapping_renewal_due(node_id): Requests guarded renewal for absent mappings, unacceptable latest quality or mapping age reaching its limit by the next configured assessment, without additional state.
+
 - SynchronizationManager._constrain_clock_estimate(fit, point): Intersects the existing node estimate's joint offset/rate polygon with one bounded observation at a common local anchor.
 - SynchronizationManager._retain_timing_quality(source_id, quality): Assigns a stable evidence identity and sequence once, retaining detached quality snapshots through the existing timing-evidence path.
 - SynchronizationManager.session_timing_evidence(session_id, source_id): Returns stable mapping-update and quality evidence identities for current Session publication without archival claims.
@@ -2726,6 +2738,17 @@ Bounded adaptive-drift software is CLOSED at audited commit `321009d64043cf9e14d
 - SynchronizationManager.reconcile_timing(session_id, *, active_session, ingestor): Asynchronously reads journal-backed historical mapping updates and reports current-reference confirmation, continuity gaps, scope, and uncertainty without restoring a clock or activating old mappings.
 - SynchronizationManager.timing_reconciliation_evidence: Returns detached retained persistent timing findings for existing evidence preservation.
 - SynchronizationManager._lost_time_scopes: Derives diagnosed ongoing lost-time restrictions from retained findings, preventing zero-based restart/current-time fabrication without a recovery registry.
+
+Package A deployment corrections add bounded marker-acceptance coordination and
+periodic owner-directed renewal; independent validation and audit remain pending.
+Normal Controller closeout passes `acceptance_window_s = result_window_s / 2`,
+reserving response time for subsequent proof/handling without an end-to-end timing
+guarantee. Omitted acceptance windows retain immediate legacy verification; Kill
+does not accept the new field. No defaults or Experiment admission policy change.
+
+## tests/test_closeout_coordination.py
+
+- CloseoutCoordinationTests: Uses independent real-NATS command/evidence consumers and disposable records to close and release a Session after rejected Experiment preparation and delayed completion-marker intake.
 
 ## src/lab_sync_acquisition/session.py
 
@@ -2801,7 +2824,7 @@ functions below describe existing code, not these planned additions.
 - `_gui_plan(checkout, directory, existing, configured, installed, preflight_python)`: Discovers optional GUI package/configuration, confirms credential-isolated settings and exact local Controller field changes, and reports remote/declined setup as pending.
 - `_validate_gui(python, checkout, settings, *, source, allow_unavailable=False)`: Uses production GUI app construction and routing validation in a private-input child without starting the GUI or contacting Controller, with mandatory installed-package validation before publication.
 - `_publish_controller_gui_update(path, expected, contents)`: Stages only an approved local Controller update, rechecks complete contents/identity, and delegates replacement without weakening exclusive creation of ordinary configuration files.
-- `_replace_controller_file(path, temporary)`: Replaces a staged Controller configuration with native Windows access-control preservation/temporary recovery backup or POSIX owner/mode/security-metadata preservation before atomic replacement.
+- `_device_parameter_plan(python, checkout, directory, existing, configured)`: Uses isolated adapter-owned validation for optional initialization/Advanced hardware proposals, preserving unchanged bytes and staging changes until existing installation confirmations.
 - `_render_command(arguments)`: Quotes nonsecret service and GUI launch arguments for PowerShell on Windows or the native POSIX shell.
 - `_local_storage_destinations()`: Uses native Windows drive metadata or Ubuntu local mount metadata to list visible candidate volumes without mounting, creating directories or probing writes.
 - `_inspect_storage_destination(path)`: Reads accessibility, backing identity and available filesystem bytes while keeping missing-target capacity and operational suitability unverified.
@@ -3420,6 +3443,98 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 - deviceParameterFields(node, device, definitions): Projects the adapter's supported primitive definitions, exact identities, typed allowed values and inclusive/exclusive constraints into existing controls without manufacturing defaults.
 - parameterIssue(field, value): Reuses typed numeric validation and declared adapter constraints for working-field feedback and Experiment submission checks.
+- configuredParameterValue(state, device, field, sessionId=null): Projects only available matching-scope configured values, distinguishing inherited null from absent or unavailable readback without creating overrides.
+
+### Package B deployment corrections (developer implementation)
+
+`connected.js` sequences existing launch/start requests only within the original
+connected user action, checking definitive launch completion, fresh matching
+Controller/Session identity and browser generation; its original response status
+prevents an uncertain launch from authorizing later automatic continuation.
+Separate Start remains available for initialized Sessions. `refreshInventory(node)`
+reuses the existing inventory request for manual refresh and accepted-Session
+transitions; configured projections invalidate on communication/Controller change.
+The shared Parameters renderer displays inherited requested values separately from
+overrides without modifying working, saved or executed configuration. Session
+preparation labels distinguish incomplete configuration from unconfirmed inventory;
+existing issue feedback, admission and Activity History remain authoritative.
+The shared header persistently identifies connected versus demonstration mode.
+Package B originally omitted `frames_per_collect` inherited values while its
+classification was deferred. Package C replaces that temporary name-specific rule
+with Decisions 454-455 adapter classification, authoritative ordinary-override
+rejection, filtered saved/loaded readback and durable administrative publication.
+No GUI device store or live reload is introduced.
+
+Decision 454 assessment: `service_startup.load_acquisition_node()` reads the hardware
+JSON once and passes detached per-device settings, not its source path, to the node.
+No existing device-configuration write operation is exposed by Controller/NATS or
+maintenance. The CLI reads an existing hardware file; its existing replacement
+helper is specific to approved Controller GUI-access updates. Decision 368 retains
+file-change/restart semantics. That historical blocker is now resolved by Decision
+455: Package C retains the actual startup path, adds an adapter-driven
+Controller/NATS node-owned durable update of the same hardware file, rejects
+reserved/Session-bound/conflicting work, and exposes saved versus loaded values.
+Use saved readback after uncertain writes and apply changes only on normal node
+restart. No GUI device-settings store, live reload or automatic restart is implied.
+Decision 455 accepts the OpenCV-only initialization value `1`; generic consumers
+must not hard-code it. Package C is developer-implemented; Package A/B and their
+existing verification status are unchanged.
+Independent validation/audit and live reset reproduction remain pending.
+
+### Package C developer implementation (Decision 455; independent verification pending)
+
+Retain one optional hardware source path on AcquisitionNode; reuse loaded deployment
+and fixed Session settings, without caching another authoritative configuration.
+Consolidate complete hardware-data validation with existing deployment loading;
+keep the existing startup reader name compatible. Adapter definitions carry the
+adjustment classification, with distinct full-initialization and ordinary-override
+validation. Remove Package B's temporary parameter-name exclusion only with that
+central enforcement. Keep adapter-specific initial values outside generic consumers.
+
+`update_device_configuration` uses the existing external Controller and
+runtime command/result envelopes, with no selected Session, exact node/device,
+partial administrative values, administrator intent and an expected saved-content
+revision. Existing inventory gains optional filtered saved/loaded administrative
+readback; revisions and restart-required feedback derive from current authoritative
+values, not another persistent registry. Controller validates both inventory and
+save confirmations, including unchanged loaded and unrelated saved values.
+
+Reuse the installer replacement/access-control checks and established file-lock,
+fsync, atomic replacement and exact-readback patterns through a small configuration
+publication boundary; do not import installer scripts into runtime or borrow
+scientific-storage ownership. Validate the whole candidate and guard current file
+identity/content through publication. A pre-commit failure remains a failure;
+possible publication without complete durability/confirmation remains unconfirmed.
+Use existing service-operation admission and reservation serialization with final
+owner-side condition checks; the decorator alone does not hold a mutex through I/O.
+
+Reuse Administrator Parameters, draft handling and Activity History, keeping saved
+and loaded values separate and reconciling uncertainty before explicit resubmission.
+Existing catalog records remain readable; refuse prohibited future overrides without
+rewriting old entries. CLI Advanced proposals stage and validate per-device settings
+under existing retirement/confirmation/publication controls. No graphical installer,
+automatic retry/restart, live reload, scientific schema or Package A/B behavior
+change is part of this boundary. The directly necessary `experiment-demo.mjs`
+consumer refuses retained administrative overrides without rewriting templates.
+
+- Controller.update_device_configuration(participant, device_id, parameters, *, expected_revision, administrator_id, authorized, communication, result_window_s): Validates current definitions/revision and conveys an authorized session-independent save to the owning node, distinguishing refusal from unconfirmed publication.
+- parameters-view.renderAdministrativeSettings(): Uses the existing Parameters controls and Administrator identity for saved/loaded readback, revision-bound dirty drafts and explicit save/reload.
+- connected.state.actions.updateDeviceConfiguration(node, device, parameters, revision, administrator): Submits one existing correlated Controller operation and obtains fresh inventory without replaying uncertain writes.
+- gui/tests/test_package_c.mjs.verifyPackageC(browser, origin, initial, section, directory): Exercises production Administrator Parameters with framework-produced inventory and controlled transport outcomes.
+- tests/test_device_configuration.py: Covers owner persistence, restart separation, second-adapter classification, protected publication and independently scheduled real-NATS reservation races.
+
+## src/lab_sync_acquisition/configuration_publication.py
+
+- ConfigurationPublicationUnconfirmed: Identifies possible replacement without complete durable confirmation.
+- configuration_revision(contents): Computes an exact-byte content revision without another persistent revision store.
+- read_configuration_bytes(path): Verifies a regular unaliased file and stable identity through readback.
+- configuration_guard(path): Serializes cooperating publishers through a stable sibling lock file.
+- preserve_configuration_access(path, temporary): Prepares POSIX ownership/mode/security metadata; Windows replacement retains target access controls.
+- replace_configuration_file(path, temporary): Uses native Windows ReplaceFile or POSIX atomic replacement.
+- publish_configuration(path, expected_revision, contents): Stages, synchronizes, checks identity/content, replaces and confirms exact durable readback under the shared guard; does not claim atomic content-CAS against noncooperating external writers.
+
+- tests.test_device_parameters.DeviceParameterInventoryTests.authorized_transport(node, broker, real=False): Supplies isolated real Controller authority to controlled or real-NATS inventory workflows without bypassing production authorization.
+- gui/tests/test_package_b.mjs.verifyPackageB(browser, origin, fixture, inventories, section, directory): Exercises guarded launch/start, interruption, scoped inherited values, draft retention and mode identity through production browser controls.
 
 ## Protocol preparation additions in gui/src/miceball_gui/static/protocol-demo.mjs
 

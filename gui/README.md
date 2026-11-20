@@ -117,6 +117,60 @@ verification remain pending for both Decision 450 packages.
 
 ## Unified Parameters (Decision 449-B)
 
+Package B deployment corrections are developer-implemented, pending independent
+validation/audit. Connected **Launch Session** sequences the existing launch and
+start operations only after confirmed completion and matching fresh Controller,
+Session and browser-control readback. Pending operations remain observed; uncertain
+launches never authorize automatic continuation after later reconciliation or
+reconnect. A separate **Start Session** remains for initialized Sessions after an
+interrupted/rejected start. Each operation retains its own Activity History result.
+
+Inventory optionally includes `configured_parameters` with `scope` (`installation`
+or `session`), applicable `session_id` and definition-filtered per-device `values`.
+Parameters displays inherited requested configuration without creating overrides;
+matching Session readback is required after acceptance. Explicit null, missing
+readback and explicit overrides remain distinct. Refresh preserves working edits;
+these values are not measured camera properties. Definitions-only older responses
+remain usable with configured values reported unavailable. Decision 454
+resolves the classification left open by Decision 451: device-specific technical
+batching configuration, editable only in Administrator Parameters and persisted
+for subsequent Sessions without changing active/accepted configurations. That
+classification and administrative update path are developer-implemented in
+Package C. Width, height and FPS remain experimenter-adjustable. Device
+settings do not belong in the GUI backend's global synchronization-default store.
+
+Decision 455's Package C developer implementation lets AcquisitionNode modify its
+existing startup hardware file through
+authorized Controller/NATS requests only while unreserved, outside an active
+Session and without conflicting lifecycle work. The same Administrator Parameters
+workspace shows saved and loaded device-specific values and restart-required
+feedback. Durable save confirmation does not mean loaded/application confirmation;
+normal node restart is required, with no automatic restart or live reload. After an
+uncertain save, authoritative saved readback is required before another write.
+The mechanism remains adapter-driven; the OpenCV-specific installer initial value
+is `frames_per_collect=1`, with optional Advanced Settings and retained-value
+preservation. Dirty edits retain the saved revision until explicit reload or a
+successful save; refresh does not silently rebase them. An uncertain save remains
+in Activity History, with no automatic retry; fresh saved inventory is required
+before another explicit attempt. Source-less nodes remain readable but cannot
+claim persistent modification. Retained templates/Steps are not rewritten;
+prohibited administrative overrides must be explicitly removed before future use.
+Independent Package C validation and audit remain pending.
+
+The persistent header distinguishes **Connected Framework** from
+**Demonstration -- no framework operations**, independently of current connectivity.
+Use the existing backend command below for connected mode, with the authorized
+Controller/client, connection file and catalog path; use the port-8000 static
+preview command in Local preview for the independent demonstration. No host-binding
+defaults or startup mechanisms have changed. Free Mode now explains incomplete
+configuration and unconfirmed inventory separately; the reported unexpected reset
+was not reproduced and still requires targeted deployment validation.
+
+Focused developer checks: `python -B -m unittest tests.test_device_parameters
+gui.tests.test_connected_feedback.ConnectedFeedbackTests.test_package_b_launch_and_parameter_feedback_in_browser -v`
+and `node --test gui/tests/test_unified_parameters.mjs`. Browser prerequisites are
+the existing Playwright/browser settings documented below.
+
 Developer implementation; independent validation, audit and closure remain pending.
 Permanent navigation is **Setup | Session | Experiment | Analysis | Storage |
 Parameters | Services**. Setup, Protocol Editor Step configuration and Experiment

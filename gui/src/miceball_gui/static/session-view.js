@@ -66,9 +66,9 @@ templateConfirmation.querySelector('[data-confirm-template-load]').addEventListe
   renderSession();
 });
 
-function statusBadge(status) {
+function statusBadge(status, explanation = null) {
   const [icon, label] = statusLabels[status] || ['?', 'Unconfirmed'];
-  return `<span class="session-status status-${status}"><span aria-hidden="true">${icon}</span>${state.connected ? escape(label.replace(' · demo', '').replace('Executed', 'Completed')) : label}</span>`;
+  return `<span class="session-status status-${status}"><span aria-hidden="true">${icon}</span>${state.connected ? escape(explanation || label.replace(' · demo', '').replace('Executed', 'Completed')) : label}</span>`;
 }
 
 function readinessRows(rows) {
@@ -129,7 +129,7 @@ function selectedStepMarkup(state, protocol, step) {
   const operationType = operation?.type || 'Unsupported operation';
   const location = protocol ? `Step ${protocol.steps.indexOf(step) + 1} of ${protocol.steps.length}` : `Free Mode · ${operationType} · ${step.id}`;
   const capabilities = values => values.length ? values.map(escape).join(', ') : 'None';
-  if (view.experiment) return `<div class="session-selected-heading"><div><p>${escape(location)}</p><h3>${escape(step.name)}</h3></div>${statusBadge(view.stopPending ? 'stop-requested' : view.status)}</div>
+  if (view.experiment) return `<div class="session-selected-heading"><div><p>${escape(location)}</p><h3>${escape(step.name)}</h3></div>${statusBadge(view.stopPending ? 'stop-requested' : view.status, view.preparationLabel)}</div>
     <p class="session-step-description">${escape(step.description || 'No description supplied.')}</p>
     ${experimentConfigurationMarkup(step, view)}
     ${recordingSelectionMarkup(record, view)}
@@ -195,7 +195,7 @@ function experimentConfigurationMarkup(step, view) {
       ${outside.length ? `<div class="experiment-device-warning"><p>Template refers to devices outside this Session: ${outside.map(device => escape(device.name)).join(', ')}. They are not eligible for selection.</p><button type="button" data-remove-outside-devices ${readOnly ? 'disabled' : ''}>Remove out-of-Session references</button></div>` : ''}
       <div class="experiment-coverage ${missing.length ? 'coverage-missing' : 'coverage-good'}" role="status">${missing.length ? 'Missing required capability: ' + missing.map(escape).join(', ') : step.required.length ? '✓ All required capabilities covered' : 'No required hardware capabilities declared'} ${state.connected ? '' : '<small>(demo)</small>'}</div>
       ${otherIssues.length ? `<p class="experiment-device-warning">${otherIssues.map(escape).join(' ')}</p>` : ''}
-      <p class="experiment-readiness-note">${state.connected ? 'Declaration coverage is not readiness. Controller validates participation, storage and timing before execution.' : 'Declaration coverage and illustrative checks only — not full Controller readiness or storage-capacity confirmation.'}</p>
+      <p class="experiment-readiness-note">${state.connected ? state.controllerSnapshot?.status?.session_state !== 'running' ? 'Session must be running before an Experiment can start. Prepared values remain unsent.' : state.controllerSnapshot?.status?.active_experiment_id ? 'An Experiment is active. Further execution requires its authoritative completion.' : 'Declaration coverage is not readiness. Controller validates participation, storage and timing before execution. Pending, uncertain and rejected commands are reported in Activity History.' : 'Declaration coverage and illustrative checks only — not full Controller readiness or storage-capacity confirmation.'}</p>
     </section>
     <div class="experiment-launch-stack"><button type="button" data-session-navigate="parameters">View / Edit Parameters ↗</button><button type="button" class="session-primary launch-experiment-demo" data-launch-experiment ${canLaunch ? '' : 'disabled'}>▶ Launch Experiment <small>${state.connected ? 'Controller acquisition request' : 'Simulation only — no acquisition'}</small></button></div>
     ${auxiliary.length ? `<div class="experiment-step-actions">${auxiliary.map(action => `<button type="button" data-session-action="${action}">${actionLabels[action]} (demo)</button>`).join('')}</div>` : ''}

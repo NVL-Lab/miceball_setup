@@ -3,15 +3,19 @@
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import AsyncMock
 
 from lab_sync_acquisition import (
     AcquisitionNode, Controller, DeviceDeclaration, DeviceManager, DeviceAdapterState,
     InMemoryIngestor, NatsAcquisitionNodeCommunication, NatsControllerCommunication,
     OpenCVCameraConfig, RuntimeParticipant, SeeedIMX219OpenCVCameraAdapter, SynchronizationManager,
+    SessionConfig,
 )
 from tests.fakes import ReadyFakeAdapter
 from tests.test_seeed_imx219_camera_adapter import FakeCV2
 from tests.test_session_launch import _Boundary, _Broker
+from tests.nats_server_fixture import acquire_test_controller_authority
+from lab_sync_acquisition import ServiceMaintenanceInterface
 
 
 class AdjustableAdapter(ReadyFakeAdapter):
@@ -22,6 +26,29 @@ class AdjustableAdapter(ReadyFakeAdapter):
 
 
 class DeviceParameterTests(unittest.TestCase):
+    def test_inventory_values_are_scoped_filtered_and_detached(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adapter = AdjustableAdapter("events", "event-device", (), True)
+            declaration = DeviceDeclaration("events", "event-device", True, True, ())
+            node = AcquisitionNode(device_manager=DeviceManager([adapter]), node_id="node",
+                synchronization_manager=SynchronizationManager(), ingestor=InMemoryIngestor(),
+                default_local_storage_root=Path(directory), device_declarations=[declaration],
+                deployment_device_configurations={"events": {"connection": "private", "rate": 2,
+                    "mode": "slow", "enabled": False}})
+            values = node.get_inventory()["configured_parameters"]
+            self.assertEqual(values, {"scope": "installation", "session_id": None,
+                "values": {"events": {"rate": 2, "mode": "slow", "enabled": False}}})
+            values["values"]["events"]["rate"] = 19
+            self.assertEqual(node.get_inventory()["configured_parameters"]["values"]["events"]["rate"], 2)
+            self.assertTrue(node.reserve("session"))
+            node.initialize_session("session", [declaration], {"events": {"rate": 8}})
+            values = node.get_inventory()["configured_parameters"]
+            self.assertEqual((values["scope"], values["session_id"]), ("session", "session"))
+            self.assertEqual(values["values"]["events"]["rate"], 8)
+            node.abort_session_initialization("session")
+            node.release_reservation("session")
+            self.assertEqual(node.get_inventory()["configured_parameters"]["scope"], "installation")
+
     def test_adapter_constraints_reject_invalid_values_without_coercion(self):
         adapter = AdjustableAdapter("events", "event-device", (), True)
         base = {"connection": "installation", "rate": 2, "mode": "slow", "enabled": True}
@@ -40,7 +67,8 @@ class DeviceParameterTests(unittest.TestCase):
                                synchronization_manager=SynchronizationManager())
         inventory = node.get_inventory()
         definitions = inventory["session_parameter_definitions"]["camera"]
-        self.assertEqual(definitions["frames_per_collect"], {"type": "integer", "minimum": 1})
+        self.assertEqual(definitions["frames_per_collect"], {"type": "integer", "minimum": 1,
+            "adjustment_scope": "administrator", "initial_value": 1})
         self.assertNotIn("camera_source", definitions)
         self.assertNotIn("api_preference", definitions)
         definitions["frames_per_collect"]["minimum"] = -1
@@ -57,8 +85,8 @@ class DeviceParameterTests(unittest.TestCase):
                 synchronization_manager=SynchronizationManager(), ingestor=InMemoryIngestor(),
                 default_local_storage_root=Path(directory), device_declarations=[declaration],
                 deployment_device_configurations={"camera": defaults})
-            for sid, overrides, count, fps in (("one", {"frames_per_collect": 4, "fps": 30}, 4, 30),
-                                                ("two", {"frames_per_collect": 1}, 1, 15),
+            for sid, overrides, count, fps in (("one", {"fps": 30}, 2, 30),
+                                                ("two", {"fps": 20}, 2, 20),
                                                 ("three", None, 2, 15)):
                 self.assertTrue(node.reserve(sid))
                 node.initialize_session(sid, selected_devices=[declaration],
@@ -66,6 +94,11 @@ class DeviceParameterTests(unittest.TestCase):
                 self.assertEqual(camera.initialization_config.frames_per_collect, count)
                 self.assertEqual(camera.initialization_config.fps, fps)
                 self.assertEqual(camera.initialization_config.camera_source, 0)
+                configured = node.get_inventory()["configured_parameters"]
+                self.assertEqual((configured["scope"], configured["session_id"]), ("session", sid))
+                self.assertEqual(configured["values"]["camera"]["fps"], fps)
+                self.assertIsNone(configured["values"]["camera"]["frame_width"])
+                self.assertEqual(configured["values"]["camera"]["frames_per_collect"], 2)
                 node.abort_session_initialization(sid)
                 self.assertTrue(node.release_reservation(sid))
                 self.assertEqual(camera.state, DeviceAdapterState.DECLARED)
@@ -92,14 +125,117 @@ class DeviceParameterTests(unittest.TestCase):
 
 
 class DeviceParameterInventoryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_administrative_confirmation_rejects_contradictory_loaded_or_unrelated_saved_values(self):
+        import json
+        from lab_sync_acquisition.service_startup import load_acquisition_node
+        directory = self.enterContext(tempfile.TemporaryDirectory())
+        path = Path(directory) / 'hardware.json'
+        document = json.loads(Path('config_templates/manual_installation/acquisition-node.json').read_bytes())
+        document.update(node_id='node', local_storage_root='local', error_evidence_location='errors')
+        document['devices'][0]['declaration']['device_id'] = 'camera'
+        document['devices'][0]['configuration']['camera_source'] = 0
+        path.write_text(json.dumps(document))
+        owner = load_acquisition_node(path, 'sync')
+        broker = _Broker()
+        controller, communication = await self.authorized_transport(owner, broker)
+        for kind in ('loaded', 'saved', 'revision'):
+            def corrupt(operation, result):
+                if operation == 'update_device_configuration':
+                    report = result['payload']['administrative_configuration']
+                    if kind == 'revision': report['revision'] = None
+                    else: report[kind]['camera']['frames_per_collect'] = 100
+                return result
+            broker.change_result = corrupt
+            revision = owner.get_inventory()['administrative_configuration']['revision']
+            result = await controller.update_device_configuration(RuntimeParticipant('acquisition_node', 'node'),
+                'camera', {'frames_per_collect': 3}, expected_revision=revision, administrator_id='Operator',
+                authorized=True, communication=communication, result_window_s=.2)
+            self.assertFalse(result.succeeded)
+            self.assertEqual(result.details['outcome'], 'unconfirmed')
+        broker.change_result = None
+
+    async def authorized_transport(self, node, broker, *, real=False):
+        controller = Controller(component_id="control")
+        maintenance = ServiceMaintenanceInterface(controller, RuntimeParticipant("controller", "control"),
+            ingestor=None, storage_manager=None, preservation_window_s=2, close_resources=AsyncMock(return_value=True))
+        authority = await acquire_test_controller_authority(self, maintenance)
+        if real:
+            from lab_sync_acquisition import NatsCommunicationBoundary
+            boundary = NatsCommunicationBoundary("acquisition_node", "node", authority.servers)
+            await boundary.connect()
+            await authority.ensure_streams()
+            self.addAsyncCleanup(boundary.close)
+        else:
+            authority._require_jetstream = lambda: broker
+            boundary = _Boundary("acquisition_node", "node", broker)
+        boundary._client, boundary._jetstream = authority._client, authority._jetstream
+        boundary.configure_controller_authority(account="LAB", bucket="AUTHORITY", key="controller", timeout_s=2)
+        ServiceMaintenanceInterface(node, RuntimeParticipant("acquisition_node", "node"),
+            ingestor=None, storage_manager=None, preservation_window_s=2, close_resources=AsyncMock(return_value=True))
+        await NatsAcquisitionNodeCommunication(boundary, node).subscribe_commands()
+        return controller, NatsControllerCommunication(authority)
+
+    async def test_configured_values_through_isolated_real_nats(self):
+        adapter = AdjustableAdapter("events", "event-device", (), True)
+        declaration = DeviceDeclaration("events", "event-device", True, True, ())
+        directory = self.enterContext(tempfile.TemporaryDirectory())
+        node = AcquisitionNode(device_manager=DeviceManager([adapter]), node_id="node",
+            synchronization_manager=SynchronizationManager(), ingestor=InMemoryIngestor(),
+            default_local_storage_root=Path(directory), device_declarations=[declaration],
+            deployment_device_configurations={"events": {"rate": 4, "connection": "private"}})
+        controller, communication = await self.authorized_transport(node, None, real=True)
+        result = await controller.get_node_inventory(RuntimeParticipant("acquisition_node", "node"),
+            communication=communication, result_window_s=2)
+        self.assertEqual(result["configured_parameters"], {"scope": "installation", "session_id": None,
+            "values": {"events": {"rate": 4}}})
+        self.assertTrue(controller.create_session(SessionConfig([declaration], None, {}, None, session_id="session")).succeeded)
+        self.assertTrue(node.reserve("session"))
+        node.initialize_session("session", [declaration], {"events": {"rate": 8}})
+        result = await controller.get_node_inventory(RuntimeParticipant("acquisition_node", "node"),
+            communication=communication, result_window_s=2)
+        self.assertEqual(result["configured_parameters"], {"scope": "session", "session_id": "session",
+            "values": {"events": {"rate": 8}}})
+        node.abort_session_initialization("session")
+        node.release_reservation("session")
+
+    async def test_inventory_readback_rejects_invalid_values_and_scope_and_accepts_legacy(self):
+        from copy import deepcopy
+        broker = _Broker()
+        adapter = AdjustableAdapter("events", "event-device", (), True)
+        node = AcquisitionNode(device_manager=DeviceManager([adapter]), node_id="node",
+            synchronization_manager=SynchronizationManager(),
+            deployment_device_configurations={"events": {"rate": 2}})
+        controller, communication = await self.authorized_transport(node, broker)
+        participant = RuntimeParticipant("acquisition_node", "node")
+        valid = node.get_inventory()["configured_parameters"]
+        for invalid in (None, [], {**valid, "scope": "session", "session_id": "unrelated"},
+                        {**valid, "session_id": "unexpected"}, {**valid, "values": {"unknown": {}}},
+                        {**valid, "values": {"events": {"connection": "private"}}},
+                        {**valid, "values": {"events": {"rate": True}}},
+                        {**valid, "values": {"events": {"rate": 30}}},
+                        {**valid, "values": {"events": {"rate": float("inf")}}}):
+            def corrupt(operation, result):
+                result["payload"]["configured_parameters"] = deepcopy(invalid)
+                return result
+            broker.change_result = corrupt
+            with self.subTest(invalid=invalid), self.assertRaises((ValueError, TypeError, RuntimeError)):
+                await controller.get_node_inventory(participant, communication=communication, result_window_s=.1)
+        def legacy(operation, result):
+            result["payload"].pop("configured_parameters")
+            return result
+        broker.change_result = legacy
+        inventory = await controller.get_node_inventory(participant, communication=communication, result_window_s=.1)
+        self.assertNotIn("configured_parameters", inventory)
+        broker.change_result = None
+        inventory = await controller.get_node_inventory(participant, communication=communication, result_window_s=.1)
+        self.assertEqual(inventory["configured_parameters"], valid)
+
     async def test_controller_reads_adapter_definitions_over_existing_inventory_command(self):
         broker = _Broker()
         adapter = AdjustableAdapter("events", "event-device", (), True)
         node = AcquisitionNode(device_manager=DeviceManager([adapter]), node_id="node",
                                synchronization_manager=SynchronizationManager())
-        await NatsAcquisitionNodeCommunication(_Boundary("acquisition_node", "node", broker), node).subscribe_commands()
-        controller = Controller(component_id="control")
-        communication = NatsControllerCommunication(_Boundary("controller", "control", broker))
+        controller, communication = await self.authorized_transport(node, broker)
         inventory = await controller.get_node_inventory(RuntimeParticipant("acquisition_node", "node"),
             communication=communication, result_window_s=0.1)
         self.assertEqual(inventory["session_parameter_definitions"]["events"], adapter.get_session_parameter_definitions())
@@ -109,19 +245,20 @@ class DeviceParameterInventoryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_offline_inventory_is_unconfirmed_and_releases_response_subscription(self):
         broker = _Broker()
-        communication = NatsControllerCommunication(_Boundary("controller", "control", broker))
+        node = AcquisitionNode(device_manager=DeviceManager([AdjustableAdapter("events", "event-device", (), True)]), node_id="node",
+                               synchronization_manager=SynchronizationManager())
+        controller, communication = await self.authorized_transport(node, broker)
         with self.assertRaises((RuntimeError, TimeoutError)):
-            await Controller().get_node_inventory(RuntimeParticipant("acquisition_node", "offline"),
+            await controller.get_node_inventory(RuntimeParticipant("acquisition_node", "offline"),
                 communication=communication, result_window_s=0.01)
-        self.assertTrue(all(not subscription.active for subscription in broker.subscriptions))
+        self.assertFalse(any(subscription.active and '.offline.' in subscription.subject for subscription in broker.subscriptions))
 
     async def test_stale_inventory_reply_cannot_confirm_parameter_definitions(self):
         broker = _Broker()
         adapter = AdjustableAdapter("events", "event-device", (), True)
         node = AcquisitionNode(device_manager=DeviceManager([adapter]), node_id="node",
                                synchronization_manager=SynchronizationManager())
-        await NatsAcquisitionNodeCommunication(_Boundary("acquisition_node", "node", broker), node).subscribe_commands()
-        communication = NatsControllerCommunication(_Boundary("controller", "control", broker))
+        controller, communication = await self.authorized_transport(node, broker)
         # A caller can already have a general command-result subscription.
         existing = await communication.subscribe_command_results(None)
         def stale(operation, result):
@@ -130,7 +267,7 @@ class DeviceParameterInventoryTests(unittest.IsolatedAsyncioTestCase):
         broker.change_result = stale
         try:
             with self.assertRaises((RuntimeError, TimeoutError)):
-                await Controller().get_node_inventory(RuntimeParticipant("acquisition_node", "node"),
+                await controller.get_node_inventory(RuntimeParticipant("acquisition_node", "node"),
                     communication=communication, result_window_s=0.01)
         finally:
             await existing.unsubscribe()
@@ -145,8 +282,7 @@ class DeviceParameterInventoryTests(unittest.IsolatedAsyncioTestCase):
                 synchronization_manager=SynchronizationManager(), ingestor=InMemoryIngestor(),
                 default_local_storage_root=Path(directory), device_declarations=[declaration],
                 deployment_device_configurations={"camera": OpenCVCameraConfig(0, 0, 1)})
-            await NatsAcquisitionNodeCommunication(_Boundary("acquisition_node", "node", broker), node).subscribe_commands()
-            communication = NatsControllerCommunication(_Boundary("controller", "control", broker))
+            _, communication = await self.authorized_transport(node, broker)
             subscription = await communication.subscribe_command_results("session")
             participant = RuntimeParticipant("acquisition_node", "node")
             try:

@@ -22,6 +22,31 @@ and preserves saved administrative values. Replace the unresolved Parameters
 notice with the bounded Administrator editor; this does not authorize runtime
 reconfiguration or changing accepted Sessions. Independent verification is pending.
 
+## Accepted administrative device settings (Decision 454; implementation pending)
+
+Decision 454 classifies `frames_per_collect` as a device-specific technical
+batching setting, editable only through the existing Parameters workspace in
+global Administrator mode. Authoritative device readback supplies its actual
+configured value; unavailable values must not be invented. Width, height and FPS
+remain in the experimenter Experiment/Step editor. Ordinary overrides, including
+retained reusable definitions, must not change administrative settings. Preserve
+immutable accepted/executed configurations and active acquisition. Persistent
+changes apply to subsequent Sessions, not global GUI synchronization defaults.
+Device-configuration ownership and the supported durable mutation/restart path
+were unresolved at the Decision 454 assessment. Decision 455 now accepts
+AcquisitionNode-owned durable updates of its existing hardware file through
+Controller/NATS only when unreserved, outside an active Session and free of
+conflicting lifecycle work. Reuse the same Administrator Parameters controls and
+Activity History, displaying saved and loaded values per node/device and deriving
+restart-required feedback from their difference. Uncertainty requires authoritative
+saved readback before another write; no automatic retry or restart. Normal node
+restart applies saved settings. Generic consumers use adapter classification and
+validation, not OpenCV-specific fields/defaults. Package C developer implementation
+replaces Package B's temporary name-specific omission with classification-based
+enforcement and saved/loaded Administrator Parameters. Dirty drafts retain their
+original revision; uncertainty requires saved readback before explicit resubmission.
+Independent validation and audit remain pending.
+
 ## Catalog correction boundary (Decision 452)
 
 Decision 452 records normalized scoped uniqueness, simple catalog removal and

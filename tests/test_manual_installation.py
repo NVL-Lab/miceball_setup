@@ -34,11 +34,11 @@ class ManualInstallationTests(unittest.TestCase):
         }
 
     def test_example_files_load_for_all_roles_without_opening_hardware(self):
-        with patch("lab_sync_acquisition.service_startup.SeeedIMX219OpenCVCameraAdapter") as adapter:
+        with patch("lab_sync_acquisition.opencv_camera.SeeedIMX219OpenCVCameraAdapter.initialize") as initialize:
             settings = {role: load_service_configuration(self.root / name, role)
                         for role, name in self.files.items()}
-            adapter.assert_not_called()
-        node = load_acquisition_node(settings["acquisition-node"]["node_config"], "SYNCHRONIZATION_ID")
+            node = load_acquisition_node(settings["acquisition-node"]["node_config"], "SYNCHRONIZATION_ID")
+            initialize.assert_not_called()
         self.assertFalse(node.status()["is_running"])
         self.assertEqual(settings["controller"]["known_nodes"], (node.node_id,))
         self.assertIn(node.node_id, settings["ingestor"]["retrieval_endpoints"])

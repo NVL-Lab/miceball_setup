@@ -6,6 +6,8 @@ import {mkdir, writeFile} from 'node:fs/promises';
 import {verifyConfigurationIntegrity, verifyExperimentReconnection} from './test_configuration_integrity.mjs';
 import {verifyGuiUsability, verifyDemoAdministrator} from './test_gui_usability.mjs';
 import {verifyActivityHistory} from './test_activity_history.mjs';
+import {verifyPackageB} from './test_package_b.mjs';
+import {verifyPackageC} from './test_package_c.mjs';
 if (!process.env.MICEBALL_BROWSER_ORIGIN) {
   console.log('Rendered feedback checks require the disposable Python fixture.');
 } else {
@@ -371,7 +373,11 @@ async function verifyMaintenanceBinding() {
   } finally { await target.close(); }
 }
 try {
-  if (process.env.LAB_SYNC_GUI_RENDERING_ONLY === '1') {
+  if (process.env.LAB_SYNC_GUI_PACKAGE_C_ONLY === '1') {
+    await verifyPackageC(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_ADMINISTRATIVE_INVENTORY), section, directory);
+  } else if (process.env.LAB_SYNC_GUI_PACKAGE_B_ONLY === '1') {
+    await verifyPackageB(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_MONITORING), JSON.parse(process.env.MICEBALL_CONFIGURED_INVENTORIES), section, directory);
+  } else if (process.env.LAB_SYNC_GUI_RENDERING_ONLY === '1') {
    await verifyRenderingSafety();
   } else if (process.env.LAB_SYNC_GUI_ACTIVITY_ONLY === '1') {
   await verifyActivityHistory(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_MONITORING), section, directory);

@@ -1,12 +1,57 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createDemo, clone, preparedProtocol, selectProtocol} from '../src/miceball_gui/static/protocol-demo.mjs';
+import {createDemo, clone, preparedProtocol, selectProtocol, devices} from '../src/miceball_gui/static/protocol-demo.mjs';
 import {selectParameterContext, resolveParameterContext} from '../src/miceball_gui/static/parameter-context.mjs';
 import {launchSessionDemo} from '../src/miceball_gui/static/session-context.mjs';
 import {selectedStepContext, actOnSessionStep, requestExperimentStop, finishExperimentStop, prepareFreeOperation} from '../src/miceball_gui/static/session-demo.mjs';
 import {copyStepToEdit} from '../src/miceball_gui/static/protocol-demo.mjs';
-import {deviceParameterFields, parameterIssue} from '../src/miceball_gui/static/parameter-constraints.mjs';
-import {experimentView, experimentIssues} from '../src/miceball_gui/static/experiment-demo.mjs';
+import {deviceParameterFields, parameterIssue, configuredParameterValue} from '../src/miceball_gui/static/parameter-constraints.mjs';
+import {experimentView, experimentIssues, deviceExamples} from '../src/miceball_gui/static/experiment-demo.mjs';
+
+test('retained administrative overrides remain readable but cannot authorize future execution', () => {
+  const device = devices[0], previous = deviceExamples[device.id];
+  const fields = deviceParameterFields('node', 'technical', {
+    service_interval: {type: 'integer', minimum: 1, adjustment_scope: 'administrator'},
+    rate: {type: 'number', minimum: 1},
+  });
+  assert.equal(fields[0].adjustmentScope, 'administrator');
+  assert.equal(fields[1].adjustmentScope, 'experimenter');
+  try {
+    deviceExamples[device.id] = {acquisition: true, fields};
+    const state = createDemo(); state.connected = true; state.selectedDevices = [device.id];
+    const configuration = {durationSeconds: 2, participants: [device.id], experimentId: 'future',
+      preservationBudget: 1000, recordingBudgets: {[device.nodeId]: 1000}, values: {[fields[0].id]: 5}};
+    const retained = structuredClone(configuration);
+    assert.ok(experimentIssues(state, {required: []}, configuration).some(issue => issue.includes('administrator-only')));
+    assert.deepEqual(configuration, retained);
+    delete configuration.values[fields[0].id];
+    assert.equal(experimentIssues(state, {required: []}, configuration).some(issue => issue.includes('administrator-only')), false);
+  } finally { deviceExamples[device.id] = previous; }
+});
+
+test('configured readback distinguishes scope, null, absent, invalid and unavailable without mutating overrides', () => {
+  const device = {nodeId: 'node', deviceId: 'camera', available: true};
+  const field = deviceParameterFields('node', 'camera', {fps: {type: 'number', nullable: true, exclusive_minimum: 0}})[0];
+  const state = {inventory: {node: {configured_parameters: {scope: 'installation', session_id: null,
+    values: {camera: {fps: null}}}}}};
+  const before = structuredClone(state);
+  assert.deepEqual(configuredParameterValue(state, device, field), {available: true, value: null});
+  assert.deepEqual(configuredParameterValue(state, device, field, 'session'), {available: false});
+  assert.deepEqual(state, before);
+  state.inventory.node.configured_parameters = {scope: 'session', session_id: 'session', values: {camera: {fps: 30}}};
+  assert.deepEqual(configuredParameterValue(state, device, field, 'session'), {available: true, value: 30});
+  assert.deepEqual(configuredParameterValue(state, device, field, 'other'), {available: false});
+  assert.deepEqual(configuredParameterValue(state, {...device, available: false}, field, 'session'), {available: false});
+  for (const values of [{}, {fps: -1}, {fps: true}, {fps: Infinity}]) {
+    state.inventory.node.configured_parameters.values.camera = values;
+    assert.deepEqual(configuredParameterValue(state, device, field, 'session'), {available: false});
+  }
+  delete state.inventory.node.configured_parameters;
+  assert.deepEqual(configuredParameterValue(state, device, field), {available: false});
+  state.inventory.node.configured_parameters = {scope: 'installation', session_id: null, values: {}};
+  assert.deepEqual(configuredParameterValue(state, {...device, deviceId: '__proto__'},
+    {...field, name: '__proto__'}), {available: false});
+});
 
 test('Setup preparation and Step editor use existing working values, fixed Session and attempts remain isolated', () => {
   const state = createDemo();

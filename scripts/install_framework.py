@@ -22,6 +22,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 _NATS_HELPER_PATH = Path(__file__).resolve().parents[1] / "src" / "lab_sync_acquisition" / "nats_configuration.py"
 _NATS_HELPERS = runpy.run_path(str(_NATS_HELPER_PATH))
+_PUBLICATION = runpy.run_path(str(_NATS_HELPER_PATH.with_name('configuration_publication.py')))
 
 
 FILES = {
@@ -140,6 +141,63 @@ else:
     result = INITIAL_SYNCHRONIZATION_CONFIGURATION.to_dict()
 print(json.dumps(result, allow_nan=False))
 """
+
+NODE_PARAMETERS = """
+import json,sys
+sys.path.insert(0, sys.argv[1])
+try:
+    from lab_sync_acquisition.deployment_configuration import create_installed_adapter, validate_acquisition_node_configuration
+    from lab_sync_acquisition.device import DeviceDeclaration
+except ModuleNotFoundError:
+    print('DEPENDENCIES_UNAVAILABLE')
+else:
+    request = json.load(sys.stdin)
+    data = request['document']
+    definitions = {}
+    for item in data['devices']:
+        declaration = DeviceDeclaration.from_dict(item['declaration'])
+        adapter = create_installed_adapter(item['adapter'], declaration)
+        fields = {name: definition for name, definition in adapter.get_session_parameter_definitions().items()
+                  if definition.get('adjustment_scope', 'experimenter') == 'administrator'}
+        definitions[declaration.device_id] = fields
+        if request.get('initialize'):
+            for name, definition in fields.items():
+                if name not in item['configuration'] and 'initial_value' in definition:
+                    item['configuration'][name] = definition['initial_value']
+    validate_acquisition_node_configuration(data)
+    print(json.dumps({'document': data, 'definitions': definitions}, allow_nan=False))
+"""
+
+
+def _device_parameter_plan(python, checkout, directory, existing, configured):
+    """Stage optional adapter-owned initialization/Advanced values without modifying files."""
+    if 'acquisition-node' not in configured:
+        return []
+    path = (directory / configured['acquisition-node']['node_config']).absolute()
+    original = _PUBLICATION['read_configuration_bytes'](path)
+    document = json.loads(original, object_pairs_hook=_NATS_HELPERS['_unique_fields'])
+    def validate(data, initialize=False):
+        result = _run([python, '-I', '-B', '-c', NODE_PARAMETERS, checkout / 'src'],
+            input=json.dumps({'document': data, 'initialize': initialize}))
+        if result.strip() == 'DEPENDENCIES_UNAVAILABLE':
+            return None
+        return json.loads(result)
+    proposal = validate(document, initialize='acquisition-node' not in existing)
+    if proposal is None:
+        print('Device Advanced settings unavailable until framework dependencies are installed; existing file preserved.')
+        return []
+    candidate = proposal['document']
+    if _confirm('Advanced administrative device settings'):
+        for item in candidate['devices']:
+            identity = item['declaration']['device_id']
+            for name in proposal['definitions'][identity]:
+                value = item['configuration'].get(name)
+                item['configuration'][name] = json.loads(_ask(identity + ' / ' + name + ' (JSON value)', json.dumps(value)))
+        candidate = validate(candidate)['document']
+    if candidate == document:
+        return []
+    print('Proposed device settings update: ' + str(path) + '; unrelated fields preserved; takes effect on normal node restart.')
+    return [(path, original, (json.dumps(candidate, indent=2, allow_nan=False) + '\n').encode())]
 
 
 def _initialize_gui_synchronization(python, path):
@@ -787,49 +845,9 @@ def _publish(path, contents):
 
 def _publish_controller_gui_update(path, expected, contents):
     """Atomically replace only the explicitly approved, unchanged local Controller file."""
-    identity = path.stat()
-    if path.is_symlink() or identity.st_nlink != 1 or path.read_bytes() != expected:
+    if _PUBLICATION['read_configuration_bytes'](path) != expected:
         raise RuntimeError('Controller configuration changed or is aliased; approved GUI update was not applied')
-    temporary = path.with_name('.gui-controller-' + uuid4().hex + '.json')
-    published = False
-    try:
-        _publish(temporary, contents)
-        published = True
-        current = path.stat()
-        if ((current.st_dev, current.st_ino) != (identity.st_dev, identity.st_ino)
-                or path.is_symlink() or current.st_nlink != 1 or path.read_bytes() != expected):
-            raise RuntimeError('Controller configuration changed during setup; approve a new plan explicitly')
-        _replace_controller_file(path, temporary)
-    finally:
-        if published:
-            temporary.unlink(missing_ok=True)
-
-
-def _replace_controller_file(path, temporary):
-    """Replace an approved Controller configuration while retaining its access controls."""
-    if sys.platform != 'win32':
-        identity = path.stat()
-        replacement = temporary.stat()
-        if (replacement.st_uid, replacement.st_gid) != (identity.st_uid, identity.st_gid):
-            os.chown(temporary, identity.st_uid, identity.st_gid)
-        shutil.copystat(path, temporary)
-        if hasattr(os, 'listxattr'):
-            for name in os.listxattr(path):
-                if name.startswith(('security.', 'system.posix_acl')) and os.getxattr(temporary, name) != os.getxattr(path, name):
-                    raise RuntimeError('Controller access-control metadata could not be preserved; update was not applied')
-        os.replace(temporary, path)
-        return
-    import ctypes
-    replace = ctypes.WinDLL('kernel32', use_last_error=True).ReplaceFileW
-    replace.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
-                        ctypes.c_ulong, ctypes.c_void_p, ctypes.c_void_p]
-    replace.restype = ctypes.c_int
-    backup = path.with_name('.gui-controller-backup-' + uuid4().hex + '.json')
-    if not replace(str(path), str(temporary), str(backup), 0, None, None):
-        if backup.exists() and not path.exists():
-            os.replace(backup, path)
-        raise RuntimeError('Controller replacement unconfirmed; inspect the retained configuration/backup before restarting')
-    backup.unlink()
+    _PUBLICATION['publish_configuration'](path, _PUBLICATION['configuration_revision'](expected), contents.encode('utf-8'))
 
 
 def _render_command(arguments):
@@ -909,6 +927,7 @@ def main(argv=None):
                 print("DEFERRED: " + message)
             print("DEFERRED: no complete selected role configuration; no installation changes made")
             return 2
+        hardware_updates = _device_parameter_plan(preflight_python, checkout, directory, existing, configured)
         gui, gui_pending = _gui_plan(checkout, directory, existing, configured, installed, preflight_python)
         deferred.extend(gui_pending)
         if gui is not None and gui['update'] is not None and 'controller' in generated:
@@ -926,7 +945,12 @@ def main(argv=None):
                 contents = json.dumps(data, indent=2) + "\n"
                 # Generated references are absolute; existing files retain their original base directory.
                 path = Path(staging) / FILES[role]
-                path.write_text(contents, encoding="utf-8")
+                validation_data = dict(data)
+                if role == 'acquisition-node' and hardware_updates:
+                    hardware = Path(staging) / 'validated-hardware.json'
+                    hardware.write_bytes(hardware_updates[0][2])
+                    validation_data['node_config'] = str(hardware)
+                path.write_text(json.dumps(validation_data, indent=2) + '\n', encoding="utf-8")
                 staged.append((role, path, contents))
             for role, path in ([(role, path) for role, path, _ in staged]
                                + [(role, directory / FILES[role]) for role in existing]):
@@ -1016,6 +1040,13 @@ def main(argv=None):
                 if path.read_bytes() != contents:
                     raise RuntimeError("Existing configuration changed during setup; rerun explicitly")
                 _validate(python, checkout, path, role)
+            for _, _, candidate in hardware_updates:
+                verified = _run([python, '-I', '-B', '-c', NODE_PARAMETERS, checkout / 'src'],
+                    input=json.dumps({'document': json.loads(candidate)}))
+                if verified.strip() == 'DEPENDENCIES_UNAVAILABLE':
+                    raise RuntimeError('Device configuration validation unavailable after installation')
+                if json.loads(verified)['document'] != json.loads(candidate):
+                    raise RuntimeError('Device configuration changed during validation')
             if storage_destination is not None:
                 _require_storage_destination(storage_destination)
             for role, data in generated.items():
@@ -1029,7 +1060,13 @@ def main(argv=None):
                     for key in ("local_storage_root", "error_evidence_location"):
                         (hardware.parent / settings[key]).mkdir(parents=True, exist_ok=True)
             for role, _, contents in staged:
+                if role == 'acquisition-node':
+                    for target, expected, candidate in hardware_updates:
+                        _PUBLICATION['publish_configuration'](target, _PUBLICATION['configuration_revision'](expected), candidate)
                 _publish(directory / FILES[role], contents)
+            if 'acquisition-node' in existing:
+                for target, expected, candidate in hardware_updates:
+                    _PUBLICATION['publish_configuration'](target, _PUBLICATION['configuration_revision'](expected), candidate)
             if gui is not None and gui['connection_bytes'] is None:
                 gui['connection_path'].parent.mkdir(parents=True, exist_ok=True)
                 _publish(gui['connection_path'], json.dumps(gui['connection'], indent=2) + '\n')

@@ -2790,14 +2790,53 @@ explicit destination Refresh feedback are also corrected; independent validation
 and audit remain pending. The live destination-discovery failure cause remains
 unresolved; these corrections do not establish deployment readiness.
 
+Separate Package A acquisition corrections implement bounded exact-marker
+acceptance before full Normal Stop receipt proof and SynchronizationManager-owned
+periodic mapping renewal using existing candidate and activation safeguards.
+Independent validation/audit remain pending. The original persistent live Stop
+failure is not conclusively explained; defaults, Session immutability and
+Experiment timing admission remain unchanged. See the implementation boundaries
+in `code_map.md`; no deployment reset or recovery is established here.
+
+Package B deployment corrections are developer-implemented: the original connected
+Launch Session action sequences existing launch/start only after definitive
+completion and matching fresh ownership/Session readback; uncertain outcomes or
+reconnection do not resume that sequence. Existing inventory adds filtered,
+scoped requested settings for the shared Parameters editor without changing
+override resolution or saved/executed configurations. Free Mode differentiates
+preparation blockers, and the header identifies connected versus demonstration
+mode. Independent validation/audit remain pending; the reported Free Mode reset
+remains unconfirmed. Decision 370/W069 establishes the generic adapter contract,
+not a specific accepted classification for `frames_per_collect`; its existing
+behavior is preserved and its new inherited-value projection was deferred to ICC.
+Decision 454 now settles the classification as device-specific Administrator-only
+technical configuration. Decision 455 now settles AcquisitionNode-owned durable
+modification of the existing hardware file through Controller/NATS, unreserved
+and outside an active Session, with separate saved/loaded readback and normal
+restart application. Package C is developer-implemented and independently unverified.
+
 Decision 451 accepts global client Administrator mode and backend-owned global
 synchronization defaults. The user-approved initialization clarification resolves
 the former initial-value checkpoint; Decision 451 lists all eight approved
 software defaults without claiming experimentally validated tolerances. Backend
 persistence, installer initialization and subsequent Session handoff are bounded
 developer implementation, pending independent verification and audit.
-`frames_per_collect` still has no accepted exposure category
-and remains adapter-driven and unrestricted by this GUI change.
+Decision 454 resolves the formerly deferred `frames_per_collect` category:
+Administrator-only technical batching configuration, distinct from experimenter
+width/height/FPS overrides. Initial installation plus optional Advanced Settings,
+authoritative readback and persistent per-device changes for subsequent Sessions
+are accepted; active and accepted execution configurations must remain unchanged.
+Package C rejects ordinary administrative overrides and implements owner-side
+administrative mutation. Decision 455 resolves the previously missing update
+contract: retain the startup file path, preserve unrelated fields, prevent silent
+lost updates, confirm only durable publication, and reconcile saved readback after
+uncertain outcomes before another write. Loaded values govern until normal node
+restart; no live reload, automatic restart or GUI-owned device store. Newly
+configured OpenCV cameras initialize `frames_per_collect=1`, with optional Advanced
+Settings and preservation of valid retained values. The generic mechanism remains
+adapter-driven. Q022 and Package A/B validation/audit remain OPEN/pending; Package C
+developer implementation is present; independent validation/audit remain pending,
+not closure. No live deployment or hardware application is established.
 
 **Scientific storage and optional GUI setup (Decision 447): accepted; Slice 447-A
 storage implemented with developer verification, independent validation/audit

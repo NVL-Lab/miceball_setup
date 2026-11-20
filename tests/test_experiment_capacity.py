@@ -240,6 +240,8 @@ class ExperimentCapacityTests(unittest.TestCase):
 class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.fixture = sustained.SustainedAcquisitionTests()
+        self.fixture.addCleanup = self.addCleanup
+        self.fixture.addAsyncCleanup = self.addAsyncCleanup
         await self.fixture.asyncSetUp()
         self.target = sustained.RuntimeParticipant("storage_manager", "storage")
         self.output = ScientificOutputSelection("camera", "node", "frames")

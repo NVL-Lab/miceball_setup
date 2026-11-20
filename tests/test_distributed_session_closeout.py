@@ -7,7 +7,7 @@ import multiprocessing
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from lab_sync_acquisition import (
     Controller, InMemoryIngestor, NatsCommunicationBoundary, NatsControllerCommunication,
@@ -70,7 +70,8 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.addAsyncCleanup = self.addAsyncCleanup
 
         def intake(**configuration):
-            self.storage = PersistentStorageManager(Path(configuration["recovery_journal_root"]).parent)
+            root = Path(configuration["recovery_journal_root"]).parent
+            self.storage = PersistentStorageManager(root, global_artifact_root=root / "artifacts")
             return InMemoryIngestor(storage_manager=self.storage, **configuration)
 
         with patch.object(timing, "_Broker", CloseoutBroker), patch.object(timing, "InMemoryIngestor", intake):
@@ -204,6 +205,108 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
         await self.acknowledge()
         result = await self.stop()
         self.assertTrue(result.succeeded, result.error)
+
+    async def test_normal_stop_waits_for_independently_delayed_marker_intake(self):
+        await self.running()
+        f = self.fixture
+        tasks = []
+        waiting = asyncio.Event()
+        original_wait = f.ingestor.await_durable_runtime_evidence
+        async def observe_wait(*args):
+            waiting.set()
+            return await original_wait(*args)
+        subscription = next(s for s in f.broker.subscriptions if s.subject == f"messages.{f.sid}.evidence.*.*.*")
+        receive = subscription.callback
+        async def delay_marker(message):
+            if json.loads(message.data).get("evidence_type") == "acquisition_evidence_completion":
+                async def deliver():
+                    await waiting.wait()
+                    await receive(message)
+                    await self.acknowledge()
+                tasks.append(asyncio.create_task(deliver()))
+            else:
+                await receive(message)
+        subscription.callback = delay_marker
+        f.broker.after_publication = None
+        try:
+            with patch.object(f.ingestor, "await_durable_runtime_evidence", side_effect=observe_wait):
+                result = await f.controller.normal_stop_session(communication=f.communication,
+                    storage_participant=self.storage_participant, result_window_s=1)
+            self.assertTrue(result.succeeded, result.error)
+            self.assertTrue(result.details["acquisition_preservation_eligible"])
+            request = next(command for command in f.broker.commands if command['command_type'] == 'preserve_session_acquisition')
+            self.assertEqual(request['payload']['acceptance_window_s'], .5)
+        finally:
+            for task in tasks:
+                if not task.done(): task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def test_invalid_marker_or_journal_fails_without_waiting(self):
+        await self.fixture.start()
+        f = self.fixture
+        marker = RuntimeEvidenceMessage("test-marker", f.sid, "acquisition_evidence_completion", "controller", {}, True)
+        async def request(value, **changes):
+            payload = dict(mode="normal", marker=value, session_record={}, controller_evidence=[],
+                uncertainties=[], acceptance_window_s=.1, **changes)
+            return await f.communication.request_persistence_command(f.participants[0], "preserve_session_acquisition",
+                f.sid, payload, 1, command_id=json.dumps([f.sid, "preserve_session_acquisition"], separators=(",", ":")))
+        from dataclasses import replace
+        for value, reason in ((replace(marker, session_id="another"), "session_mismatch"),
+                (replace(marker, source_id="another"), "marker_source_mismatch"),
+                (replace(marker, evidence_type="another"), "invalid_completion_marker")):
+            with self.subTest(reason=reason), patch.object(f.ingestor, "await_durable_runtime_evidence", new_callable=AsyncMock) as wait:
+                result = await request(value.to_dict())
+                self.assertFalse(result.success)
+                self.assertIn(reason, result.reason)
+                wait.assert_not_awaited()
+        f.ingestor.receive_runtime_evidence(marker)
+        for attribute, value, reason in (("_recovery_journal_path", None, "journal_unavailable"),
+                ("_journal_failed", True, "journal_failed")):
+            with self.subTest(reason=reason), patch.object(f.ingestor, attribute, value), patch.object(
+                    f.ingestor, "await_durable_runtime_evidence", new_callable=AsyncMock) as wait:
+                result = await request(marker.to_dict())
+                self.assertFalse(result.success)
+                self.assertIn(reason, result.reason)
+                wait.assert_not_awaited()
+        result = await request(replace(marker, payload={"conflicting": True}).to_dict())
+        self.assertIn("conflicting_marker_contents", result.reason)
+
+    async def test_acceptance_timeout_and_cancel_retain_explicit_retry(self):
+        await self.running()
+        f = self.fixture
+        subscription = next(s for s in f.broker.subscriptions if s.subject == f"messages.{f.sid}.evidence.*.*.*")
+        receive = subscription.callback
+        pending = []
+        async def withhold(message):
+            if json.loads(message.data).get("evidence_type") == "acquisition_evidence_completion":
+                pending.append(message)
+            else:
+                await receive(message)
+        subscription.callback = withhold
+        f.broker.after_publication = None
+        failed = await f.controller.normal_stop_session(communication=f.communication,
+            storage_participant=self.storage_participant, result_window_s=.2)
+        self.assertFalse(failed.succeeded)
+        self.assertIn("durable_acceptance_deadline_expired", failed.error)
+        self.assertIsNone(f.ingestor.finalized_acquisition_intake(f.sid))
+        waiting = asyncio.Event()
+        original_wait = f.ingestor.await_durable_runtime_evidence
+        async def observe_wait(*args):
+            waiting.set()
+            return await original_wait(*args)
+        with patch.object(f.ingestor, "await_durable_runtime_evidence", side_effect=observe_wait):
+            task = asyncio.create_task(f.controller.normal_stop_session(communication=f.communication,
+                storage_participant=self.storage_participant, result_window_s=2))
+            await asyncio.wait_for(waiting.wait(), 3)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertEqual(f.ingestor.session_id, f.sid)
+        self.assertIsNone(f.ingestor.finalized_acquisition_intake(f.sid))
+        subscription.callback = receive
+        await self.acknowledge()
+        retry = await self.stop()
+        self.assertTrue(retry.succeeded, retry.error)
 
     async def test_preservation_failure_retains_finality_and_blocks_release(self):
         await self.running()

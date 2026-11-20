@@ -1420,6 +1420,36 @@ operating overrides. Existing inventory exposes adjustable parameter constraints
 A declaration makes a product available; explicit `ScientificOutputSelection`
 selects it for an Experiment.
 
+**Developer implementation; independent validation/audit pending (Decisions 454-455):**
+`frames_per_collect` is device-specific Administrator-adjustable technical batching
+configuration, not scientific FPS or Experiment duration. Decision 455 approves
+the OpenCV-specific initial value `1` for newly configured cameras, with optional
+Advanced Settings override and preservation of valid retained per-device values;
+it is not a universal or scientifically validated optimum. Later adjustment belongs
+in Parameters in
+Administrator mode, with authoritative configured-value readback and no changes
+to active acquisition or accepted execution snapshots. The CLI stages optional
+Advanced administrative settings using adapter-owned validation and preserves
+valid retained values. The node runtime implements owner-side durable
+publication to the actual startup hardware file, preserving unrelated fields and
+preventing silent lost updates. Modifications require an unreserved node outside
+an active Session and no conflicting lifecycle work. Saved and loaded values remain
+separate: normal AcquisitionNode restart applies the change, with post-restart
+readback confirming loading. Unconfirmed saves require saved-value readback before
+another write, not automatic retry. No GUI backend device persistence, live reload
+or automatic restart. Width, height and FPS remain experimenter-adjustable;
+Package C independent verification remains pending and Decision 453 stays deferred.
+Update the core package on Controller and AcquisitionNode computers and the GUI
+package on its backend computer before using the new operation. Apply saved values
+only by normal, authorized AcquisitionNode shutdown/restart when obligations permit;
+refresh inventory afterward to confirm loaded values. No live deployment was changed
+by developer verification. Publication serializes cooperating runtime/installer
+writers using a sibling lock file, rejects stale revisions and verifies exact
+readback. This is not atomic content-CAS against external writers that ignore the
+lock. Windows uses ReplaceFile access-control preservation and file synchronization;
+POSIX additionally synchronizes the parent directory. Physical power-loss durability
+and POSIX ACL behavior were not established by the Windows developer checks.
+
 <a id="sustained-acquisition-execution-g3-closed"></a>
 ### Sustained Acquisition Execution (G3 Closed)
 

@@ -20,6 +20,52 @@ def _unique_object(pairs):
     return result
 
 
+def create_installed_adapter(name, declaration):
+    """Construct an explicitly supported adapter without initializing hardware."""
+    from lab_sync_acquisition.opencv_camera import SeeedIMX219OpenCVCameraAdapter
+    if name != 'seeed_imx219_opencv':
+        raise ValueError('Unsupported installed adapter')
+    return SeeedIMX219OpenCVCameraAdapter(declaration.device_id, declaration.device_type,
+        declaration.declared_capabilities, declaration.required)
+
+
+def validate_acquisition_node_configuration(data, *, adapters=None):
+    """Validate the complete existing hardware document using adapter-owned constraints."""
+    from lab_sync_acquisition.device import DeviceDeclaration
+    if not isinstance(data, dict) or set(data) != {'node_id', 'role', 'local_storage_root', 'error_evidence_location', 'devices'}:
+        raise ValueError('Node installation requires identity, role, local storage, errors and devices')
+    for key in ('node_id', 'role', 'local_storage_root', 'error_evidence_location'):
+        if not isinstance(data[key], str) or not data[key].strip():
+            raise ValueError('Node installation requires nonempty ' + key)
+    build_runtime_subject(None, 'command', 'acquisition_node', data['node_id'], 'stop')
+    if not isinstance(data['devices'], list) or not data['devices']:
+        raise ValueError('Node installation requires a nonempty installed-device list')
+    identities = set()
+    for item in data['devices']:
+        if not isinstance(item, dict) or set(item) != {'adapter', 'declaration', 'configuration'}:
+            raise ValueError('Each installed device requires adapter, declaration and configuration')
+        declaration = DeviceDeclaration.from_dict(item['declaration'])
+        if (not isinstance(declaration.device_id, str) or not declaration.device_id.strip()
+                or declaration.device_id in identities or not isinstance(declaration.device_type, str)
+                or not declaration.device_type.strip() or type(declaration.enabled) is not bool
+                or type(declaration.required) is not bool or declaration.declared_capabilities is None
+                or any(not isinstance(value, str) or not value for value in declaration.declared_capabilities)):
+            raise ValueError('Invalid installed device identity or declaration')
+        identities.add(declaration.device_id)
+        installed = create_installed_adapter(item['adapter'], declaration)
+        adapter = installed if adapters is None else adapters.get(declaration.device_id)
+        if adapter is None or type(adapter) is not type(installed):
+            raise ValueError('Saved adapter selection differs from this node')
+        adapter.validate_configuration(item['configuration'])
+    return data
+
+
+def read_acquisition_node_configuration(path):
+    """Read and validate hardware JSON without opening hardware or constructing a node."""
+    data = json.loads(Path(path).read_text(encoding='utf-8'), object_pairs_hook=_unique_object)
+    return validate_acquisition_node_configuration(data)
+
+
 def _local_path(directory, value, field):
     if not isinstance(value, str) or not value.strip() or "\x00" in value:
         raise ValueError(f"{field} requires a nonempty local path")
@@ -151,7 +197,6 @@ def _validate_service_configuration(data, directory, role):
         data["known_nodes"] = tuple(nodes)
     if role == "acquisition-node":
         data["node_config"] = _local_path(directory, data["node_config"], "node_config")
-        from lab_sync_acquisition.service_startup import read_acquisition_node_configuration
         node = read_acquisition_node_configuration(data["node_config"])
         if "service_id" in data and data["service_id"] != node["node_id"]:
             raise ValueError("service_id conflicts with the persistent node_id in node_config")

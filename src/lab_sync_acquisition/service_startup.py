@@ -16,67 +16,28 @@ from lab_sync_acquisition.nats_communication import (
     NatsServiceMaintenanceCommunication, NatsSynchronizationManagerCommunication,
     NatsExternalSessionLaunchReceiver,
 )
-from lab_sync_acquisition.opencv_camera import OpenCVCameraConfig, SeeedIMX219OpenCVCameraAdapter
 from lab_sync_acquisition.service_launcher import ServiceLauncher, _terminal_report
 from lab_sync_acquisition.service_maintenance import ServiceMaintenanceInterface
 from lab_sync_acquisition.synchronization import SynchronizationManager
 
 
-def read_acquisition_node_configuration(path):
-    """Validate installation settings without constructing an owner or opening hardware."""
-    path = Path(path)
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) != {"node_id", "role", "local_storage_root", "error_evidence_location", "devices"}:
-        raise ValueError("Node installation requires node_id, role, local_storage_root, error_evidence_location and devices")
-    if not isinstance(data["devices"], list) or not data["devices"]:
-        raise ValueError("Node installation requires a nonempty installed-device list")
-    for key in ("node_id", "role", "local_storage_root", "error_evidence_location"):
-        if not isinstance(data[key], str) or not data[key].strip():
-            raise ValueError(f"Node installation requires nonempty {key}")
-    build_runtime_subject(None, "command", "acquisition_node", data["node_id"], "stop")
-    configurations = {}
-    for item in data["devices"]:
-        if not isinstance(item, dict) or set(item) != {"adapter", "declaration", "configuration"}:
-            raise ValueError("Each installed device requires adapter, declaration and configuration")
-        declaration = DeviceDeclaration.from_dict(item["declaration"])
-        if item["adapter"] != "seeed_imx219_opencv":
-            raise ValueError(f"Unsupported installed adapter: {item['adapter']}")
-        if (not isinstance(declaration.device_id, str) or not declaration.device_id.strip()
-                or not isinstance(declaration.device_type, str) or not declaration.device_type.strip()
-                or declaration.declared_capabilities is None
-                or any(not isinstance(value, str) or not value for value in declaration.declared_capabilities)
-                or type(declaration.enabled) is not bool or type(declaration.required) is not bool
-                or declaration.device_id in configurations):
-            raise ValueError("Installed devices require unique identities and explicit capabilities/enabled/required settings")
-        config = OpenCVCameraConfig(**item["configuration"])
-        if type(config.frames_per_collect) is not int or config.frames_per_collect < 1:
-            raise ValueError("frames_per_collect must be a positive integer")
-        from math import isfinite
-        if (type(config.api_preference) is not int
-                or not (type(config.camera_source) is int and config.camera_source >= 0
-                        or isinstance(config.camera_source, str) and config.camera_source.strip())
-                or any(value is not None and (type(value) is not int or value <= 0)
-                       for value in (config.frame_width, config.frame_height))
-                or config.fps is not None and (type(config.fps) not in {int, float}
-                                              or not isfinite(config.fps) or config.fps <= 0)):
-            raise ValueError("Invalid explicit OpenCV installation connection or capture settings")
-        configurations[declaration.device_id] = item["configuration"]
-    return data
+from lab_sync_acquisition.deployment_configuration import (
+    read_acquisition_node_configuration, create_installed_adapter,
+)
 
 
 def load_acquisition_node(path, synchronization_source_id):
     """Load installation declarations and explicit supported adapters without opening hardware."""
-    path = Path(path)
+    path = Path(path).absolute()
     data = read_acquisition_node_configuration(path)
     declarations = [DeviceDeclaration.from_dict(item["declaration"]) for item in data["devices"]]
-    adapters = [SeeedIMX219OpenCVCameraAdapter(d.device_id, d.device_type,
-        d.declared_capabilities, d.required) for d in declarations]
+    adapters = [create_installed_adapter(item['adapter'], d) for item, d in zip(data['devices'], declarations)]
     configurations = {item["declaration"]["device_id"]: item["configuration"] for item in data["devices"]}
     return AcquisitionNode(device_manager=DeviceManager(adapters), node_id=data["node_id"], role=data["role"],
         synchronization_source_id=synchronization_source_id, device_declarations=declarations,
         default_local_storage_root=path.parent / data["local_storage_root"],
         error_evidence_location=str(path.parent / data["error_evidence_location"]),
-        deployment_device_configurations=configurations)
+        deployment_device_configurations=configurations, configuration_source_path=path)
 
 
 async def launch_independent_service(*, role, servers, service_id, ingestor_id, storage_id,

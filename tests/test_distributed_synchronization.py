@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 from time import monotonic
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from lab_sync_acquisition import (
     AcquisitionNode, Controller, DeviceDeclaration, DeviceManager, InMemoryIngestor,
@@ -17,10 +17,10 @@ from lab_sync_acquisition import (
     ScientificOutputSelection, ScientificProductDeclaration, SynchronizationConfiguration,
     ExperimentRuntimeHealthMapping,
     SynchronizationManager,
-    ExperimentConfiguration, PersistentStorageManager, NatsStorageManagerCommunication,
+    ExperimentConfiguration, PersistentStorageManager, NatsStorageManagerCommunication, ServiceMaintenanceInterface,
 )
 from tests.test_session_launch import _Boundary, _Broker, _CollectingAdapter
-from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server
+from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server, acquire_test_controller_authority
 
 
 def configuration(**changes):
@@ -41,15 +41,17 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        (self.root / "artifacts").mkdir()
         self.broker = _Broker()
         self.sync = SynchronizationManager()
         self.sync_handler = NatsSynchronizationManagerCommunication(
             _Boundary("synchronization_manager", "sync", self.broker), self.sync)
         await self.sync_handler.subscribe_commands()
         self.ingestor = InMemoryIngestor(recovery_journal_root=self.root / "journals")
-        storage = self.ingestor._storage_manager or PersistentStorageManager(self.root / "storage")
+        storage = self.ingestor._storage_manager or PersistentStorageManager(self.root / "storage", global_artifact_root=self.root / "artifacts")
         self.ingestor._storage_manager = storage
-        await NatsStorageManagerCommunication(_Boundary("storage_manager", "storage", self.broker), storage).subscribe_commands()
+        self.storage_handler = NatsStorageManagerCommunication(_Boundary("storage_manager", "storage", self.broker), storage)
+        await self.storage_handler.subscribe_commands()
         self.ingestor_handler = NatsIngestorCommunication(_Boundary("ingestor", "ingestor", self.broker), self.ingestor)
         await self.ingestor_handler.subscribe_commands()
         adapter = _CollectingAdapter("device", "fake", ("events",), True)
@@ -63,8 +65,9 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.controller = Controller()
         self.communication = NatsControllerCommunication(_Boundary("controller", "controller", self.broker))
         self.participants = (RuntimeParticipant("ingestor", "ingestor"),
-            RuntimeParticipant("synchronization_manager", "sync"), RuntimeParticipant("acquisition_node", "node"))
-        self.config = {"storage_location": str(self.root / "records"), "protocol_plan": {"name": "test"},
+            RuntimeParticipant("synchronization_manager", "sync"),
+            RuntimeParticipant("storage_manager", "storage"), RuntimeParticipant("acquisition_node", "node"))
+        self.config = {"storage_location": "default", "protocol_plan": {"name": "test"},
             "error_evidence_location": str(self.root / "errors"),
             "synchronization_configuration": configuration()}
         self.addCleanup(self.cleanup_node)
@@ -77,6 +80,23 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
             self.node.local_storage_manager.cleanup()
 
     async def launch(self):
+        if getattr(self.controller, "_maintenance", None) is None:
+            storage = self.ingestor._storage_manager
+            maintenance = ServiceMaintenanceInterface(self.controller, RuntimeParticipant("controller", "controller"),
+                ingestor=self.ingestor, storage_manager=storage, preservation_window_s=2,
+                close_resources=AsyncMock(return_value=True))
+            authority = await acquire_test_controller_authority(self, maintenance)
+            # Workflow traffic remains scheduled by the controlled broker; authority uses real KV/account readback.
+            authority._require_jetstream = lambda: self.broker
+            self.communication = NatsControllerCommunication(authority)
+            for handler, owner in ((self.sync_handler, self.sync), (self.ingestor_handler, self.ingestor),
+                    (self.storage_handler, storage), (self.handler, self.node)):
+                boundary = handler._boundary
+                boundary._client, boundary._jetstream = authority._client, authority._jetstream
+                boundary.configure_controller_authority(account="LAB", bucket="AUTHORITY", key="controller", timeout_s=2)
+                ServiceMaintenanceInterface(owner, RuntimeParticipant(boundary.component_type, boundary.component_id),
+                    ingestor=self.ingestor, storage_manager=storage, preservation_window_s=2,
+                    close_resources=AsyncMock(return_value=True))
         result = await self.controller.launch_session({"node": (declaration(),)},
             communication=self.communication, participants=self.participants,
             config_parameters=self.config, result_window_s=2)
@@ -321,6 +341,44 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
             mapping = activation["mapping"]
             self.assertAlmostEqual(row["session_time_s"], mapping["session_time_anchor_s"] +
                 mapping["scale"] * (row["acquisition_node_local_time_s"] - mapping["local_time_anchor_s"]))
+
+    async def test_periodic_renewal_preserves_idle_and_active_mapping_history(self):
+        await self._use_authorized_transport(assessment_interval_s=.05)
+        offset = 0
+        clock = lambda: monotonic() + offset
+        with patch('lab_sync_acquisition.synchronization.monotonic', side_effect=clock), patch(
+                'lab_sync_acquisition.acquisition_node.monotonic', side_effect=clock), patch(
+                'lab_sync_acquisition.nats_communication.monotonic', side_effect=clock):
+            await self.start()
+            first = deepcopy(self.node.mapping_activation_history[0])
+            for cycle in range(3):
+                if cycle == 2:
+                    await self.experiment()
+                    result = await self.communication.request_runtime_command(self.participants[-1], 'run_one_iteration', self.sid, {}, 3)
+                    self.assertTrue(result.success, result.reason)
+                count = len(self.node.mapping_activation_history)
+                async with self.sync_handler._runtime_lock:
+                    offset += 20
+                async with asyncio.timeout(5):
+                    while len(self.node.mapping_activation_history) == count:
+                        await asyncio.sleep(.02)
+                self.assertTrue(self.sync._measured_mapping_quality['node']['acceptable'])
+                self.assertEqual(self.node.mapping_activation_history[0], first)
+            result = await self.communication.request_runtime_command(self.participants[-1], 'run_one_iteration', self.sid, {}, 3)
+            self.assertTrue(result.success, result.reason)
+            self.assertTrue((await self.controller.stop_launched_experiment('experiment')).succeeded)
+
+    async def test_failed_renewal_delivery_does_not_claim_node_activation(self):
+        await self._use_authorized_transport()
+        await self.start()
+        activations = self.node.mapping_activation_history
+        with patch.object(self.sync_handler, '_deliver_quality', new_callable=AsyncMock,
+                side_effect=RuntimeError('controlled lost mapping delivery')):
+            result = await self.communication.request_runtime_command(self.participants[1], 'resynchronize',
+                self.sid, {'node_ids': ['node']}, 3)
+        self.assertFalse(result.success)
+        self.assertFalse(self.sync._measured_mapping_quality['node']['acceptable'])
+        self.assertEqual(self.node.mapping_activation_history, activations)
 
     async def test_missing_synchronization_prevents_acquisition(self):
         await self.launch()

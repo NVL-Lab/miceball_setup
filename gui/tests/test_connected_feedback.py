@@ -19,6 +19,12 @@ from lab_sync_acquisition.device_adapter import DeviceAdapter
 
 
 class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_package_c_administrative_settings_in_browser(self):
+        await self._check_feedback(activity_only=False, package_c_only=True)
+
+    async def test_package_b_launch_and_parameter_feedback_in_browser(self):
+        await self._check_feedback(activity_only=False, package_b_only=True)
+
     async def test_services_and_inventory_feedback_in_browser(self):
         await self._check_feedback(activity_only=False)
 
@@ -28,7 +34,7 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_historical_identity_rendering_in_browser(self):
         await self._check_feedback(activity_only=False, rendering_only=True)
 
-    async def _check_feedback(self, *, activity_only, rendering_only=False):
+    async def _check_feedback(self, *, activity_only, rendering_only=False, package_b_only=False, package_c_only=False):
         node = shutil.which("node")
         module = os.environ.get("LAB_SYNC_PLAYWRIGHT_MODULE", "playwright")
         if not node or subprocess.run([node, "-e", "require(process.argv[1])", module], capture_output=True).returncode:
@@ -152,6 +158,27 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
         monitoring_declaration = DeviceDeclaration("camera", "test-camera", True, False, (), (product,))
         monitoring_owner = AcquisitionNode(device_manager=DeviceManager([ParameterAdapter("camera", {"gain": {"type": "number"}})]),
             node_id="node", role="acquisition", synchronization_source_id="sync", device_declarations=(monitoring_declaration,))
+        from lab_sync_acquisition import OpenCVCameraConfig, SeeedIMX219OpenCVCameraAdapter, InMemoryIngestor, SynchronizationManager
+        from tests.test_seeed_imx219_camera_adapter import FakeCV2
+        camera = SeeedIMX219OpenCVCameraAdapter("camera", "test-camera", (), False, cv2_module=FakeCV2([]))
+        configured_owner = AcquisitionNode(device_manager=DeviceManager([camera]), node_id="node",
+            synchronization_manager=SynchronizationManager(), ingestor=InMemoryIngestor(),
+            default_local_storage_root=Path(directory) / "camera", device_declarations=(monitoring_declaration,),
+            deployment_device_configurations={"camera": OpenCVCameraConfig(0, 0, 2, 640, 480, None)})
+        configured_installation = configured_owner.get_inventory()
+        from lab_sync_acquisition.service_startup import load_acquisition_node
+        hardware = json.loads((repository / 'config_templates/manual_installation/acquisition-node.json').read_bytes())
+        hardware.update(node_id='node', local_storage_root='local', error_evidence_location='errors')
+        hardware['devices'][0]['declaration']['device_id'] = 'camera'
+        hardware['devices'][0]['configuration'].update(camera_source=0, frames_per_collect=2)
+        hardware_path = Path(directory) / 'hardware.json'
+        hardware_path.write_text(json.dumps(hardware))
+        administrative_inventory = load_acquisition_node(hardware_path, 'sync').get_inventory()
+        configured_owner.reserve("package-session")
+        configured_owner.initialize_session("package-session", (monitoring_declaration,), {"camera": {"frame_width": 800}})
+        configured_session = configured_owner.get_inventory()
+        configured_owner.abort_session_initialization("package-session")
+        configured_owner.release_reservation("package-session")
         monitoring = Session("monitor-session", SessionConfig([monitoring_declaration], "test-only-storage", {}, "test-only-errors",
             session_id="monitor-session", session_parameters={"name": "Monitor Session"},
             expected_runtime_participants=(RuntimeParticipant("acquisition_node", "node"),)))
@@ -172,6 +199,10 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
                     "active_experiment_id": None, "experiment_lifecycle_evidence": [event.to_dict() for event in monitoring.experiment_lifecycle_evidence]},
                 "experiments": [descriptor.to_dict() for descriptor in monitoring.experiment_descriptors]})
         environment = {**os.environ, "LAB_SYNC_PLAYWRIGHT_MODULE": module,
+            "LAB_SYNC_GUI_PACKAGE_C_ONLY": "1" if package_c_only else "",
+            "MICEBALL_ADMINISTRATIVE_INVENTORY": json.dumps(administrative_inventory),
+            "LAB_SYNC_GUI_PACKAGE_B_ONLY": "1" if package_b_only else "",
+            "MICEBALL_CONFIGURED_INVENTORIES": json.dumps([configured_installation, configured_session]),
             "LAB_SYNC_GUI_RENDERING_ONLY": "1" if rendering_only else "",
             "LAB_SYNC_GUI_ACTIVITY_ONLY": "1" if activity_only else "",
             "MICEBALL_BROWSER_ORIGIN": origin, "MICEBALL_DEMO_ORIGIN": demos["baseline"],
