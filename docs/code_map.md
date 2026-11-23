@@ -2256,7 +2256,16 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsSynchronizationManagerCommunication.close(): Cancels periodic assessment and unsubscribes transport callbacks without terminating acquisition or changing Session lifecycle.
 - NatsSynchronizationManagerCommunication._measure_node: Collects causal NATS exchanges for owner-side assessment and confirmed mapping delivery, retaining completed partial exchanges on transport failure or cancellation.
 - NatsSynchronizationManagerCommunication._deliver_quality: Requires correlated node acceptance of owner-issued mapping/quality state.
-- NatsSynchronizationManagerCommunication._publish_timing: Publishes stable owner-created timing evidence without closing Session Time.
+- NatsSynchronizationManagerCommunication._publish_timing_message(message): Tracks Session-scoped durably confirmed evidence identities under the existing runtime serialization; uncertain publications remain retryable and confirmed release retires the progress.
+- NatsSynchronizationManagerCommunication._publish_timing: Publishes new or unconfirmed stable owner-created timing evidence without closing Session Time, sharing publication progress with final producer flush.
+
+The bounded synchronization republication correction is developer implementation,
+pending independent validation and audit. A fresh communication handler replays
+retained stable owner evidence without trusting a persisted publication cache;
+existing Ingestor deduplication remains authoritative. This does not establish
+physical crash recovery or resolve the G5 Normal Stop/Kill incidents.
+- DistributedSynchronizationTests.test_timing_publication_preserves_each_confirmed_observation_once: Mirrors public assessment/remapping and final flush through real JetStream, verifying unique stable timing publications and durable intake.
+- DistributedSynchronizationTests.test_uncertain_timing_publication_and_fresh_transport_replay_stable_history: Verifies stored-but-unacknowledged publication retry and fresh-handler stable-history replay without duplicate logical intake.
 - NatsSynchronizationManagerCommunication._periodic_assessment: Performs configured serialized checks with owner-directed guarded mapping renewal, retaining failed evidence and truthful degraded quality without changing cadence or stopping nodes.
 - _participant_result: Builds an existing correlated service-owned result while echoing an explicitly supplied request nonce.
 - _execute_service_command: Delegates readiness/preparation/abort to the owner, reports existing resource diagnostics and maintenance identity, and retains command-ID deduplication while refreshing only the reply nonce on redelivery.

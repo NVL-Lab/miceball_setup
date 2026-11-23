@@ -1503,6 +1503,15 @@ measured exchanges/uncertainty; nodes apply them locally. Preserve node-local,
 available device-native, Session and Experiment times and mapping/quality evidence.
 Ingest time never substitutes for acquisition time.
 
+Developer implementation (independent validation/audit pending): periodic and
+explicit synchronization publication and final producer flush share per-Session
+confirmed-identity progress. Successfully published history is not sent again;
+failed, cancelled or acknowledgment-uncertain publications retain their stable
+identities for retry. A fresh communication handler replays retained evidence;
+this is not a new persistent recovery mechanism. Assessment frequency, evidence
+retention, Ingestor acceptance and closeout deadlines are unchanged. No resolution
+of the physical G5 preservation failures is claimed.
+
 `assess_synchronization` and explicit `resynchronize` are distinct. Controller
 sets a common Experiment start; nodes translate its duration deadline to monotonic
 time. Expiry finalizes the Experiment, not the Session, and Controller reconciles

@@ -3502,6 +3502,7 @@ class NatsSynchronizationManagerCommunication:
         self._runtime_lock = asyncio.Lock()
         self._assessment_task = None
         self._subscriptions = ()
+        self._published_timing_evidence: dict[str, set[str]] = {}
 
     async def _measure_node(self, session_id, node_id, *, replace_mapping):
         owner = self._synchronization_manager
@@ -3544,9 +3545,16 @@ class NatsSynchronizationManagerCommunication:
         if result is None or result.success is not True or result.payload.get("confirmed") is not True:
             raise RuntimeError("Node mapping/quality acceptance is unconfirmed")
 
+    async def _publish_timing_message(self, message):
+        """Advance Session publication progress only after durable stream confirmation."""
+        published = self._published_timing_evidence.setdefault(message.session_id, set())
+        if message.evidence_id not in published:
+            await self._boundary.publish_evidence(message)
+            published.add(message.evidence_id)
+
     async def _publish_timing(self, session_id):
         for message in self._synchronization_manager.session_timing_evidence(session_id, self._boundary.component_id):
-            await self._boundary.publish_evidence(message)
+            await self._publish_timing_message(message)
 
     async def _periodic_assessment(self, session_id, node_ids):
         owner = self._synchronization_manager
@@ -3642,7 +3650,7 @@ class NatsSynchronizationManagerCommunication:
                                  command.session_id, self._boundary.component_id)]})
                     elif command.command_type == "stop_runtime":
                         await owner.complete_session_evidence_publication(command.session_id,
-                            source_id=self._boundary.component_id, publisher=self._boundary.publish_evidence)
+                            source_id=self._boundary.component_id, publisher=self._publish_timing_message)
                         result = _participant_result(self._boundary, command, True, None,
                                                      {"session_time_s": owner.current_session_time_s})
                     elif command.command_type == "release_session":
@@ -3667,6 +3675,8 @@ class NatsSynchronizationManagerCommunication:
                                     or acceptance.payload.get("durable_acceptance_confirmed") is not True):
                                 raise RuntimeError("Synchronization evidence durable acceptance is unconfirmed")
                         released = owner.release_session(command.session_id, accepted_evidence=messages)
+                        if released:
+                            self._published_timing_evidence.pop(command.session_id, None)
                         result = _participant_result(self._boundary, command, released, None,
                             {"session_id": command.session_id, "released": released})
                     elif command.command_type == "initialize_session" and "synchronization_configuration" in command.payload:

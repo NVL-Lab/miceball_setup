@@ -666,11 +666,97 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(self.ingestor.has_durable_runtime_evidence(m) for m in applications))
         self.assertEqual([m.payload["quality"]["acceptable"] for m in applications], [True, True, False, True])
 
+    async def test_timing_publication_preserves_each_confirmed_observation_once(self):
+        await self.launch()
+        boundary = NatsCommunicationBoundary('synchronization_manager', 'sync', self.communication._boundary.servers)
+        await boundary.connect()
+        self.addAsyncCleanup(boundary.close)
+        await boundary.ensure_streams()
+        publish = self.sync_handler._boundary.publish_evidence
+        published = []
+
+        async def durable(message):
+            await boundary.publish_evidence(message)
+            published.append(message.to_dict())
+            await publish(message)
+
+        async def request(operation):
+            result = await self.communication.request_runtime_command(self.participants[1], operation,
+                self.sid, {'node_ids': ['node']}, 2)
+            self.assertTrue(result.success, result.reason)
+
+        with patch.object(self.sync_handler._boundary, 'publish_evidence', side_effect=durable):
+            await request('start_runtime')
+            for operation in ('assess_synchronization', 'assess_synchronization',
+                              'resynchronize', 'assess_synchronization'):
+                await request(operation)
+                self.assertEqual(len(published), len({m['evidence_id'] for m in published}))
+            await request('stop_runtime')
+        retained = self.sync.session_timing_evidence(self.sid, 'sync')
+        self.assertEqual({m['evidence_id']: m for m in published}, {m.evidence_id: m.to_dict() for m in retained})
+        self.assertEqual(len(published), len(retained))
+        self.assertEqual((await boundary._require_jetstream().stream_info('LAB_EVIDENCE')).state.messages, len(retained))
+        self.assertTrue(all(self.ingestor.has_durable_runtime_evidence(m) for m in retained))
+
+    async def test_uncertain_timing_publication_and_fresh_transport_replay_stable_history(self):
+        await self.launch()
+        boundary = NatsCommunicationBoundary('synchronization_manager', 'sync', self.communication._boundary.servers)
+        await boundary.connect()
+        self.addAsyncCleanup(boundary.close)
+        await boundary.ensure_streams()
+        publish = self.sync_handler._boundary.publish_evidence
+        stored, uncertain = [], []
+        lose_ack = False
+
+        async def durable(message):
+            await boundary.publish_evidence(message)
+            stored.append(message.to_dict())
+            if lose_ack and not uncertain:
+                uncertain.append(message.to_dict())
+                raise TimeoutError('Stored publication; acknowledgment unavailable')
+            await publish(message)
+
+        async def request(operation):
+            return await self.communication.request_runtime_command(self.participants[1], operation,
+                self.sid, {'node_ids': ['node']}, 2)
+
+        with patch.object(self.sync_handler._boundary, 'publish_evidence', side_effect=durable):
+            self.assertTrue((await request('start_runtime')).success)
+            lose_ack = True
+            self.assertFalse((await request('assess_synchronization')).success)
+            self.assertEqual(len(uncertain), 1)
+            self.assertTrue((await request('assess_synchronization')).success)
+            self.assertEqual(sum(m == uncertain[0] for m in stored), 2)
+            for identity in {m['evidence_id'] for m in stored} - {uncertain[0]['evidence_id']}:
+                self.assertEqual(sum(m['evidence_id'] == identity for m in stored), 1)
+            retained = self.sync.session_timing_evidence(self.sid, 'sync')
+            self.assertTrue(all(self.ingestor.has_durable_runtime_evidence(m) for m in retained))
+            await self.sync_handler.close()
+            transport = self.sync_handler._boundary
+            self.sync_handler = NatsSynchronizationManagerCommunication(transport, self.sync)
+            self.addAsyncCleanup(self.sync_handler.close)
+            await self.sync_handler.subscribe_commands()
+            start = len(stored)
+            self.assertTrue((await request('assess_synchronization')).success)
+            self.assertTrue((await request('assess_synchronization')).success)
+            replayed = stored[start:]
+            self.assertEqual(len(replayed), len({m['evidence_id'] for m in replayed}))
+            for message in retained:
+                self.assertIn(message.to_dict(), replayed)
+                self.assertEqual(sum(m.evidence_id == message.evidence_id
+                    for m in self.ingestor.accepted_runtime_evidence), 1)
+            self.assertTrue((await request('stop_runtime')).success)
+        self.assertEqual((await boundary._require_jetstream().stream_info('LAB_EVIDENCE')).state.messages, len(stored))
+
     async def test_periodic_publication_recovers_retained_evidence(self):
         self.config["synchronization_configuration"] = configuration(assessment_interval_s=.02)
         await self.start()
         baseline = {m.evidence_id for m in self.sync.session_timing_evidence(self.sid, "sync")}
-        publish = self.sync_handler._boundary.publish_evidence
+        original_publish = self.sync_handler._boundary.publish_evidence
+        confirmed = []
+        async def publish(message):
+            await original_publish(message)
+            confirmed.append(message.evidence_id)
         failed, retrying, resume, recovered, subsequent = (asyncio.Event() for _ in range(5))
         self.addCleanup(resume.set)
         retained = []
@@ -709,6 +795,8 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.success, result.reason)
         self.assertIs(self.sync_handler._assessment_task, task)
         self.assertTrue(self.node.status()["is_running"])
+
+        self.assertEqual(len(confirmed), len(set(confirmed)))
 
     async def test_close_cancels_periodic_publication_recovery(self):
         self.config["synchronization_configuration"] = configuration(assessment_interval_s=.02)
