@@ -19,11 +19,11 @@ from lab_sync_acquisition import (ExternalControllerRequest, ExternalSessionLaun
 from lab_sync_acquisition.communication import SERVICE_RECOVERY_COMMAND_TYPES
 from .catalog_store import CatalogStore, CatalogConflict
 
-READS = {"read_controller_state", "read_operation_outcome", "read_session_configuration", "get_node_inventory", "read_service_status", "read_synchronization_status", "list_artifact_destinations"}
+READS = {"read_controller_state", "read_operation_outcome", "read_session_configuration", "get_node_inventory", "read_service_status", "read_synchronization_status", "list_artifact_destinations", "read_storage_sessions", "read_storage_session"}
 OPERATIONS = READS | {"update_device_configuration", "take_browser_control", "view_only", "launch_session", "start_launched_session",
     "start_launched_experiment", "stop_launched_experiment", "reconcile_launched_experiment_expiry",
     "normal_stop_session", "release_session", "kill_session", "stop_service", "kill_service", "cancel_service", "shutdown_framework",
-    "register_artifact_destination", "update_artifact_destination"} | SERVICE_RECOVERY_COMMAND_TYPES
+    "register_artifact_destination", "update_artifact_destination", "collect_saved_session_artifacts_remote"} | SERVICE_RECOVERY_COMMAND_TYPES
 
 
 class _ConnectedShell(HTMLParser):

@@ -20,6 +20,7 @@ const operations = {
   normal_stop_session: ['Session Stop', 'Session stopped.'],
   kill_session: ['Session Kill', 'Session Kill completed.'],
   release_session: ['Session release', 'Session released.'],
+  collect_saved_session_artifacts_remote: ['Session collection', 'Session collection outcome confirmed. Inspect per-artifact verification and preservation results.'],
   reconcile_launched_experiment_expiry: ['Experiment completion check', 'Experiment completion checked.'],
   get_node_inventory: ['Inventory refresh', 'Inventory refreshed.'],
   check_readiness: ['Readiness check', 'Readiness check completed.'],

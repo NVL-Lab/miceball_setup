@@ -102,7 +102,7 @@ export function renderSession() {
           const view = sessionStepView(state, item);
           return `<li><button type="button" data-session-step="${escape(item.id)}" aria-pressed="${item.id === progress.selectedId}" class="${item.id === progress.selectedId ? 'is-selected' : ''}"><span class="session-step-number">${free ? '·' : `${index + 1}.`}</span><span class="session-step-copy"><strong>${escape(item.name)}</strong><small>${free ? `${escape(view.operation?.type || 'Operation')} · ${view.record.attempts?.length || 0} attempts · ${view.record.results.length} results` : escape(item.description || 'No description supplied.')}</small></span><span class="session-step-state">${statusBadge(view.stopPending ? 'stop-requested' : view.status)}${view.status === 'needs-review' ? '<small>Earlier step updated (demo)</small>' : view.status === 'skipped' ? '<small>Optional step</small>' : ''}</span></button></li>`;
         }).join('')}</ol>
-        ${state.connected ? '<div class="session-context-links"><button type="button" data-start-session>Start Session</button><button type="button" data-release-session>Release Session</button></div>' : ''}
+        ${state.connected ? '<div class="session-context-links"><button type="button" data-start-session>Start Session</button><button type="button" data-release-session hidden>Retry Release</button></div><p role="status" data-session-closeout-feedback></p>' : ''}
         <button type="button" class="stop-session-demo" data-stop-session>Stop Session<small>${state.connected ? 'Controller Normal Stop' : 'Browser-local orderly Stop demonstration'}</small></button>
         ${state.connected ? '<button type="button" data-live-session-kill disabled>Kill Session…</button>' : ''}
       </section>

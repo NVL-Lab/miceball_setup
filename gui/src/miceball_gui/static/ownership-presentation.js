@@ -11,6 +11,7 @@ const inspection = [
   '[data-science-session]', '[data-close-validation]', '.roi-example-control select',
   '[data-trace-toggle]', '[data-detail]', '[data-expand-service]', '[data-toggle-history]',
   '[data-storage-workspace]', '[data-history-query]', '[data-history-status]', '[data-history-older]',
+  '[data-storage-live-refresh]', '[data-storage-live-inspect]', '[data-storage-live-workspace]', '[data-storage-live-query]', '[data-storage-live-cancel]',
   '[data-refresh-services]', '[data-readiness]', '#services-refresh', '#load-inventory', '#inventory-node',
   '[data-destination-refresh]', '[data-refresh-interval]', '[data-dialog-dismiss]', '[data-stop-dismiss]',
   '[data-admin-close]', '[data-danger-cancel]', '[data-storage-cancel]',
@@ -52,7 +53,7 @@ for (const type of ['click', 'beforeinput', 'input', 'change', 'submit', 'keydow
     if (type === 'input' && !event.isTrusted && event.target.matches('input[data-canonical-date]')) return;
     const control = event.target.closest('input, select, textarea, button');
     const drag = ['pointerdown', 'dragstart', 'drop'].includes(type)
-      && event.target.closest('#editor-steps, [data-drag-session], [data-collection-bucket]');
+      && event.target.closest('#editor-steps, [data-drag-session], [data-collection-bucket], [data-storage-live-drag], [data-storage-live-bucket]');
     if (type === 'submit' || drag || control && editable(control)) {
       event.preventDefault(); event.stopImmediatePropagation();
     }

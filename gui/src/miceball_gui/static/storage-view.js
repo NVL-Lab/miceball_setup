@@ -3,10 +3,11 @@ import { createStorageDemo, visibleStorageSessions, selectCollection, selectDele
 import { escapeText as esc } from './gui-presentation.js';
 import { servicesAdministrator } from './services-view.js';
 import { destinationManagementMarkup } from './artifact-destinations.js';
+import { renderConnectedStorage } from './connected-storage.js';
 
 const panel = document.querySelector('#panel-storage');
 const connected = document.documentElement?.dataset?.runtime === 'connected';
-const model = createStorageDemo(connected);
+const model = connected ? null : createStorageDemo();
 let workspace = 'collection', message = '', filters = {}, reviewSelection = [];
 const dialog = document.createElement('dialog');
 dialog.className = 'catalog-dialog storage-dialog';
@@ -45,6 +46,7 @@ function history() {
 }
 
 function renderStorage() {
+  if (connected) { renderConnectedStorage(); return; }
   panel.innerHTML = `<header><h2 class="visually-hidden" id="heading-storage">Storage</h2><p>${connected ? 'Collection and historical readback unavailable.' : 'Browser-local demonstration · fictional Session fixtures, no collection or deletion requests.'}</p><p>Viewing: ${servicesAdministrator() ? 'Administrator — all fixture Sessions' : `Experimenter — ${esc(document.querySelector('#experimenter-select').selectedOptions[0]?.textContent || 'Not selected')}`}. Identity: Setup · Administrator mode: Services.</p></header><div class="storage-tabs" role="group" aria-label="Storage workspace">${[['collection','Collection'],['deletion','Delete originals'],['history','History']].map(([key,label]) => button(`data-storage-workspace="${key}" aria-pressed="${workspace === key}"`, label)).join('')}</div><p class="storage-feedback" role="status">${esc(message)}</p>${workspace === 'collection' ? collection() : workspace === 'deletion' ? deletion() : history()}`;
   if (connected) panel.insertAdjacentHTML('beforeend', destinationManagementMarkup());
   if (connected) for (const button of panel.querySelectorAll('[data-add-pending], [data-store-review], [data-delete-review]')) { button.disabled = true; button.title = 'Operational Storage integration unavailable'; }

@@ -18,6 +18,7 @@ import { activityPresentation } from './activity-presentation.mjs';
 import { activities as outcomes, recordActivity, updateActivity, recordLocalActivity, recordActivityTransition } from './activity-history.mjs';
 import { deviceParameterFields } from './parameter-constraints.mjs';
 import { installArtifactDestinations, refreshArtifactDestinations, syncArtifactDestinations, invalidateArtifactDestinations, selectedArtifactDestination } from './artifact-destinations.js';
+import { installConnectedStorage, syncConnectedStorage, invalidateConnectedStorage, refreshConnectedStorage } from './connected-storage.js';
 
 const $ = selector => document.querySelector(selector);
 let socket, browserId, confirmed = false, busy = false, refreshing = false, lastRender = '';
@@ -38,6 +39,7 @@ function noteConnectionLoss(reason) {
 state.actions.recordActivity = recordLocalActivity;
 serviceActions.recordActivity = state.actions.recordActivity;
 function invalidateServiceConfirmation() {
+  invalidateConnectedStorage();
   invalidateArtifactDestinations();
   for (const inventory of Object.values(state.inventory)) { delete inventory.configured_parameters; delete inventory.administrative_configuration; }
   // Replace projections so replies admitted before this loss cannot promote them.
@@ -74,6 +76,21 @@ installArtifactDestinations({snapshot: current, canControl,
       throw new Error('Destination information belongs to an unconfirmed connection.');
     return result;
   }});
+installConnectedStorage({snapshot: current, canControl,
+  read: async (operation, parameters, sid) => {
+    if (!confirmed) throw new Error('Controller connection is unconfirmed.');
+    const connection = socket, instance = current()?.instance_id;
+    const result = requireResult(await request(operation, parameters, sid));
+    if (!confirmed || connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id)
+      throw new Error('Historical readback belongs to an unconfirmed connection.');
+    return result;
+  },
+  collect: async (sid, parameters) => {
+    const connection = socket;
+    const entry = await command('collect_saved_session_artifacts_remote', parameters, sid);
+    await waitForPendingOutcome(entry, connection);
+    return entry;
+  }});
 ($('.device-card .setup-disclosure-body') || $('.device-card')).insertAdjacentHTML('afterbegin', '<div class="inventory-controls"><label>Configured AcquisitionNode<select id="inventory-node"></select></label><button id="load-inventory" type="button">Refresh inventory</button><span id="inventory-status" role="status">Inventory unconfirmed</span></div>');
 $('.readiness-card').insertAdjacentHTML('beforeend', '<details><summary>Accepted Session configuration</summary><pre id="accepted-configuration">No accepted configuration confirmed</pre></details>');
 $('#load-inventory').className = 'dialog-button';
@@ -87,7 +104,9 @@ function controlBlocker(except = null) {
   if (busy) return 'Another request is in progress; waiting for its response';
   const pending = outcomes.find(o => o !== except && (o.continuationPending || o.controllerCommand && ['pending', 'uncertain'].includes(o.status)
     && !(o.operation === 'update_device_configuration' && o.status === 'uncertain' && o.configurationReconciled)));
-  return pending ? pending.continuationPending ? 'Session launch/start sequence is still pending'
+  return pending ? pending.continuationPending ? pending.operation === 'normal_stop_session'
+    ? 'Session Stop/release sequence is still pending' : pending.operation === 'release_session'
+      ? 'Session release/readback is still pending' : 'Session launch/start sequence is still pending'
     : activityPresentation(pending).message : '';
 }
 function canControl(except = null) {
@@ -108,8 +127,11 @@ function controls() {
   for (const button of document.querySelectorAll('[data-launch-experiment], [data-stop-experiment], [data-reconcile-expiry], [data-stop-session], [data-start-session], [data-release-session]')) {
     if (!canControl()) button.disabled = true;
     if (button.hasAttribute('data-start-session')) button.disabled = !canControl() || status?.session_state !== 'initialized';
-    if (button.hasAttribute('data-stop-session')) button.disabled = !canControl() || !status?.session_id;
-    if (button.hasAttribute('data-release-session')) button.disabled = !canControl() || !['completed', 'failed', 'aborted'].includes(status?.session_state);
+    if (button.hasAttribute('data-stop-session')) button.disabled = !canControl() || !['running', 'stopping', 'failed'].includes(status?.session_state);
+    if (button.hasAttribute('data-release-session')) {
+      button.hidden = !status?.session_id || !['completed', 'failed', 'aborted'].includes(status?.session_state);
+      button.disabled = !canControl() || button.hidden;
+    }
     if (button.hasAttribute('data-stop-experiment') || button.hasAttribute('data-reconcile-expiry')) button.disabled = !canControl() || !status?.active_experiment_id;
     if (button.hasAttribute('data-launch-experiment')) {
       const {step, record} = selectedStepContext(state);
@@ -123,8 +145,16 @@ function controls() {
   $('#load-inventory').disabled = Boolean(inventoryRequest) || !confirmed || busy || !$('#inventory-node').value;
   $('#inventory-node').disabled = Boolean(inventoryRequest);
   for (const input of document.querySelectorAll('#session-device-list input')) input.disabled = Boolean(status?.session_id) || !devices.find(device => device.id === input.dataset.device)?.available;
+  const closeoutFeedback = document.querySelector('[data-session-closeout-feedback]');
+  if (closeoutFeedback) {
+    const release = outcomes.findLast(entry => entry.operation === 'release_session' && entry.session_id === status?.session_id);
+    closeoutFeedback.textContent = status?.session_state === 'completed'
+      ? `Session completed; release ${release ? release.status === 'failed' || release.status === 'rejected' ? 'blocked' : 'unconfirmed' : 'not yet confirmed'}.${release ? ` ${release.error || release.feedback_error || activityPresentation(release).message}` : ''}`
+      : '';
+  }
   updateServices(liveServices);
   syncArtifactDestinations();
+  syncConnectedStorage();
   syncOwnershipPresentation();
 }
 state.actions.syncControls = controls;
@@ -162,6 +192,7 @@ async function refresh() {
     const changedOwner = previous?.instance_id !== snapshot.instance_id;
     if (changedOwner) invalidateServiceConfirmation();
     if (changedOwner || !wasConfirmed) refreshArtifactDestinations();
+    if ((changedOwner || !wasConfirmed) && !$('#panel-storage').hidden) refreshConnectedStorage();
     liveServices = (snapshot.configured_services || []).map(participant => {
       const id = configurationIdentity(participant.component_type, participant.component_id);
       const prior = previousServices.find(s => s.id === id);
@@ -271,6 +302,16 @@ const localAction = (operation, action) => async () => {
     $('.setup-demo-note').textContent = 'Preparation failed. See Activity History in Services.';
   }
 };
+async function waitForPendingOutcome(entry, connection) {
+  if (entry.responseStatus !== 'pending' || entry.status !== 'pending' || connection.readyState !== WebSocket.OPEN) return;
+  await new Promise(resolve => {
+    const finish = () => { document.removeEventListener('gui-activity-changed', changed); connection.removeEventListener('close', finish); resolve(); };
+    const changed = () => { if (entry.status !== 'pending') finish(); };
+    document.addEventListener('gui-activity-changed', changed);
+    connection.addEventListener('close', finish, {once: true});
+    changed();
+  });
+}
 state.actions.launchSession = localAction('launch_session', async entry => {
   if (!canControl(entry) || current()?.status?.session_id) return actionRefusal(entry, 'Session launch is unavailable or already pending. No request was sent.');
   const config = {protocol_plan: {}, session_parameters: {}};
@@ -311,15 +352,7 @@ state.actions.launchSession = localAction('launch_session', async entry => {
     if (!['succeeded', 'pending'].includes(entry.responseStatus)) return;
     // Only this still-connected user action may continue a definitively completed launch.
     // Existing outcome observation supplies completion; reconnect never resumes this chain.
-    if (entry.status === 'pending' && connection === socket && connection.readyState === WebSocket.OPEN) {
-      await new Promise(resolve => {
-        const finish = () => { document.removeEventListener('gui-activity-changed', changed); connection.removeEventListener('close', finish); resolve(); };
-        const changed = () => { if (entry.status !== 'pending') finish(); };
-        document.addEventListener('gui-activity-changed', changed);
-        connection.addEventListener('close', finish, {once: true});
-        changed();
-      });
-    }
+    await waitForPendingOutcome(entry, connection);
     if (entry.status !== 'succeeded' || connection !== socket || connection.readyState !== WebSocket.OPEN) return;
     const sessionId = entry.result?.outcome?.details?.session_id;
     const fresh = requireResult(await request('read_controller_state'));
@@ -333,7 +366,48 @@ state.actions.launchSession = localAction('launch_session', async entry => {
   } finally { entry.continuationPending = false; controls(); }
 });
 state.actions.startSession = () => command('start_launched_session');
-state.actions.stopSession = () => { const sid = current()?.status.session_id; confirmStop('Session', () => command('normal_stop_session', {}, sid), 'Request Normal Stop and preservation. Completion requires Controller confirmation.'); };
+async function releaseSessionBinding(sid) {
+  const connection = socket, instance = current()?.instance_id;
+  const entry = recordActivity('release_session');
+  entry.session_id = sid;
+  entry.continuationPending = true;
+  try {
+    await command('release_session', {}, sid, entry);
+    await waitForPendingOutcome(entry, connection);
+    if (entry.status !== 'succeeded' || entry.instance_id !== instance || connection !== socket
+        || connection.readyState !== WebSocket.OPEN) return;
+    const fresh = requireResult(await request('read_controller_state'));
+    if (fresh.instance_id !== instance || fresh.status?.session_id || fresh.configuration !== null)
+      throw new Error('Released Session state is unconfirmed; inspect current Controller state.');
+    await refresh();
+  } catch (error) { updateActivity(entry, {feedback_error: error.message}); }
+  finally { entry.continuationPending = false; controls(); }
+}
+state.actions.stopSession = () => {
+  const sid = current()?.status.session_id, connection = socket;
+  const instance = current()?.instance_id, generation = current()?.control?.generation;
+  confirmStop('Session', localAction('normal_stop_session', async entry => {
+    if (!canControl(entry) || current()?.status.session_id !== sid || current()?.instance_id !== instance
+        || current()?.control?.generation !== generation || connection !== socket) return actionRefusal(entry, 'Session or control changed. No Stop was sent.');
+    entry.session_id = sid;
+    entry.continuationPending = true;
+    try {
+      await command('normal_stop_session', {}, sid, entry);
+      await waitForPendingOutcome(entry, connection);
+      if (entry.status !== 'succeeded' || entry.responseStatus === 'uncertain' || entry.instance_id !== instance
+          || connection !== socket || connection.readyState !== WebSocket.OPEN) return;
+      const fresh = requireResult(await request('read_controller_state'));
+      if (!confirmed || connection !== socket || connection.readyState !== WebSocket.OPEN
+          || current()?.instance_id !== instance || !current()?.control?.controlling
+          || current()?.control?.generation !== generation || current()?.status?.session_id !== sid
+          || fresh.instance_id !== instance || !fresh.control?.controlling || fresh.control.generation !== generation
+          || fresh.status?.session_id !== sid || fresh.status.session_state !== 'completed'
+          || entry.result?.outcome?.details?.session_id !== sid) return;
+      entry.continuationPending = false;
+      await releaseSessionBinding(sid);
+    } finally { entry.continuationPending = false; controls(); }
+  }), 'Request Normal Stop and preservation, then release this Session only after Controller confirms success. Release is independently checked by Controller.');
+};
 document.addEventListener('click', event => {
   const button = event.target.closest('[data-live-session-kill]');
   if (!button || button.disabled || !canControl()) return;
@@ -342,7 +416,16 @@ document.addEventListener('click', event => {
     'Explicitly authorize forced Session closeout. Partial preservation and cleanup obligations may remain. This does not Kill a service.',
     {title: 'Authorize Kill Session?', confirm: 'Authorize Kill Session', cancel: 'Cancel'});
 });
-state.actions.releaseSession = () => { const sid = current()?.status.session_id; confirmStop('Session release', () => command('release_session', {}, sid), 'Release only after Controller confirms terminal preservation and cleanup.', {title: 'Release Session?', confirm: 'Release Session', cancel: 'Cancel'}); };
+state.actions.releaseSession = () => {
+  const sid = current()?.status.session_id, connection = socket;
+  const instance = current()?.instance_id, generation = current()?.control?.generation;
+  confirmStop('Session release', () => {
+    if (current()?.status.session_id === sid && ['completed', 'failed', 'aborted'].includes(current()?.status.session_state)
+        && connection === socket && current()?.instance_id === instance
+        && current()?.control?.generation === generation && canControl()) releaseSessionBinding(sid);
+  }, 'Retry only Session release. Controller checks preservation and cleanup; Normal Stop will not be repeated.',
+  {title: 'Retry Session Release?', confirm: 'Retry Release', cancel: 'Cancel'});
+};
 state.actions.startExperiment = localAction('start_launched_experiment', async entry => {
   const {step, record} = selectedStepContext(state), configuration = experimentView(state, step, record).configuration;
   const issues = experimentIssues(state, step, configuration);

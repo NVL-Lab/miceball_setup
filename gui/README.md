@@ -360,6 +360,15 @@ Start/Stop Experiment, explicit expiry reconciliation, Normal Session Stop and
 release delegate to existing Controller operations. Released Sessions permit another
 launch without restarting the GUI.
 
+Developer implementation, pending independent validation/audit: connected Session
+Stop uses one confirmation for Normal Stop followed by conditional Controller
+release and authoritative readback. The continuation requires successful Stop and
+the same Session, Controller instance, connection and controlling generation.
+Reconnect never resumes it. A retained terminal binding offers Retry Release,
+without repeating Normal Stop; failed or uncertain release remains distinct from
+successful Stop. Controller preservation/release checks and reconciliation
+warnings remain unchanged. This does not certify physical G5 deployment closeout.
+
 Bounded deployment corrections are developer implementation, pending independent
 validation/audit. Launch feedback uses its existing control/busy/pending/uncertain/
 accepted-Session predicates, not a second readiness decision. Ordinary numeric
@@ -639,6 +648,23 @@ python -m http.server 8000 --bind 127.0.0.1 --directory gui/src/miceball_gui/sta
 Then open <http://127.0.0.1:8000/>.
 
 ## Storage preview (Slice 7)
+
+**G5 connected integration: implemented; independent validation and audit pending.**
+Connected mode now uses the existing external Controller `read_storage_sessions`,
+`read_storage_session` and `collect_saved_session_artifacts_remote` operations.
+Refresh Sessions reads owner-filtered historical records and StorageManager capacity;
+source-node availability is separate from enumeration. Add/drop and Collect everything
+pending only select whole Sessions. Store reviews the exact selection and submits
+independent requests using existing command identity, authority and outcome readback.
+Failed or uncertain outcomes are not success; pending/uncertain requests are never
+automatically replayed on reconnect. Collection never requests original deletion.
+Source inspection can remain unconfirmed without removing historical Sessions.
+The connected History workspace exposes retained owner readback and search, without
+inventing missing collection-completion dates or estimating transfer progress.
+Only owner-reported available capacity is shown, not invented total/used space.
+No real G5 collection, SSH retrieval or physical deployment validation is claimed.
+Original-file deletion remains disconnected in this bounded integration.
+The following Slice 7 record describes the unchanged disconnected demonstration.
 
 Primary navigation is Setup, Session, Experiment, Analysis, Storage and Services;
 Parameters appears contextually from Session. Storage has Collection, Delete originals and History workspaces. All

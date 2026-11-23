@@ -199,6 +199,18 @@ general maintenance-history/memory retirement is not implemented by this closure
 - `renderStorage`: Repaints the Storage workspace using current cooperative visibility and page-local selections.
 - `openReview`: Opens selection confirmation without submitting collection or deletion requests.
 
+## gui/src/miceball_gui/static/connected-storage.js — G5 integration (independent verification pending)
+
+- `installConnectedStorage(operations)`: Binds existing Storage controls to Controller-owned readback and explicit whole-Session collection without deletion or a persistent GUI registry.
+- `renderConnectedStorage()`: Presents historical Session records, owner-reported eligibility, artifact details, capacity and distinct request outcomes using existing Storage styles.
+- `syncConnectedStorage()`: Invalidates projections and selections when Controller/control or cooperative operator context changes.
+- `invalidateConnectedStorage()`: Marks last-known historical information unconfirmed after transport or Controller confirmation loss.
+- `refreshConnectedStorage()`: Reads historical Sessions and capacity through the existing external Controller operation without requiring original-node connectivity.
+- `inspectSession(id)`: Requests existing Session/source-owner detail readback while retaining historical records when source detail is unavailable.
+- `collectionLabel(row)`: Separates archived collection outcomes from per-artifact verification rather than treating Session completion as collection.
+- `ConnectedStorageTests.test_historical_collection_in_browser`: Exercises production-browser discovery, inspection, selection, explicit collection, failures, uncertainty, authority and reconnect using controlled responses.
+- `GUIIntegrationTests.test_historical_storage_readback_and_explicit_collection_use_existing_owners`: Exercises the GUI WebSocket, real isolated NATS owners, recorded ownership and durable saved-Session collection while preserving original Session Records.
+
 ## gui/src/miceball_gui/static/artifact-destinations.js
 
 - `destinationManagementMarkup`: Presents StorageManager-provided destinations and Administrator management controls without owning their configuration.
@@ -3396,6 +3408,11 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ### Bounded deployment preparation/recovery correction (developer implementation)
 
 - connected.controlBlocker(except=null): Supplies both existing control eligibility and visible Launch reasons for connection, ownership, busy and unresolved operations without duplicating service admission.
+- connected.waitForPendingOutcome(entry, connection): Reuses existing operation readback events to await an admitted pending action only while its original connection remains open, without reconnect replay.
+- connected.releaseSessionBinding(sid): Submits the existing Controller release operation and confirms an unbound authoritative state without changing Session lifecycle or clearing bindings locally.
+- connected.state.actions.stopSession: Uses one confirmation to request Normal Stop once and conditionally release only after matching successful outcome, Session, Controller instance and controlling generation.
+- StopReleaseTests.test_stop_and_release_in_browser: Exercises production Stop/release presenters with controlled success, pending, uncertainty, failure, identity fencing, reconnect and explicit release-only retry scenarios.
+- SessionPreparationTests.test_free_mode_stop_releases_binding_through_real_owners: Launches a typed Free Mode Session and confirms one browser Stop action completes preservation and binding release through the real backend, Controller and isolated NATS owners.
 - connected.state.actions.launchSession: Builds required Session configuration from typed controls and existing preparation, with an empty legacy plan and optional protocol-name association, then reuses guarded launch/start without starting an Experiment.
 - gui/tests/test_session_preparation.SessionPreparationTests: Exercises JSON-free Free/Protocol preparation through production browser, actual backend, Controller and isolated NATS, confirming running Session and no automatic Experiment.
 

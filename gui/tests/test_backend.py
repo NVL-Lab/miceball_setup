@@ -655,6 +655,50 @@ class GUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(cleanup.call_count, completed_cleanup)
         self.assertEqual((await self.completed(ws, "release_session", sid=sid))["status"], "succeeded")
 
+    async def test_historical_storage_readback_and_explicit_collection_use_existing_owners(self):
+        ws, _ = await self.browser()
+        await self.take(ws)
+        context = {"experimenter_name": "Scientist", "administrator_mode": False}
+        empty = await self.completed(ws, "read_storage_sessions", context)
+        self.assertEqual(empty["status"], "succeeded", empty)
+        self.assertEqual(empty["outcome"]["details"]["sessions"], [])
+        parameters = self.launch_parameters()
+        parameters["config_parameters"]["session_parameters"] = {"experimenter": "Scientist", "name": "Storage regression"}
+        launched = await self.completed(ws, "launch_session", parameters)
+        self.assertEqual(launched["status"], "succeeded", launched)
+        sid = launched["outcome"]["details"]["session_id"]
+        self.assertEqual((await self.completed(ws, "start_launched_session", sid=sid))["status"], "succeeded")
+        self.assertEqual((await self.completed(ws, "normal_stop_session", sid=sid))["status"], "succeeded")
+        self.assertEqual((await self.completed(ws, "release_session", sid=sid))["status"], "succeeded")
+        observer, _ = await self.browser()
+        with patch.object(self.communication, "request_runtime_command", new=AsyncMock(return_value=None)):
+            listed = await self.completed(observer, "read_storage_sessions", context)
+            offline_detail = await self.completed(observer, "read_storage_session", context, sid)
+        self.assertEqual(offline_detail["status"], "succeeded", offline_detail)
+        self.assertFalse(offline_detail["outcome"]["details"]["nodes"]["node"]["confirmed"])
+        self.assertEqual(listed["status"], "succeeded", listed)
+        rows = listed["outcome"]["details"]["sessions"]
+        self.assertEqual([row["session_id"] for row in rows], [sid])
+        self.assertEqual(rows[0]["collection_history"], [], "Released is not collected")
+        self.assertIn("capacity", listed["outcome"]["details"])
+        detail = await self.completed(observer, "read_storage_session", context, sid)
+        self.assertEqual(detail["status"], "succeeded", detail)
+        forbidden = await self.completed(observer, "collect_saved_session_artifacts_remote", {**context, "evidence_id": "not-controller"}, sid)
+        self.assertEqual(forbidden["status"], "rejected", forbidden)
+        other = await self.completed(ws, "read_storage_sessions", {**context, "experimenter_name": "Other"})
+        self.assertEqual(other["outcome"]["details"]["sessions"], [])
+        before = {path: path.read_bytes() for path in self.storage.storage_root.rglob("session_record_*.json")}
+        collection = {**context, "evidence_id": "explicit-empty-collection"}
+        result = await self.completed(ws, "collect_saved_session_artifacts_remote", collection, sid, identifier="collect-once")
+        self.assertEqual(result["status"], "succeeded", result)
+        self.assertTrue(result["outcome"]["details"]["collection_outcome"]["archival_confirmed"])
+        duplicate = await self.completed(ws, "collect_saved_session_artifacts_remote", collection, sid, identifier="collect-once")
+        self.assertEqual(duplicate["outcome"], result["outcome"])
+        self.assertEqual(before, {path: path.read_bytes() for path in before})
+        read = await self.completed(ws, "read_storage_sessions", context)
+        self.assertTrue(read["outcome"]["details"]["sessions"][0]["collection_progress"]["outcome_archived"])
+        self.assertIsNone(self.controller.get_status()["session_id"])
+
     async def test_controller_reconstruction_reports_new_lifetime_without_session_recovery(self):
         from lab_sync_acquisition import Controller, NatsExternalSessionLaunchReceiver
         one, _ = await self.browser()

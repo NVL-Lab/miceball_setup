@@ -5,7 +5,7 @@ const {chromium} = require(process.env.LAB_SYNC_PLAYWRIGHT_MODULE || 'playwright
 const browser = await chromium.launch({headless: true, channel: process.env.LAB_SYNC_BROWSER_CHANNEL || undefined});
 const page = await browser.newPage();
 const requests = [], errors = [];
-let latest;
+let latest, lastState;
 page.on('pageerror', error => errors.push(error.message));
 page.on('websocket', socket => {
   socket.on('framesent', frame => {
@@ -14,6 +14,7 @@ page.on('websocket', socket => {
   socket.on('framereceived', frame => {
     try {
       const details = JSON.parse(frame.payload).result?.outcome?.details;
+      if (details?.status && typeof details.status === 'object') lastState = details;
       if (details?.status && details?.configuration) latest = details;
     } catch (_) {}
   });
@@ -48,6 +49,18 @@ try {
   assert.deepEqual(launch.parameters.config_parameters.protocol_plan, {});
   assert.equal(requests.filter(request => request.operation === 'start_launched_session').length, 1);
   assert.equal(requests.filter(request => request.operation === 'start_launched_experiment').length, 0);
+  if (process.env.MICEBALL_PREPARATION_CLOSEOUT === '1') {
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('gui-section', {detail: 'session'})));
+    await page.locator('[data-stop-session]').click();
+    await page.locator('[data-confirm-stop]').click();
+    for (let count = 0; count < 200 && lastState?.status?.session_id; count++) await page.waitForTimeout(100);
+    assert.equal(lastState?.status?.session_id, null, 'Controller must confirm binding release');
+    assert.equal(lastState.configuration, null);
+    assert.equal(requests.filter(request => request.operation === 'normal_stop_session').length, 1);
+    assert.equal(requests.filter(request => request.operation === 'release_session').length, 1);
+    await page.locator('.launch-session-demo:enabled').waitFor({state: 'attached'});
+    console.log('PASS: one Stop confirmation completed Normal Stop and release through real NATS owners');
+  }
   assert.deepEqual(errors, []);
   console.log('PASS: JSON-free five-second Free Mode preparation through real owners; Session running; no Experiment started');
 } finally { await browser.close(); }
