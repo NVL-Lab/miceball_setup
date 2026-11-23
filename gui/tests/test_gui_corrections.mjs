@@ -53,11 +53,17 @@ try {
   await put('projects', {id: 'project', name: 'Study', primary_experimenter: 'alice'});
   await section('services'); await section('setup');
   await page.locator('#project-select option[value="project"]').waitFor({state: 'attached'});
+  assert.equal(await page.locator('#experimenter-select').isDisabled(), true);
+  await page.locator('#take-over').click();
+  await page.locator('html[data-control-mode="controlling"]').waitFor();
   await page.selectOption('#experimenter-select', 'alice'); await page.selectOption('#project-select', 'project');
   await page.locator('#new-protocol').click();
   await page.locator('#protocol-name').fill(''); await page.locator('#save-protocol').click();
   assert.match(await page.locator('#activity-history').textContent(), /Provide a protocol name/);
   await page.locator('#protocol-name').fill('Unsaved draft');
+  controlling = false;
+  await page.locator('html[data-control-mode="view-only"]').waitFor();
+  assert.equal(await page.locator('#protocol-name').isDisabled(), true);
   await put('experimenters', {id: 'bob', name: 'Bob'});
   const before = reads;
   await page.locator('#take-over').click();

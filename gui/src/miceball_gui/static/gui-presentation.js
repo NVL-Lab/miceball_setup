@@ -49,11 +49,15 @@ export function setConfigurationString(control, value) {
   control.setCustomValidity(value?.invalidString !== undefined ? 'Invalid exact-character representation.' : '');
   const toggle = control.nextElementSibling;
   if (toggle?.hasAttribute('data-string-mode')) toggle.textContent = exact ? 'Use ordinary text' : 'Edit exact characters';
+  if (control.hasAttribute('data-automatic-string')) {
+    toggle.hidden = true;
+    toggle.nextElementSibling.hidden = !exact;
+  }
 }
 export function readConfigurationString(control) {
   return control.dataset.stringEncoding === 'exact' ? parseConfigurationString(control.value) : control.value;
 }
-export function configurationStringEditor(control, value = control.value) {
+export function configurationStringEditor(control, value = control.value, automatic = false) {
   const editor = document.createElement('textarea');
   for (const attribute of control.attributes) if (!['type', 'value'].includes(attribute.name)) editor.setAttribute(attribute.name, attribute.value);
   editor.rows = control.rows || 1;
@@ -63,6 +67,19 @@ export function configurationStringEditor(control, value = control.value) {
   toggle.className = 'string-mode-button';
   toggle.title = 'Ordinary text needs no quotation marks. Exact-character mode uses an escaped string for control characters.';
   control.replaceWith(editor, toggle);
+  if (automatic) {
+    editor.dataset.automaticString = '';
+    const explanation = document.createElement('small');
+    explanation.textContent = 'Escaped text preserves special characters in this value. Keep the quotation marks and escapes to retain it exactly.';
+    toggle.after(explanation);
+    editor.addEventListener('blur', () => {
+      if (editor.dataset.stringEncoding !== 'exact') return;
+      try {
+        const current = readConfigurationString(editor);
+        if (!needsExactCharacters(current)) setConfigurationString(editor, current);
+      } catch (_) { /* Retain malformed edits for correction; never normalize them. */ }
+    });
+  }
   setConfigurationString(editor, value);
   const insertExact = (event, text) => {
     if (!event.cancelable || editor.readOnly || editor.matches(':disabled')

@@ -465,13 +465,30 @@ the drawer distinguishes explicit null from missing overrides.
 The consolidated usability batch uses ordinary text for connected Session name,
 notes, storage/error paths, Experiment ID and adapter string settings. No surrounding
 quotes are needed; quotes, whitespace, Unicode and literal backslashes are values.
-Multiline text uses a textarea. **Edit exact characters** retains the existing
+Multiline text uses a textarea. Session names automatically use the lossless
+representation only when required, with an explanation and no editing-mode toggle.
+For other configuration strings, **Edit exact characters** retains the existing
 escaped-string editor for CR/CRLF, control characters and lone surrogates that a
 native textarea cannot safely represent; these loaded values select that mode
 automatically. Switching to ordinary text refuses normalization of such values.
 Normalization-sensitive paste/input is captured before native insertion and
 selects the same exact-character representation, retaining the supplied value.
 This exceptional mode still uses an escaped JSON string; ordinary fields do not.
+
+Connected configuration editors follow confirmed browser ownership across tabs and
+open dialogs. View Only and unconfirmed ownership prevent preparation/catalog and
+administrative edits; navigation and inspection remain available. Temporary busy
+Controlling does not change ownership. Existing operation-specific restrictions
+continue to apply when control returns. This is GUI presentation enforcement, not
+a replacement for Controller admission or administrator authorization.
+
+Administrator Parameters groups adapter-declared administrative fields under
+**Device Parameters**, identified by AcquisitionNode/device. Metadata changes retain
+valid dirty values and their original saved revision under current definitions;
+incompatible drafts remain intact with saving blocked until explicit reload.
+unavailable devices remain noneditable. Saving still uses node-owned durable
+configuration and normal restart application. These developer changes await the
+separate independent verification stages.
 Empty text is an empty string; Use default and Set null remain separate actions.
 Malformed exact-character edits remain invalid unsent drafts and cannot pass the
 shared Experiment submission guard, even if disabled-button presentation is

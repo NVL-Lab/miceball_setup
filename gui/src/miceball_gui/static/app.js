@@ -399,6 +399,7 @@ catalogForm.addEventListener("submit", async (event) => {
     if (catalogType === 'project') { record.name = displayValue; delete record.project_name; }
     if (catalogType === 'animal') record.projectId = document.querySelector('#project-select').value;
     const controls = [...catalogForm.elements].map(control => [control, control.disabled]);
+    catalogForm.setAttribute('aria-busy', 'true');
     for (const [control] of controls) control.disabled = true;
     try {
       await putCatalog({experimenter: 'experimenters', project: 'projects', animal: 'animals'}[catalogType], record,
@@ -416,7 +417,7 @@ catalogForm.addEventListener("submit", async (event) => {
       if (!feedback) { feedback = document.createElement('p'); feedback.dataset.catalogError = ''; feedback.setAttribute('role', 'status'); catalogFields.after(feedback); }
       feedback.textContent = error.message;
       recordLocalActivity('save_catalog', error.message, error.catalogStatus);
-    } finally { for (const [control, disabled] of controls) control.disabled = disabled; }
+    } finally { catalogForm.removeAttribute('aria-busy'); for (const [control, disabled] of controls) control.disabled = disabled; }
     return;
   }
   // An ephemeral option key keeps same-label examples independent without catalog identity rules.
@@ -442,7 +443,7 @@ catalogDialog.addEventListener("close", () => {
   activeCatalogSelect = null;
 });
 catalogDialog.addEventListener('cancel', event => {
-  if (connected && document.querySelector('#catalog-save').disabled) event.preventDefault();
+  if (connected && catalogForm.getAttribute('aria-busy') === 'true') event.preventDefault();
 });
 
 setTheme(document.documentElement.dataset.theme, false);

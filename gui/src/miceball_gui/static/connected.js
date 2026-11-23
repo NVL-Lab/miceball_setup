@@ -1,6 +1,7 @@
 // Shared presenters own markup; this entry binds them to the existing backend.
 import { state, renderSetup } from './protocol-setup.js';
 import { devices, clone, preparedProtocol, preparedFreeOperation } from './protocol-demo.mjs';
+import { syncOwnershipPresentation } from './ownership-presentation.js';
 import { deviceExamples, experimentView, experimentIssues } from './experiment-demo.mjs';
 import { applyControllerSnapshot } from './session-context.mjs';
 import { selectedStepContext } from './session-demo.mjs';
@@ -58,7 +59,7 @@ for (const value of $('.storage-stats').querySelectorAll('dd')) value.textConten
 $('#launch-demo-note').textContent = 'Requests Controller acceptance, reservation and durable preservation. Launch does not start an Experiment.';
 for (const button of document.querySelectorAll('#view-only, #take-over')) button.className = 'dialog-button';
 storageBody.insertAdjacentHTML('beforeend', '<label>Error evidence location<input id="error-evidence-location"></label>');
-const sessionName = configurationStringEditor($('.session-identity-grid input[type="text"]'));
+const sessionName = configurationStringEditor($('.session-identity-grid input[type="text"]'), $('.session-identity-grid input[type="text"]').value, true);
 const sessionDate = $('.session-identity-grid input[type="date"]');
 const sessionNumber = $('.session-identity-grid input[type="number"]');
 const sessionNotes = configurationStringEditor($('[aria-labelledby="notes-title"] textarea'));
@@ -124,6 +125,7 @@ function controls() {
   for (const input of document.querySelectorAll('#session-device-list input')) input.disabled = Boolean(status?.session_id) || !devices.find(device => device.id === input.dataset.device)?.available;
   updateServices(liveServices);
   syncArtifactDestinations();
+  syncOwnershipPresentation();
 }
 state.actions.syncControls = controls;
 state.actions.canControl = canControl;
@@ -199,6 +201,8 @@ async function refresh() {
     $('#accepted-configuration').textContent = JSON.stringify(snapshot.configuration, null, 2);
     const choice = $('#inventory-node');
     if (JSON.stringify([...choice.options].map(o => o.value)) !== JSON.stringify(snapshot.configured_nodes)) choice.replaceChildren(...snapshot.configured_nodes.map(id => new Option(id, id)));
+    // Apply confirmed ownership before any awaited reconciliation/inventory work.
+    controls();
     let completedNavigation = null;
     for (const entry of outcomes.filter(o => o.controllerCommand && o.request_id && o.instance_id && ['pending', 'uncertain'].includes(o.status))) {
       const result = requireResult(await request('read_operation_outcome', {target_request_id: entry.request_id, instance_id: entry.instance_id}));

@@ -14,3 +14,22 @@ html[data-runtime="connected"] .output-unavailable { display: grid; place-items:
 
 html[data-runtime="connected"][data-control-mode="view-only"] .topbar { background: #e2edfc; border-color: #91b1d9; }
 html[data-runtime="connected"][data-theme="dark"][data-control-mode="view-only"] .topbar { background: #21374f; border-color: #4d7195; }
+/* Shared structural hierarchy; static titles never acquire control chrome. */
+html[data-runtime="connected"] .section-panel :is(h3, h4) {
+  line-height: 1.4; font-weight: 650;
+}
+html[data-runtime="connected"] .section-panel h3 { font-size: 14px; margin: 0 0 10px; }
+html[data-runtime="connected"] .section-panel h4 { font-size: 12px; margin: 12px 0 7px; }
+html[data-runtime="connected"] .device-card h4 { padding: 0; border: 0; border-radius: 0; }
+html[data-runtime="connected"] .section-panel summary {
+  cursor: pointer; font-size: 12px; font-weight: 600; color: var(--ink-900);
+}
+html[data-runtime="connected"] .section-panel summary::marker { color: var(--ink-600); }
+html[data-runtime="connected"] .section-panel summary h3 { margin: 0; }
+html[data-runtime="connected"] .section-panel label { font-size: 12px; line-height: 1.4; }
+html[data-runtime="connected"] .section-panel :is(.prototype-caption, .view-notice, .services-muted, .output-caption) {
+  font-size: 11px; line-height: 1.5; color: var(--ink-600);
+}
+.administrative-device-parameters > h3 { grid-column: 1 / -1; }
+.administrative-device-parameters > form { min-width: 0; }
+.administrative-device-parameters [data-administrative-values] { overflow-wrap: anywhere; color: var(--ink-600); font-size: 11px; line-height: 1.5; }

@@ -37,36 +37,50 @@ panel.addEventListener('focusout', event => {
 let message = '';
 let synchronizationSection, synchronizationDirty = false, administrativeSection;
 
+function administrativeParameters(form) {
+  const parameters = Object.create(null);
+  for (const field of form.parameterDefinitions) {
+    const input = [...form.querySelectorAll('[data-example-value]')].find(input => input.dataset.exampleValue === field.id);
+    const nullControl = [...form.querySelectorAll('[data-administrative-null]')].find(input => input.dataset.administrativeNull === field.id);
+    const value = nullControl?.checked ? null : field.allowedValues ? input.value === '' ? null : field.allowedValues[Number(input.value)]
+      : field.type === 'checkbox' ? input.checked : field.type === 'number'
+      ? input.value === '' && field.nullable ? null : configurationNumber(input.value, Boolean(field.integer))
+      : readConfigurationString(input);
+    const issue = parameterIssue(field, value);
+    if (issue) throw new Error(issue);
+    parameters[field.name] = value;
+  }
+  return parameters;
+}
+
 function renderAdministrativeSettings() {
   if (!state.connected || !servicesAdministrator()) return;
   administrativeSection ||= document.createElement('section');
-  administrativeSection.className = 'parameter-fields';
+  administrativeSection.className = 'parameter-fields administrative-device-parameters';
+  if (!administrativeSection.firstChild) administrativeSection.innerHTML = '<h3>Device Parameters</h3>';
+  const currentDevices = new Set();
   for (const device of devices) {
     const fields = (deviceExamples[device.id]?.fields || []).filter(field => field.adjustmentScope === 'administrator');
     if (!fields.length) continue;
+    currentDevices.add(device.id);
     let form = [...administrativeSection.querySelectorAll('form')].find(item => item.dataset.administrativeDevice === device.id);
     if (!form) {
       form = document.createElement('form'); form.dataset.administrativeDevice = device.id;
       form.className = 'setup-card';
-      form.innerHTML = `<h3>${escape(device.nodeId)} / ${escape(device.deviceId)}</h3><p data-administrative-values></p><fieldset class="parameter-section-body" data-administrative-fields></fieldset><button type="submit" class="dialog-button">Save device settings</button><button type="button" data-administrative-reload>Reload saved values</button><p role="status" data-administrative-feedback></p>`;
+      form.innerHTML = `<h4>${escape(device.nodeId)} / ${escape(device.deviceId)}</h4><p data-administrative-values></p><fieldset class="parameter-section-body" data-administrative-fields></fieldset><button type="submit" class="dialog-button">Save device settings</button><button type="button" data-administrative-reload>Reload saved values</button><p role="status" data-administrative-feedback></p>`;
       form.addEventListener('input', () => { form.dataset.dirty = 'true'; renderAdministrativeSettings(); });
       form.addEventListener('change', () => { form.dataset.dirty = 'true'; renderAdministrativeSettings(); });
-      form.querySelector('[data-administrative-reload]').onclick = () => { form.dataset.dirty = ''; renderAdministrativeSettings(); };
+      form.querySelector('[data-administrative-reload]').onclick = () => {
+        form.dataset.dirty = ''; form.querySelector('[data-administrative-feedback]').textContent = '';
+        renderAdministrativeSettings();
+      };
       form.addEventListener('submit', async event => {
         event.preventDefault();
-        if (!servicesAdministrator() || !state.actions.canControl?.() || !form.reportValidity()) return;
+        if (!servicesAdministrator() || !state.actions.canControl?.() || form.dataset.available !== 'true'
+            || form.dataset.pending || form.dataset.metadataChanged || !form.reportValidity()) return;
         const parameters = Object.create(null);
         try {
-          for (const field of fields) {
-            const input = [...form.querySelectorAll('[data-example-value]')].find(input => input.dataset.exampleValue === field.id);
-            const value = field.allowedValues ? input.value === '' ? null : field.allowedValues[Number(input.value)]
-              : field.type === 'checkbox' ? input.checked : field.type === 'number'
-              ? input.value === '' && field.nullable ? null : configurationNumber(input.value, Boolean(field.integer))
-              : readConfigurationString(input);
-            const issue = parameterIssue(field, value);
-            if (issue) throw new Error(issue);
-            parameters[field.name] = value;
-          }
+          Object.assign(parameters, administrativeParameters(form));
           form.dataset.pending = 'true'; renderAdministrativeSettings();
           const entry = await state.actions.updateDeviceConfiguration(device.nodeId, device.deviceId,
             parameters, form.dataset.revision, servicesAdministratorName());
@@ -80,21 +94,48 @@ function renderAdministrativeSettings() {
       administrativeSection.append(form);
     }
     const report = state.inventory[device.nodeId]?.administrative_configuration;
+    const signature = JSON.stringify(fields);
+    const changed = Boolean(form.dataset.definitions && form.dataset.definitions !== signature);
+    let retainedDraft = null;
+    if (changed && form.dataset.dirty && !form.dataset.pending) {
+      try {
+        const draft = administrativeParameters(form);
+        if (Object.keys(draft).length === fields.length && fields.every(field =>
+          Object.hasOwn(draft, field.name) && !parameterIssue(field, draft[field.name]))) retainedDraft = draft;
+      } catch (_) { /* Keep invalid or incomplete drafts intact for explicit review. */ }
+    }
+    form.dataset.metadataChanged = changed && !retainedDraft && (form.dataset.dirty || form.dataset.pending) ? 'true' : '';
     const loaded = report?.loaded?.[device.deviceId], saved = report?.saved?.[device.deviceId];
     const comparable = report?.available && loaded && saved
       && fields.every(field => Object.hasOwn(loaded, field.name) && Object.hasOwn(saved, field.name));
     const restart = comparable ? fields.some(field => JSON.stringify(loaded[field.name]) !== JSON.stringify(saved[field.name])) : null;
     form.querySelector('[data-administrative-values]').textContent = `Loaded: ${JSON.stringify(loaded) ?? 'unavailable'}; Saved: ${report?.available ? JSON.stringify(saved) ?? 'unavailable' : 'unavailable'}. ${restart === null ? 'Restart requirement unknown.' : restart ? 'Normal AcquisitionNode restart required.' : 'Saved and loaded values match.'} ${report?.reason || ''} ${(report?.blockers || []).join('; ')}`;
-    if (!form.dataset.dirty && !form.dataset.pending) {
-      form.dataset.revision = report?.available ? report.revision : '';
+    if (form.dataset.metadataChanged) form.querySelector('[data-administrative-feedback]').textContent = 'Parameter definitions changed. Unsaved values are retained; reload saved values to use the current definitions.';
+    else if (retainedDraft) form.querySelector('[data-administrative-feedback]').textContent = 'Current definitions applied; unsaved values and the original saved revision are retained.';
+    if (retainedDraft || !form.dataset.dirty && !form.dataset.pending) {
+      form.parameterDefinitions = fields;
+      form.dataset.definitions = signature;
+      if (!retainedDraft) form.dataset.revision = report?.available ? report.revision : '';
+      const values = retainedDraft || saved;
       form.querySelector('[data-administrative-fields]').innerHTML = fields.map(field => parameterField(field,
-        saved?.[field.name], saved && Object.hasOwn(saved, field.name), {available: false}, true)).join('');
-      for (const input of form.querySelectorAll('[data-string-value]')) configurationStringEditor(input);
+        values?.[field.name], values && Object.hasOwn(values, field.name), {available: false}, true)).join('');
+      for (const input of form.querySelectorAll('[data-string-value]')) {
+        const field = fields.find(field => field.id === input.dataset.exampleValue);
+        configurationStringEditor(input, values && Object.hasOwn(values, field.name) ? values[field.name] ?? '' : '');
+      }
     }
-    const allowed = Boolean(report?.available && !report.blockers.length && device.available && state.actions.canControl?.());
+    const allowed = Boolean(report?.available && !report.blockers.length && device.available && state.actions.canControl?.() && !form.dataset.metadataChanged);
+    form.dataset.available = String(allowed);
     form.querySelector('fieldset').disabled = !allowed || Boolean(form.dataset.pending);
     form.querySelector('[type="submit"]').disabled = !allowed || !form.dataset.dirty || Boolean(form.dataset.pending);
     form.querySelector('[data-administrative-reload]').disabled = !report?.available || Boolean(form.dataset.pending);
+  }
+  for (const form of administrativeSection.querySelectorAll('form')) if (!currentDevices.has(form.dataset.administrativeDevice)) {
+    if (!form.dataset.dirty && !form.dataset.pending) { form.remove(); continue; }
+    form.querySelector('fieldset').disabled = true;
+    form.dataset.available = 'false';
+    for (const button of form.querySelectorAll('button')) button.disabled = true;
+    form.querySelector('[data-administrative-feedback]').textContent = 'Device or administrative definitions unavailable. Unsaved values are retained; saving is disabled.';
   }
   panel.append(administrativeSection);
 }
@@ -163,7 +204,8 @@ function parameterField(field, value, present, inherited = {available: false}, a
   else if (field.type === 'checkbox') control = `<label class="parameter-checkbox"><input type="checkbox" ${attributes} ${value ? 'checked' : ''}>${escape(field.label)}</label>`;
   else if (state.connected && field.type === 'text') control = `<label>${escape(field.label)}${stringField(attributes, value)}</label>`;
   else control = `<label>${escape(field.label)}<input type="${escape(field.type)}" ${attributes} value="${escape(value ?? '')}" ${field.min !== undefined ? `min="${escape(field.min)}"` : ''} ${field.max !== undefined ? `max="${escape(field.max)}"` : ''} step="${field.integer ? '1' : 'any'}" ${state.connected || field.nullable ? '' : 'required'}></label>`;
-  if (!state.connected || administrative) return control;
+  if (administrative) return `${control}${field.nullable ? `<label class="parameter-checkbox"><input type="checkbox" data-administrative-null="${escape(field.id)}" ${value === null ? 'checked' : ''}>${escape(field.nullDescription)}</label>` : ''}`;
+  if (!state.connected) return control;
   return `<div class="parameter-override">${control}<div class="parameter-toolbar"><small>${present ? value === null ? 'Adapter-defined empty value requested' : 'Explicit override' : inherited.available ? value === null ? 'Inherited configuration: no value requested' : 'Inherited requested configuration' : 'Configured value unavailable; no explicit override'}</small>${field.type !== 'number' ? `<button type="button" data-unset-parameter="${escape(field.id)}" title="Remove draft override" aria-label="Remove draft override" ${present ? '' : 'hidden'}>×</button>` : ''}${field.nullable ? `<label class="parameter-checkbox"><input type="checkbox" data-null-parameter="${escape(field.id)}" ${present && value === null ? 'checked' : ''}>${escape(field.nullDescription)}</label>` : ''}</div></div>`;
 }
 
@@ -186,7 +228,7 @@ export function renderParameters() {
     <fieldset class="parameter-fields" id="parameter-fields" ${readOnly ? 'disabled' : ''}>
       <details class="parameter-section" open><summary>Experiment timing</summary><div class="parameter-section-body"><label>Planned duration (seconds)<input type="number" id="experiment-duration" value="${escape(configuration.durationSeconds ?? '')}" min="1" step="any" required></label><p>${state.connected ? 'Requested autonomous acquisition duration.' : 'Explicit demonstration duration, not a real acquisition deadline.'}</p></div></details>
       ${devices.filter(device => context.devices.includes(device.id) || configuration.participants.includes(device.id)).map(device => `<details class="parameter-section" ${configuration.participants.includes(device.id) ? 'open' : ''}><summary>${escape(device.name)} <small>${state.connected ? 'Declared settings' : 'Illustrative settings'}</small></summary><fieldset class="parameter-section-body" ${configuration.participants.includes(device.id) ? '' : 'disabled'}>${(deviceExamples[device.id]?.fields || []).map(field => parameterField(field, configuration.values[field.id], Object.hasOwn(configuration.values, field.id), configuredParameterValue(state, device, field, ['session', 'experiment'].includes(context.kind) ? state.activeSession?.sessionId : null))).join('') || '<p>No supported parameter definitions supplied for this device.</p>'}</fieldset></details>`).join('')}
-      ${state.connected ? `<details class="parameter-section" open><summary>Framework recording configuration</summary><div class="parameter-section-body"><label>Experiment ID${stringField('data-framework-field="experimentId"', configuration.experimentId)}</label><label>Preservation budget (bytes)<input type="number" min="1" step="1" data-framework-field="preservationBudget" value="${escape(configuration.preservationBudget ?? '')}" required></label>${[...new Set(participants.map(device => device.nodeId))].map(node => `<label>${escape(node)} recording budget (bytes)<input type="number" min="1" step="1" data-recording-budget="${escape(node)}" value="${escape(configuration.recordingBudgets?.[node] ?? '')}" required></label>`).join('')}<h4>Scientific outputs</h4>${participants.flatMap(device => (device.declaration?.scientific_products || []).map(product => { const output = {source_node_id: device.nodeId, source_device_id: device.deviceId, data_product_id: product.data_product_id}; return `<label class="parameter-checkbox"><input type="checkbox" data-scientific-output="${escape(JSON.stringify(output))}" ${configuration.outputs?.some(item => scientificOutputIdentity(item) === scientificOutputIdentity(output)) ? 'checked' : ''}>${escape(device.name)} / ${escape(product.data_product_id)}</label>`; })).join('') || '<p>No declared scientific products available.</p>'}</div></details>` : ''}
+      ${state.connected ? `<details class="parameter-section" open><summary>Framework recording configuration</summary><div class="parameter-section-body"><label>Experiment ID${stringField('data-framework-field="experimentId"', configuration.experimentId)}</label><label>Preservation budget (bytes)<input type="number" min="1" step="1" data-framework-field="preservationBudget" value="${escape(configuration.preservationBudget ?? '')}" required></label>${[...new Set(participants.map(device => device.nodeId))].map(node => `<label>${escape(node)} recording budget (bytes)<input type="number" min="1" step="1" data-recording-budget="${escape(node)}" value="${escape(configuration.recordingBudgets?.[node] ?? '')}" required></label>`).join('')}<section class="parameter-section scientific-outputs"><h4>Scientific Outputs</h4><div class="parameter-section-body">${participants.flatMap(device => (device.declaration?.scientific_products || []).map(product => { const output = {source_node_id: device.nodeId, source_device_id: device.deviceId, data_product_id: product.data_product_id}; return `<label class="parameter-checkbox"><input type="checkbox" data-scientific-output="${escape(JSON.stringify(output))}" ${configuration.outputs?.some(item => scientificOutputIdentity(item) === scientificOutputIdentity(output)) ? 'checked' : ''}>${escape(device.name)} / ${escape(product.data_product_id)}</label>`; })).join('') || '<p>No declared scientific products available.</p>'}</div></section></div></details>` : ''}
     </fieldset>
     <section class="personal-template-area"><h3>Save as personal template <small>Optional</small></h3><p>${state.connected ? "A new name creates an independent template; an existing personal name overwrites only your own template." : "A new name creates an independent Experiment template."} Laboratory templates are never overwritten.</p><form id="personal-experiment-template"><label>Personal template name<input name="templateName" value="${escape(view.bundle?.personalTemplateName || '')}" required ${readOnly ? 'disabled' : ''} placeholder="My baseline configuration"></label><button type="submit" ${readOnly ? 'disabled' : ''}>Save as personal template</button><button type="button" data-remove-experiment-template ${!state.connected || readOnly ? 'hidden' : ''}>Remove</button></form></section>
     <p id="parameter-feedback" role="status">${escape(message)}</p>`;

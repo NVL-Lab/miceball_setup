@@ -375,7 +375,8 @@ document.addEventListener('pointermove', event => {
 });
 function finishStepDrag(event) {
   if (!stepDrag || event.pointerId !== stepDrag.pointerId) return;
-  if (event.type === 'pointerup' && stepDrag.active && stepDrag.targetId) {
+  if (event.type === 'pointerup' && stepDrag.active && stepDrag.targetId
+      && (!state.connected || document.documentElement.dataset.controlMode === 'controlling')) {
     const selectedId = draft.steps[selectedStep]?.id;
     moveStep(draft.steps, stepDrag.id, stepDrag.targetId, stepDrag.after);
     selectedStep = draft.steps.findIndex(step => step.id === selectedId);

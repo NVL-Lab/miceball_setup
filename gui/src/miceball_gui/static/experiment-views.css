@@ -45,6 +45,8 @@ html[data-theme="dark"] :is(#panel-parameters, #panel-experiment, #panel-analysi
 .parameter-section summary { padding: 14px 16px; cursor: pointer; font-size: 13px; font-weight: 600; }
 .parameter-section summary small { font-size: 10px; color: var(--ink-500); font-weight: 450; margin-left: 6px; }
 .parameter-section-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; padding: 4px 16px 16px; }
+.scientific-outputs { grid-column: 1 / -1; }
+.scientific-outputs > h4 { padding: 0 16px; }
 fieldset.parameter-section-body { border: 0; margin: 0; min-width: 0; }
 .parameter-section-body p { grid-column: 1 / -1; margin: 0; color: var(--ink-600); font-size: 11px; line-height: 1.6; }
 .parameter-section-body label, .personal-template-area label { display: grid; gap: 7px; color: var(--ink-600); font-size: 12px; }

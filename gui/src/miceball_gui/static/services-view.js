@@ -62,11 +62,27 @@ function bindAdministratorName(submitSelector, nameSelector = '[data-administrat
 
 function renderActivityHistory() {
   const records = serviceActions.activityHistory?.() || [];
-  activityHistory.querySelector('[data-activity-records]').innerHTML = records.length
-    ? records.map(entry => {
-      const view = activityPresentation(entry);
-      return `<li data-activity="${escape(entry.activity_id)}" data-status="${escape(view.status)}"><time datetime="${escape(entry.observed_at)}">${escape(view.time)}</time><span>${escape(view.message)}</span></li>`;
-    }).join('') : '<li class="services-muted">No activity recorded on this page.</li>';
+  const list = activityHistory.querySelector('[data-activity-records]');
+  if (!records.length) {
+    if (!list.firstChild || list.querySelector('[data-activity]')) list.innerHTML = '<li class="services-muted">No activity recorded on this page.</li>';
+    return;
+  }
+  const ids = new Set(records.map(entry => String(entry.activity_id)));
+  for (const row of [...list.children]) if (!ids.has(row.dataset.activity)) row.remove();
+  records.forEach((entry, index) => {
+    const view = activityPresentation(entry);
+    let row = [...list.children].find(row => row.dataset.activity === String(entry.activity_id));
+    if (!row) {
+      row = document.createElement('li'); row.dataset.activity = entry.activity_id;
+      row.innerHTML = '<time></time><span></span>';
+    }
+    row.dataset.status = view.status;
+    const time = row.querySelector('time'), message = row.querySelector('span');
+    time.dateTime = entry.observed_at;
+    if (time.textContent !== view.time) time.textContent = view.time;
+    if (message.textContent !== view.message) message.textContent = view.message;
+    if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
+  });
 }
 
 function authorizeMaintenance(operation, service) {
@@ -233,7 +249,6 @@ function administrativeOperations() {
 
 function renderServices() {
   const focusedBackend = backendPanel.contains(document.activeElement);
-  const focusedActivityHistory = activityHistory.contains(document.activeElement);
   let focusedOwner;
   if (connected) {
     for (const disclosure of panel.querySelectorAll('[data-owner-report]')) {
@@ -243,16 +258,16 @@ function renderServices() {
     for (const id of ownerReportOpen.keys()) if (!model.services.some(service => service.id === id)) ownerReportOpen.delete(id);
   }
   const unacknowledged = notificationHistory().filter(item => !item.acknowledged).length;
-  panel.innerHTML = `<header class="services-header"><div><h2 class="visually-hidden" id="heading-services">Services</h2><p>Framework status, notifications and administrative operations</p><small>${connected ? 'Configured membership · service-owned readiness · Controller admission remains authoritative' : 'Browser-local demonstration · fictional reports, no live services or commands'}</small></div><div class="services-refresh"><label>Auto refresh (s)<select id="services-refresh"><option value="0">Off</option>${[5,10,30,60].map(n=>`<option value="${n}" ${model.refreshSeconds === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label><button type="button" data-refresh-services>Refresh now</button></div></header>
+  for (const child of [...panel.childNodes]) if (child !== activityHistory) child.remove();
+  panel.insertAdjacentHTML('afterbegin', `<header class="services-header"><div><h2 class="visually-hidden" id="heading-services">Services</h2><p>Framework status, notifications and administrative operations</p><small>${connected ? 'Configured membership · service-owned readiness · Controller admission remains authoritative' : 'Browser-local demonstration · fictional reports, no live services or commands'}</small></div><div class="services-refresh"><label>Auto refresh (s)<select id="services-refresh"><option value="0">Off</option>${[5,10,30,60].map(n=>`<option value="${n}" ${model.refreshSeconds === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label><button type="button" data-refresh-services>Refresh now</button></div></header>
     <p class="services-feedback" ${connected ? 'id="services-readiness-unavailable"' : ''} role="status">${escape(message || refreshNotice || (model.lastPreviewRefresh ? `Preview refreshed locally at ${model.lastPreviewRefresh}; fixture confirmations are unchanged.` : (connected ? 'Only valid current checks confirm availability; communication loss alone is not failure.' : 'Automatic refresh repaints fictional information only; it does not confirm availability.')))}</p>
     <section class="services-card"><h3>Configured services${connected && !model.membershipKnown ? ' · unavailable' : ` (${model.services.length})`}</h3><ul class="services-list" aria-label="Configured services">${connected && !model.membershipKnown ? '<li>Configured membership unavailable until Controller readback.</li>' : serviceRows()}</ul></section>
-    <section class="services-card services-warning-card"><h3>Warnings and errors <small>${connected ? 'Unavailable' : `${unacknowledged} unacknowledged`}</small></h3><p class="services-muted">${connected ? 'Authoritative warning and error history is unavailable.' : 'Latest three entries by default. Acknowledgment is not resolution or deletion.'}</p><div id="services-history" class="services-history" role="region" aria-label="Warning and error history" tabindex="0">${notificationRows()}</div>${notificationHistory().length > 3 ? `<button type="button" data-toggle-history aria-controls="services-history" aria-expanded="${historyExpanded}">${historyExpanded ? 'Show less' : 'Show more'}</button>` : ''}</section>${administrativeOperations()}`;
+    <section class="services-card services-warning-card"><h3>Warnings and errors <small>${connected ? 'Unavailable' : `${unacknowledged} unacknowledged`}</small></h3><p class="services-muted">${connected ? 'Authoritative warning and error history is unavailable.' : 'Latest three entries by default. Acknowledgment is not resolution or deletion.'}</p><div id="services-history" class="services-history" role="region" aria-label="Warning and error history" tabindex="0">${notificationRows()}</div>${notificationHistory().length > 3 ? `<button type="button" data-toggle-history aria-controls="services-history" aria-expanded="${historyExpanded}">${historyExpanded ? 'Show less' : 'Show more'}</button>` : ''}</section>${administrativeOperations()}`);
   const backend = guiBackendCard();
   if (backend) panel.querySelector('.services-card').after(backend);
   if (focusedBackend) backendPanel.querySelector('summary').focus({preventScroll: true});
   renderActivityHistory();
-  panel.append(activityHistory);
-  if (focusedActivityHistory) activityHistory.querySelector('summary').focus({preventScroll: true});
+  if (activityHistory.parentElement !== panel) panel.append(activityHistory);
   if (connected) {
     const disclosure = panel.querySelector('.inline-service-details:not([hidden]) > details');
     if (disclosure) {

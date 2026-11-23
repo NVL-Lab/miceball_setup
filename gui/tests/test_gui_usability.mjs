@@ -84,6 +84,8 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     await page.locator('html[data-control-mode="view-only"]').waitFor();
     const date = page.locator('.session-identity-grid input[type="date"]');
     assert.equal(await date.inputValue(), '2026-12-31'); // Local day differs from UTC Jan 1.
+    assert.equal(await date.isDisabled(), true);
+    await page.locator('#take-over').click(); await page.locator('html[data-control-mode="controlling"]').waitFor();
     await date.fill('2026-11-15');
     await section(page, 'session'); await section(page, 'setup');
     assert.equal(await date.inputValue(), '2026-11-15');
@@ -107,6 +109,7 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     await primary.selectOption({label: 'New Scientist'}); await page.locator('#catalog-save').click();
     await page.locator('#catalog-dialog').waitFor({state: 'hidden'});
     assert.equal(await page.locator('#project-select option:checked').getAttribute('data-primary-experimenter'), scientistId);
+    await page.locator('#view-only').click(); await page.locator('html[data-control-mode="view-only"]').waitFor();
 
     for (const theme of ['light', 'dark']) {
       if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();
@@ -146,10 +149,11 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     }, pasted);
     assert.equal(await name.getAttribute('data-string-encoding'), 'exact');
     assert.equal(JSON.parse(await name.inputValue()), pasted);
-    await name.locator('xpath=following-sibling::button[1]').click();
+    assert.equal(await name.locator('xpath=following-sibling::button[1]').isVisible(), false);
+    await name.blur();
     assert.equal(JSON.parse(await name.inputValue()), pasted);
     await name.fill('"ordinary again"');
-    await name.locator('xpath=following-sibling::button[1]').click();
+    await name.blur();
     assert.equal(await name.getAttribute('data-string-encoding'), 'text');
     const text = '  "Session Ω" \\n literal  ', storage = 'C:\\data\\ordinary path', notes = 'first line\nsecond line Ω';
     await name.fill(text);

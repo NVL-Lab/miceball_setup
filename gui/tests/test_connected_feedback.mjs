@@ -327,9 +327,9 @@ async function verifyMaintenanceBinding() {
     assert.equal(await target.locator('[data-live-administrator]').inputValue(), 'Lab Operator');
     controlling = false;
     await target.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
-    await target.locator('[data-live-confirm]').click();
+    assert.equal(await target.locator('[data-live-confirm]').isDisabled(), true);
+    await target.locator('[data-live-confirm]').evaluate(button => button.dispatchEvent(new MouseEvent('click', {bubbles: true})));
     assert.equal(submitted.length, 5);
-    assert.match(await target.locator('#activity-history').textContent(), /Current control.*No request was sent/);
     await target.locator('[data-admin-close]').click();
     assert.equal(await target.locator('[data-stop-service]').isDisabled(), true);
     await target.locator('[data-stop-service]').evaluate(button => button.dispatchEvent(new MouseEvent('click', {bubbles:true})));
@@ -586,7 +586,7 @@ try {
   await status.filter({hasText: 'Refreshing inventory'}).waitFor();
   reply(inventoryRequests[6].route, inventoryRequests[6].message, 'succeeded', inventory);
   await status.filter({hasText: 'inventory confirmed'}).waitFor();
-  assert.equal(await page.locator('#session-device-list input').isEnabled(), true);
+  assert.equal(await page.locator('#session-device-list input').isDisabled(), true, 'Inventory readback does not grant editing authority');
   await shot('inventory-feedback-recovered');
   const identityInventory = JSON.parse(process.env.MICEBALL_DEVICE_IDENTITY_INVENTORY);
   const parameterDevice = identityInventory.devices[0].device_id;

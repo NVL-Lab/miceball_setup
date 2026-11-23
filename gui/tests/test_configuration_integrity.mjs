@@ -3,7 +3,15 @@ import {replyArtifactDestinations} from './artifact_destination_fixture.mjs';
 async function fillString(control, value) {
   if (/[\r\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(value)
       || [...value].some(c => c.length === 1 && /[\ud800-\udfff]/.test(c))) {
-    if (await control.getAttribute('data-string-encoding') !== 'exact') await control.locator('xpath=following-sibling::button[1]').click();
+    if (await control.getAttribute('data-string-encoding') !== 'exact') {
+      if (await control.getAttribute('data-automatic-string') !== null) {
+        await control.fill('');
+        await control.evaluate((input, text) => {
+          const transfer = new DataTransfer(); transfer.setData('text/plain', text);
+          input.dispatchEvent(new ClipboardEvent('paste', {clipboardData: transfer, bubbles: true, cancelable: true}));
+        }, value);
+      } else await control.locator('xpath=following-sibling::button[1]').click();
+    }
   }
   const text = await control.getAttribute('data-string-encoding') === 'exact' ? JSON.stringify(value) : value;
   if (text === '' && await control.inputValue() === '') await control.fill('temporary edit');
@@ -106,7 +114,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await fillString(page.locator('#error-evidence-location'), fixture.session.error_evidence_location);
     for (const invalid of ['"raw\r\nnewline"', 'true']) {
       const name = page.locator('.session-identity-grid textarea[data-configuration-string]');
-      if (await name.getAttribute('data-string-encoding') !== 'exact') await name.locator('xpath=following-sibling::button[1]').click();
+      if (await name.getAttribute('data-string-encoding') !== 'exact') await fillString(name, '\r');
       await name.fill(invalid);
       await page.locator('.launch-session-demo').click();
       assert.equal(sent.filter(message => message.operation === 'launch_session').length, 0);
@@ -326,15 +334,17 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
 
 export async function verifyExperimentReconnection(browser, origin, fixture, section) {
   const page = await browser.newPage(), requests = [], errors = [];
-  let snapshot = fixture.snapshots[0], connection;
+  let snapshot = fixture.snapshots[0], connection, controlling = false;
   page.on('pageerror', error => errors.push(error.message));
   await page.routeWebSocket('**/ws', route => {
     connection = route;
     route.onMessage(raw => {
       const message = JSON.parse(raw); if (replyArtifactDestinations(route, message)) return; requests.push(message.operation);
-      assert.ok(['read_controller_state', 'get_node_inventory'].includes(message.operation));
+      assert.ok(['read_controller_state', 'get_node_inventory', 'take_browser_control'].includes(message.operation));
+      if (message.operation === 'take_browser_control') controlling = true;
       route.send(JSON.stringify({type: 'result', id: message.id, instance_id: 'monitor-instance',
-        result: {status: 'succeeded', outcome: {details: message.operation === 'get_node_inventory' ? fixture.inventory : snapshot}}}));
+        result: {status: 'succeeded', outcome: {details: message.operation === 'get_node_inventory' ? fixture.inventory
+          : {...snapshot, control: {...snapshot.control, controlling}}}}}));
     });
     route.send(JSON.stringify({type: 'connected', browser_id: 'monitor-observer'}));
   });
@@ -355,6 +365,7 @@ export async function verifyExperimentReconnection(browser, origin, fixture, sec
     assert.match(await page.locator('#panel-parameters').innerText(), new RegExp(source));
   };
   const reconnect = async () => {
+    controlling = false;
     connection.close();
     await page.locator('#connection-state').filter({hasText: 'Backend disconnected'}).waitFor();
     await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
@@ -364,6 +375,8 @@ export async function verifyExperimentReconnection(browser, origin, fixture, sec
     await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
     await inventory();
     await section(page, 'session');
+    assert.equal(await page.locator('[data-prepare-free-operation]').isDisabled(), true);
+    await page.locator('#take-over').click(); await page.locator('html[data-control-mode="controlling"]').waitFor();
     await page.locator('[data-prepare-free-operation]').click();
     await page.locator('[data-session-navigate="parameters"]').click();
     await page.locator('#experiment-duration').fill('99');
@@ -375,7 +388,7 @@ export async function verifyExperimentReconnection(browser, origin, fixture, sec
     await section(page, 'session');
     await page.locator('[data-session-navigate="parameters"]').click();
     assert.equal(await page.locator('#experiment-duration').inputValue(), '99');
-    assert.equal(await page.locator('#experiment-duration').isEnabled(), true);
+    assert.equal(await page.locator('#experiment-duration').isDisabled(), true);
     await section(page, 'experiment');
     snapshot = structuredClone(fixture.snapshots[1]);
     snapshot.status.active_experiment_id = 'latest';
@@ -390,7 +403,7 @@ export async function verifyExperimentReconnection(browser, origin, fixture, sec
     await monitor('latest', 22, 8.5, 'Fixed executed-attempt configuration');
     assert.deepEqual(errors, []);
     assert.ok(requests.includes('read_controller_state'));
-    assert.ok(requests.every(operation => ['read_controller_state', 'get_node_inventory'].includes(operation)));
+    assert.ok(requests.every(operation => ['read_controller_state', 'get_node_inventory', 'take_browser_control'].includes(operation)));
     console.log('PASS: framework-produced first/latest lifecycle readback, completed/running reconnect, fresh observer, exact executed duration/gain and separate unsent preparation; no lifecycle replay');
   } finally {await page.close();}
 }

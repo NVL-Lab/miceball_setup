@@ -1,5 +1,9 @@
 # Code Map
 
+## gui/src/miceball_gui/static/ownership-presentation.js
+
+- syncOwnershipPresentation(): Applies the existing confirmed browser ownership to editable controls while retaining independent disabled states and inspection/navigation access.
+
 ## GUI Integration Unit 2 (implementation; independent validation/audit pending)
 
 - `ExternalControllerRequest` / `ExternalControllerResult`: Validate bounded Session Kill, service/timing reads, Stop/Kill/Cancel, framework shutdown and the six existing `SERVICE_RECOVERY_COMMAND_TYPES` with explicit target, administrator and owner authorization rather than arbitrary commands.
@@ -225,6 +229,8 @@ general maintenance-history/memory retirement is not implemented by this closure
 - `exitAdministratorMode`: Clears the client-wide mode and identity, dismisses administrative dialogs and updates applicable tabs.
 
 ## gui/src/miceball_gui/static/parameters-view.js — Administrator settings
+
+- administrativeParameters(form): Reads and validates the existing typed administrator draft for submission or metadata reconciliation without changing its saved revision.
 
 - `renderSynchronizationSettings`: Reuses the Parameters section for installation defaults, retaining the same form/draft and captured revision through refresh and scientific context changes.
 
@@ -3349,7 +3355,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - sessionIdentity: Reads the existing Setup identity fields for presentation without creating a second configuration model.
 - executionIdentity: Resolves the captured active Session identity, falling back to Setup only before launch.
 - renderAcceptedCatalogIdentity(metadata): Selects a recorded identity projection without removing current catalog/New choices and preserves recorded animal details independently of catalog availability.
-- configurationStringEditor(control, value=control.value): Creates ordinary text entry with an optional existing-compatible exact-character mode, retaining attributes and form placement.
+- configurationStringEditor(control, value=control.value, automatic=false): Creates lossless text entry, optionally choosing exceptional representation automatically without a mode control, while retaining attributes and form placement.
 - setConfigurationString(control, value): Projects a typed string into ordinary text or a lossless escaped representation when native normalization would change code units.
 - needsExactCharacters(value): Identifies native-normalization-sensitive string values for the shared input projection and pre-insertion transfer guard.
 - readConfigurationString(control): Reads ordinary text literally or validates the explicitly selected exact-character representation without trimming or coercion.
