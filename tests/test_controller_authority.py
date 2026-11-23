@@ -190,10 +190,84 @@ class ControllerClaimTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "authority"):
             await launch_independent_service(**settings)
         await self.acquire()
-        with self.assertRaises(KeyWrongLastSequenceError):
+        with patch('sys.stdin.isatty', return_value=False), self.assertRaisesRegex(RuntimeError, 'Non-interactive'):
             await launch_independent_service(**settings, controller_claim_account="LAB",
                 controller_claim_bucket="AUTHORITY", controller_claim_key="controller")
         self.assertEqual((await self.kv.get("controller")).value.decode(), self.owner.operational_instance_id)
+
+    async def launch_recovery_candidate(self, answers, *, interactive=True):
+        from types import SimpleNamespace
+        from lab_sync_acquisition.service_startup import launch_independent_service
+        reports = []
+        async def run(launcher, *, startup):
+            for boundary in launcher.boundaries:
+                self.stack.push_async_callback(boundary.close)
+            await startup()
+            return 0
+        with patch('sys.stdin', SimpleNamespace(isatty=lambda: interactive)), \
+                patch('lab_sync_acquisition.service_launcher._read_terminal_line', AsyncMock(side_effect=answers)), \
+                patch.object(ServiceLauncher, 'run', run), \
+                patch('lab_sync_acquisition.service_startup.NatsServiceMaintenanceCommunication.start',
+                      AsyncMock(side_effect=RuntimeError('Controlled dependency unavailable'))):
+            await launch_independent_service(role='controller', servers=(self.url,), service_id='candidate',
+                ingestor_id='ingestor', storage_id='storage', synchronization_id='sync', known_nodes=(),
+                preservation_window_s=.1, result_window_s=1, registration_window_s=1, report=reports.append,
+                controller_claim_account='LAB', controller_claim_bucket='AUTHORITY', controller_claim_key='controller')
+        return reports
+
+    async def test_interactive_startup_recovers_only_explicitly_verified_claim(self):
+        await self.acquire()
+        previous = (await self.kv.get('controller')).revision
+        reports = await self.launch_recovery_candidate(['Operator', 'yes', 'Independent host/process inspection', 'yes'])
+        current = await self.kv.get('controller')
+        self.assertGreater(current.revision, previous)
+        self.assertNotEqual(current.value.decode(), self.owner.operational_instance_id)
+        self.assertTrue(any('Manual claim recovery confirmed' in report for report in reports))
+        self.assertTrue(any('occupied_controller_claim' in report for report in reports))
+
+    async def test_startup_recovery_decline_eof_and_missing_evidence_preserve_claim(self):
+        await self.acquire()
+        before = await self.kv.get('controller')
+        for answers in ([None], ['Operator', 'no'], ['Operator', 'yes', ''],
+                        ['Operator', 'yes', 'Verified host', 'no']):
+            with self.subTest(answers=answers), self.assertRaises(RuntimeError):
+                await self.launch_recovery_candidate(answers)
+            self.assertEqual((await self.kv.get('controller')).revision, before.revision)
+        with self.assertRaisesRegex(RuntimeError, 'Non-interactive'):
+            await self.launch_recovery_candidate([], interactive=False)
+        self.assertEqual((await self.kv.get('controller')).revision, before.revision)
+
+    async def test_startup_recovery_changed_claim_and_lost_clear_ack_fail_closed(self):
+        await self.acquire()
+        async def changed(*args, **kwargs):
+            entry = await self.kv.get('controller')
+            await self.kv.update('controller', entry.value, last=entry.revision)
+            return 'yes'
+        answers = iter(['Operator', 'yes', 'Independent verification'])
+        async def answer(*args, **kwargs):
+            try: return next(answers)
+            except StopIteration: return await changed()
+        with self.assertRaisesRegex(RuntimeError, 'changed'):
+            await self.launch_recovery_candidate(answer)
+        original = JetStreamContext.publish
+        async def lost_ack(js, subject, *args, **kwargs):
+            result = await original(js, subject, *args, **kwargs)
+            if kwargs.get('headers', {}).get('KV-Operation') == 'DEL':
+                raise TimeoutError('Committed clearing; acknowledgment unavailable')
+            return result
+        with patch.object(JetStreamContext, 'publish', lost_ack), self.assertRaises(TimeoutError):
+            await self.launch_recovery_candidate(['Operator', 'yes', 'Independent verification', 'yes'])
+        with self.assertRaises(KeyNotFoundError):
+            await self.kv.get('controller')
+
+    async def test_startup_does_not_offer_recovery_after_uncertain_acquisition(self):
+        original = type(self.kv).create
+        async def uncertain(kv, key, value, **kwargs):
+            await original(kv, key, value, **kwargs)
+            raise TimeoutError('Acquisition committed; acknowledgment unavailable')
+        with patch.object(type(self.kv), 'create', uncertain), self.assertRaises(TimeoutError):
+            await self.launch_recovery_candidate([])
+        self.assertIsNotNone(await self.kv.get('controller'))
 
     async def test_missing_occupied_and_wrong_account_deny_admission(self):
         for changes in ({"bucket": "MISSING"}, {"account": "WRONG"}):

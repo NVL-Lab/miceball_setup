@@ -156,8 +156,6 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     await page.locator('[aria-labelledby="notes-title"] textarea').fill(notes);
     await page.locator('#artifact-destination').selectOption('default');
     await page.locator('#error-evidence-location').fill('C:\\errors');
-    await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().evaluate(node => node.open = true);
-    await page.locator('#session-framework-fields').fill(JSON.stringify(configuration));
     await page.locator('.launch-session-demo').click();
     await page.locator('.session-identity-grid textarea[readonly]').waitFor({state:'attached'});
     const sent = submitted.find(entry => entry.operation === 'launch_session').parameters.config_parameters;

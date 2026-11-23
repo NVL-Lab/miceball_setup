@@ -13,6 +13,7 @@ import { localCalendarDate } from './calendar-date.mjs';
 import { confirmStop } from './stop-confirmation.mjs';
 import { serviceActions, updateServices, startServicesRefresh, showBlockedServiceStop } from './services-view.js';
 import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
+import { activityPresentation } from './activity-presentation.mjs';
 import { activities as outcomes, recordActivity, updateActivity, recordLocalActivity, recordActivityTransition } from './activity-history.mjs';
 import { deviceParameterFields } from './parameter-constraints.mjs';
 import { installArtifactDestinations, refreshArtifactDestinations, syncArtifactDestinations, invalidateArtifactDestinations, selectedArtifactDestination } from './artifact-destinations.js';
@@ -56,7 +57,7 @@ $('.storage-path code').textContent = 'Assigned by the configured storage owners
 for (const value of $('.storage-stats').querySelectorAll('dd')) value.textContent = 'Unavailable';
 $('#launch-demo-note').textContent = 'Requests Controller acceptance, reservation and durable preservation. Launch does not start an Experiment.';
 for (const button of document.querySelectorAll('#view-only, #take-over')) button.className = 'dialog-button';
-storageBody.insertAdjacentHTML('beforeend', '<label>Error evidence location<input id="error-evidence-location"></label><details><summary>Additional Session configuration</summary><label>Framework configuration fields (JSON)<textarea id="session-framework-fields" rows="7" spellcheck="false" placeholder="Explicit protocol_plan and applicable storage/acquisition settings"></textarea></label></details>');
+storageBody.insertAdjacentHTML('beforeend', '<label>Error evidence location<input id="error-evidence-location"></label>');
 const sessionName = configurationStringEditor($('.session-identity-grid input[type="text"]'));
 const sessionDate = $('.session-identity-grid input[type="date"]');
 const sessionNumber = $('.session-identity-grid input[type="number"]');
@@ -79,18 +80,27 @@ $('#inventory-status').className = 'prototype-caption';
 $('#device-validation-maximum').disabled = true;
 $('#device-validation-maximum').closest('label').title = 'Device Validation integration unavailable';
 
-function canControl(except = null) {
-  return confirmed && current()?.control?.controlling && !busy && !outcomes.some(o => o !== except && (o.continuationPending || o.controllerCommand && ['pending', 'uncertain'].includes(o.status)
+function controlBlocker(except = null) {
+  if (!confirmed) return 'Controller connection unconfirmed';
+  if (!current()?.control?.controlling) return 'View Only; acquire control to launch';
+  if (busy) return 'Another request is in progress; waiting for its response';
+  const pending = outcomes.find(o => o !== except && (o.continuationPending || o.controllerCommand && ['pending', 'uncertain'].includes(o.status)
     && !(o.operation === 'update_device_configuration' && o.status === 'uncertain' && o.configurationReconciled)));
+  return pending ? pending.continuationPending ? 'Session launch/start sequence is still pending'
+    : activityPresentation(pending).message : '';
+}
+function canControl(except = null) {
+  return !controlBlocker(except);
 }
 function controls() {
   const status = current()?.status;
   const launch = outcomes.findLast(entry => entry.operation === 'launch_session');
   if (!status?.session_id && launch) $('.setup-demo-note').textContent = 'Session launch not confirmed. See Activity History in Services.';
   document.documentElement.dataset.controlMode = !confirmed ? 'unconfirmed' : current()?.control?.controlling ? 'controlling' : 'view-only';
-  $('.launch-session-demo').disabled = !canControl() || Boolean(status?.session_id);
-  $('.launch-session-demo span').textContent = !confirmed ? 'Controller connection unconfirmed' : status?.session_id ? 'Session accepted' : current()?.control?.controlling ? 'Request Controller launch and start' : 'View Only';
-  for (const control of [sessionName, sessionDate, sessionNumber, sessionNotes, errorLocation, $('#session-framework-fields')]) {
+  const launchBlocker = controlBlocker() || (status?.session_id ? 'Session already accepted; use the Session workspace' : '');
+  $('.launch-session-demo').disabled = Boolean(launchBlocker);
+  $('.launch-session-demo span').textContent = launchBlocker || 'Request Controller launch and start';
+  for (const control of [sessionName, sessionDate, sessionNumber, sessionNotes, errorLocation]) {
     control.readOnly = Boolean(status?.session_id);
     if (control.nextElementSibling?.hasAttribute('data-string-mode')) control.nextElementSibling.disabled = control.readOnly;
   }
@@ -169,7 +179,6 @@ async function refresh() {
       sessionDate.dispatchEvent(new Event('input'));
       renderAcceptedCatalogIdentity(metadata);
       setConfigurationString(errorLocation, config.error_evidence_location ?? '');
-      $('#session-framework-fields').value = JSON.stringify(config, null, 2);
       setConfigurationString(sessionNotes, metadata.notes ?? '');
     }
     if (previous?.instance_id === snapshot.instance_id && previous?.status?.session_id
@@ -260,10 +269,7 @@ const localAction = (operation, action) => async () => {
 };
 state.actions.launchSession = localAction('launch_session', async entry => {
   if (!canControl(entry) || current()?.status?.session_id) return actionRefusal(entry, 'Session launch is unavailable or already pending. No request was sent.');
-  let config;
-  try { config = parseConfigurationJSON($('#session-framework-fields').value); }
-  catch (error) { throw new Error(error instanceof SyntaxError ? 'Additional Session configuration: enter valid JSON framework configuration.' : `Additional Session configuration: ${error.message}`); }
-  if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Additional Session configuration must be an object.');
+  const config = {protocol_plan: {}, session_parameters: {}};
   if (!catalogClient.snapshot?.synchronization_configuration) throw new Error('Backend synchronization settings are unavailable.');
   config.synchronization_configuration = clone(catalogClient.snapshot.synchronization_configuration);
   config.storage_location = selectedArtifactDestination();

@@ -43,7 +43,7 @@ def _enable_deployment_diagnostics():
     deployment_logger.propagate = False
 
 
-async def _read_terminal_choice():
+async def _read_terminal_choice(*, raw=False):
     """Read a local maintenance choice without a blocking executor/input thread."""
     if not sys.stdin.isatty():
         return None
@@ -51,17 +51,44 @@ async def _read_terminal_choice():
         if os.name == "nt":
             import msvcrt
             if msvcrt.kbhit():
-                character = msvcrt.getwch()
+                character = msvcrt.getwche() if raw else msvcrt.getwch()
                 if character in {"\x00", "\xe0"}:
                     msvcrt.getwch()
                     continue
-                return None if character == "\x1a" else character.upper()
+                return None if character == "\x1a" else (character if raw else character.upper())
         else:
             import select
             if select.select([sys.stdin], [], [], 0)[0]:
                 character = os.read(sys.stdin.fileno(), 1)
+                if raw:
+                    return character or None
                 return character.decode("ascii", errors="replace").upper() if character else None
         await asyncio.sleep(0.1)
+
+
+async def _read_terminal_line(prompt, *, report):
+    """Read bounded startup attestations using the existing interruptible terminal reader."""
+    report(prompt)
+    import codecs
+    decoder = codecs.getincrementaldecoder('utf-8')()
+    characters = []
+    while True:
+        character = await _read_terminal_choice(raw=True)
+        if character is None:
+            return None
+        if isinstance(character, bytes):
+            character = decoder.decode(character)
+            if not character:
+                continue
+        if character in {'\r', '\n'}:
+            return ''.join(characters).strip()
+        if character in {'\b', '\x7f'}:
+            if characters:
+                characters.pop()
+        else:
+            if len(characters) >= 2048:
+                raise ValueError('Terminal response is too long; startup recovery refused')
+            characters.append(character)
 
 
 class ServiceLauncher:

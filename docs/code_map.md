@@ -120,6 +120,10 @@ No physical hardware, deployed broker, cross-machine or physical crash claim is 
 
 ## src/lab_sync_acquisition/controller_authority.py
 
+- OccupiedControllerClaim(snapshot): Carries an authoritatively inspected occupied claim after definitive failed CAS, remaining compatible with the SDK occupied-key exception type.
+- NatsCommunicationBoundary._permit_recovered_controller_acquisition(snapshot): Reopens only the matching definitively refused acquisition after startup confirms existing authorized manual recovery; never resets uncertain acquisition.
+- service_startup._recover_occupied_controller(boundary, snapshot, *, timeout_s, report, nats_auth): Obtains explicit terminal attestations and reuses existing conditional claim recovery before ordinary acquisition resumes.
+
 - ControllerClaimSnapshot: Carries the exact inspected installation claim scope, Controller operational-instance ID and KV revision for conditional manual recovery.
 - open_controller_claim_store: Reuses account and persistent non-expiring KV verification for acquisition, inspection and service registration.
 - controller_independent_command: Identifies existing informational, explicitly administered and service-owned traffic that does not require Controller operational admission.
@@ -656,7 +660,8 @@ target arguments; no password flags or credential-bearing commands are generated
 - ServiceLauncher.stop_locally(administrator_id): Serializes local maintenance bootstrap and explicit Stop/Kill/Cancel continuation with retained paired attempt identity and coalesced interrupts.
 - ServiceLauncher._stop_locally(administrator_id): Executes the existing prepared-retirement plan, retaining exact blocked context on EOF or uncertainty instead of replaying Stop or implicitly cancelling preparation.
 - ServiceLauncher._choose_blocked_attempt(owner, payload, *, preparation=False): Presents the exact blocked attempt and awaits an explicit terminal choice while detecting remote resolution and cancelling owned input tasks.
-- _read_terminal_choice(): Uses nonblocking Windows console or POSIX terminal polling for cancellable K/C input, returning no authorization on non-interactive input or EOF.
+- _read_terminal_choice(*, raw=False): Reuses nonblocking console/terminal input for K/C or bounded startup text, returning no authorization on non-interactive input or EOF.
+- _read_terminal_line(prompt, *, report): Reads bounded nonsecret startup attestations without blocking an executor thread, preserving Unicode and cancellation.
 - ServiceLauncher.run(*, startup=None): Installs SIGINT protection before invoking an optional async startup callable, awaits interrupted initialization before local maintenance, retains cancelled/blocked/failed/unconfirmed processes, and drains communication only after confirmed retirement and result handling.
 - ServiceLauncher._feedback: Reports existing maintenance outcomes, identities, blockers and outstanding obligations without creating lifecycle evidence or outcome states.
 - ServiceLauncher._remote_handled: Validates request/result correlation using the exact published-and-acknowledged result and counts only confirmed retirement toward exit, never a cached success substituted by command ID.
@@ -3371,7 +3376,19 @@ automatic. Kill integration and overall closeout validation remain deferred.
 ## gui/src/miceball_gui/static/parameters-view.js
 
 - stringField(attributes, value): Stages a safely escaped typed string for the shared ordinary/exact-character editor while preserving invalid draft markers.
-- parameterField(field, value, present): Renders an escaped typed control, lossless connected string representation and override/default/null state while preserving the original demonstration controls.
+- parameterField(field, value, present, inherited={available:false}, administrative=false): Renders escaped typed fields with inherited readback, numeric-clear omission and a distinct adapter-described empty-value choice, preserving administrative enforcement and demonstration controls.
+
+### Bounded deployment preparation/recovery correction (developer implementation)
+
+- connected.controlBlocker(except=null): Supplies both existing control eligibility and visible Launch reasons for connection, ownership, busy and unresolved operations without duplicating service admission.
+- connected.state.actions.launchSession: Builds required Session configuration from typed controls and existing preparation, with an empty legacy plan and optional protocol-name association, then reuses guarded launch/start without starting an Experiment.
+- gui/tests/test_session_preparation.SessionPreparationTests: Exercises JSON-free Free/Protocol preparation through production browser, actual backend, Controller and isolated NATS, confirming running Session and no automatic Experiment.
+
+The obsolete framework-JSON textarea and its parsing/assignment paths are removed.
+Adapter `null_description` is optional presentation metadata; nullable constraints
+and ordinary/administrative permissions remain authoritative and unchanged.
+Independent validation/audit remain pending; live inventory/classification
+discrepancies C/D remain evidence-gated, not speculatively corrected.
 - renderParameters: Renders the single Session-selected Experiment's working or read-only configuration and optional personal-template saving.
 - updateParameterWorking: Applies typed parameter input to shared working values while leaving participation selection in Session.
 

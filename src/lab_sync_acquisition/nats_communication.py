@@ -18,7 +18,7 @@ from nats.aio.subscription import Subscription
 from nats.errors import ConnectionReconnectingError
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, Header, RetentionPolicy, StorageType, StreamConfig
 from nats.js.client import JetStreamContext
-from nats.js.errors import NotFoundError
+from nats.js.errors import NotFoundError, KeyWrongLastSequenceError
 
 from lab_sync_acquisition.acquisition_node import AcquisitionNode
 from lab_sync_acquisition.communication import (
@@ -61,7 +61,7 @@ RuntimeEvidenceCallback = Callable[[RuntimeEvidenceMessage], Awaitable[None]]
 ControllerDecisionCallback = Callable[[ControllerActionDecision | dict[str, Any]], Awaitable[Any]]
 RuntimeTelemetryCallback = Callable[[RuntimeTelemetryMessage], Awaitable[None]]
 
-from lab_sync_acquisition.controller_authority import (ControllerClaimSnapshot,
+from lab_sync_acquisition.controller_authority import (ControllerClaimSnapshot, OccupiedControllerClaim,
     open_controller_claim_store, AUTHORITY_READ_COMMANDS, controller_independent_command, _admitted_commands)
 
 logger = logging.getLogger(__name__)
@@ -153,6 +153,7 @@ class NatsCommunicationBoundary:
         self._partial_result_subscriptions: dict[Subscription, NATS] = {}
         self._partial_result_cleanup_task: asyncio.Task | None = None
         self._controller_claim_attempted = False
+        self._occupied_controller_claim = None
         self._controller_claim = None
         self._controller_claim_released = False
         self._controller_claim_lock = asyncio.Lock()
@@ -186,11 +187,27 @@ class NatsCommunicationBoundary:
                 kv = await open_controller_claim_store(self, account=account, bucket=bucket,
                                                        key=key, timeout_s=timeout_s)
                 self._controller_authority_configuration = (account, bucket, key, timeout_s)
-                revision = await kv.create(key, operational_instance_id.encode("utf-8"))
+                try:
+                    revision = await kv.create(key, operational_instance_id.encode("utf-8"))
+                except KeyWrongLastSequenceError:
+                    snapshot = await self.inspect_controller_claim(account=account, bucket=bucket, key=key, timeout_s=timeout_s)
+                    if snapshot.operational_instance_id == operational_instance_id:
+                        raise RuntimeError('Controller acquisition ownership is unconfirmed') from None
+                    self._occupied_controller_claim = snapshot
+                    raise OccupiedControllerClaim(snapshot) from None
                 if type(revision) is not int or revision <= 0:
                     raise RuntimeError("Controller claim acquisition revision is unconfirmed")
                 self._controller_claim = (kv, operational_instance_id, key, revision, timeout_s, bucket)
                 return revision
+
+    async def _permit_recovered_controller_acquisition(self, snapshot):
+        """Reopen only a proven failed occupied-key attempt after caller-confirmed manual recovery."""
+        async with self._controller_claim_lock:
+            if (self._occupied_controller_claim != snapshot or snapshot is None
+                    or not self._controller_claim_attempted or self._controller_claim is not None):
+                raise RuntimeError('No definitively refused occupied Controller acquisition')
+            self._occupied_controller_claim = None
+            self._controller_claim_attempted = False
 
     async def release_controller_claim(self, *, operational_instance_id: str) -> None:
         """Release this boundary's exact acquired owner/revision; never remove a later claim."""

@@ -158,13 +158,13 @@ function parameterField(field, value, present, inherited = {available: false}, a
   const attributes = `data-example-value="${escape(field.id)}" aria-label="${escape(field.label)}"`;
   let control;
   const undeclaredChoice = field.allowedValues && present && value !== null && !field.allowedValues.includes(value);
-  if (field.allowedValues) control = `<label>${escape(field.label)}<select ${attributes}><option value="" ${!displayed || value === null ? 'selected' : ''}>${value === null && displayed ? 'Null (automatic / unset)' : 'Use configured default'}</option>${undeclaredChoice ? `<option value="__current__" selected disabled>${escape(configurationStringText(value))} · not in current declared choices</option>` : ''}${field.allowedValues.map((option, index) => `<option value="${index}" ${displayed && option === value ? 'selected' : ''}>${escape(option)}</option>`).join('')}</select></label>`;
+  if (field.allowedValues) control = `<label>${escape(field.label)}<select ${attributes}><option value="" ${!displayed || value === null ? 'selected' : ''}>${value === null && displayed ? 'Adapter-defined empty value' : 'No override'}</option>${undeclaredChoice ? `<option value="__current__" selected disabled>${escape(configurationStringText(value))} · not in current declared choices</option>` : ''}${field.allowedValues.map((option, index) => `<option value="${index}" ${displayed && option === value ? 'selected' : ''}>${escape(option)}</option>`).join('')}</select></label>`;
   else if (field.type === 'select') control = `<label>${escape(field.label)}<select ${attributes}>${field.options.map(option => `<option ${option === value ? 'selected' : ''}>${escape(option)}</option>`).join('')}</select></label>`;
   else if (field.type === 'checkbox') control = `<label class="parameter-checkbox"><input type="checkbox" ${attributes} ${value ? 'checked' : ''}>${escape(field.label)}</label>`;
   else if (state.connected && field.type === 'text') control = `<label>${escape(field.label)}${stringField(attributes, value)}</label>`;
   else control = `<label>${escape(field.label)}<input type="${escape(field.type)}" ${attributes} value="${escape(value ?? '')}" ${field.min !== undefined ? `min="${escape(field.min)}"` : ''} ${field.max !== undefined ? `max="${escape(field.max)}"` : ''} step="${field.integer ? '1' : 'any'}" ${state.connected || field.nullable ? '' : 'required'}></label>`;
   if (!state.connected || administrative) return control;
-  return `<div class="parameter-override">${control}<div class="parameter-toolbar"><small>${present ? value === null ? 'Explicit null' : 'Explicit override' : inherited.available ? value === null ? 'Inherited configured null (automatic / unset)' : 'Inherited requested configuration' : 'Configured value unavailable; no explicit override'}</small><button type="button" data-unset-parameter="${escape(field.id)}" ${present ? '' : 'disabled'}>Use configured default</button>${field.nullable ? `<button type="button" data-null-parameter="${escape(field.id)}">Set null</button>` : ''}</div></div>`;
+  return `<div class="parameter-override">${control}<div class="parameter-toolbar"><small>${present ? value === null ? 'Adapter-defined empty value requested' : 'Explicit override' : inherited.available ? value === null ? 'Inherited configuration: no value requested' : 'Inherited requested configuration' : 'Configured value unavailable; no explicit override'}</small>${field.type !== 'number' ? `<button type="button" data-unset-parameter="${escape(field.id)}" title="Remove draft override" aria-label="Remove draft override" ${present ? '' : 'hidden'}>×</button>` : ''}${field.nullable ? `<label class="parameter-checkbox"><input type="checkbox" data-null-parameter="${escape(field.id)}" ${present && value === null ? 'checked' : ''}>${escape(field.nullDescription)}</label>` : ''}</div></div>`;
 }
 
 export function renderParameters() {
@@ -210,7 +210,8 @@ panel.addEventListener('click', event => {
     if (!context || context.readOnly) return;
     const values = {...context.configuration.values};
     if (override.hasAttribute('data-unset-parameter')) delete values[override.dataset.unsetParameter];
-    else values[override.dataset.nullParameter] = null;
+    else if (override.checked) values[override.dataset.nullParameter] = null;
+    else delete values[override.dataset.nullParameter];
     context.update({values}); message = ''; renderParameters(); return;
   }
   if (event.target.closest('[data-return-session]')) navigate(resolveParameterContext(state)?.origin || state.parameterContext?.origin || 'setup');
@@ -266,7 +267,7 @@ function updateParameterWorking(event) {
         if (control.value === '') delete values[control.dataset.exampleValue];
         else values[control.dataset.exampleValue] = definition.allowedValues[Number(control.value)];
       }
-      else if (state.connected && control.type === 'number' && control.value === '' && !definition?.nullable && !inputError) delete values[control.dataset.exampleValue];
+      else if (state.connected && control.type === 'number' && control.value === '' && !inputError) delete values[control.dataset.exampleValue];
       else values[control.dataset.exampleValue] = control.hasAttribute('data-configuration-string') ? stringValue : control.type === 'checkbox' ? control.checked : control.type === 'number' ? numeric : control.value;
       const issue = Object.hasOwn(values, control.dataset.exampleValue) ? parameterIssue(definition, values[control.dataset.exampleValue]) : '';
       control.setCustomValidity(inputError?.message || issue);
@@ -274,8 +275,11 @@ function updateParameterWorking(event) {
       view.update({ values });
       if (state.connected) {
         const toolbar = control.closest('label').nextElementSibling;
-        toolbar.querySelector('small').textContent = Object.hasOwn(values, control.dataset.exampleValue) ? values[control.dataset.exampleValue] === null ? 'Explicit null' : 'Explicit override' : 'No explicit override';
-        toolbar.querySelector('[data-unset-parameter]').disabled = !Object.hasOwn(values, control.dataset.exampleValue);
+        toolbar.querySelector('small').textContent = Object.hasOwn(values, control.dataset.exampleValue) ? values[control.dataset.exampleValue] === null ? 'Adapter-defined empty value requested' : 'Explicit override' : 'No explicit override';
+        const unset = toolbar.querySelector('[data-unset-parameter]');
+        if (unset) unset.hidden = !Object.hasOwn(values, control.dataset.exampleValue);
+        const empty = toolbar.querySelector('[data-null-parameter]');
+        if (empty) empty.checked = Object.hasOwn(values, control.dataset.exampleValue) && values[control.dataset.exampleValue] === null;
       }
     }
     message = inputError ? `Invalid configuration value: ${inputError.message}` : (state.connected ? 'Unsent working values updated. Controller validates the submitted configuration.' : 'Working values updated. Return to Session to inspect the summary or launch the simulation; no template save is required.');

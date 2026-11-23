@@ -26,6 +26,39 @@ from lab_sync_acquisition.deployment_configuration import (
 )
 
 
+async def _recover_occupied_controller(boundary, snapshot, *, timeout_s, report, nats_auth):
+    """Offer one explicit existing manual recovery, never infer prior process termination."""
+    from dataclasses import asdict
+    import sys
+    from lab_sync_acquisition.service_launcher import _read_terminal_line
+    from lab_sync_acquisition.service_maintenance_cli import recover_controller_claim
+    report('Controller authority is occupied; another Controller may still be active.')
+    report(json.dumps({'occupied_controller_claim': asdict(snapshot)}, sort_keys=True))
+    if not sys.stdin.isatty():
+        raise RuntimeError('Non-interactive startup cannot authorize claim recovery; use existing manual recovery commands')
+    async def ask(prompt):
+        value = await _read_terminal_line(prompt, report=report)
+        if not value:
+            raise RuntimeError('Controller claim recovery cancelled; no clearing authorized')
+        return value
+    administrator = await ask('Administrator identity (blank cancels):')
+    verification = await ask('Independently verified that the previous Controller terminated and no Controller remains active anywhere in this installation? [y/N]')
+    if verification.casefold() not in {'y', 'yes'}:
+        raise RuntimeError('Prior termination is unverified; claim retained')
+    evidence = await ask('Independent termination evidence/reference (blank cancels):')
+    authorization = await ask('Authorize clearing this exact inspected owner/revision? [y/N]')
+    if authorization.casefold() not in {'y', 'yes'}:
+        raise RuntimeError('Controller claim recovery cancelled; claim retained')
+    result = await recover_controller_claim(servers=boundary.servers, account=snapshot.account,
+        bucket=snapshot.bucket, key=snapshot.key, timeout_s=timeout_s, clear=True,
+        expected_owner=snapshot.operational_instance_id, expected_revision=snapshot.revision,
+        administrator_id=administrator, authorized=True, termination_verified=True,
+        termination_evidence=evidence, report=report, **nats_auth)
+    if result != 0:
+        raise RuntimeError('Controller claim recovery is unconfirmed; startup refused')
+    await boundary._permit_recovered_controller_acquisition(snapshot)
+
+
 def load_acquisition_node(path, synchronization_source_id):
     """Load installation declarations and explicit supported adapters without opening hardware."""
     path = Path(path).absolute()
@@ -146,9 +179,18 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
             await boundary.connect()
             if role == "controller":
                 report("Acquiring Controller authority.")
-                await maintenance.acquire_controller_authority(boundary,
-                    account=controller_claim_account, bucket=controller_claim_bucket,
-                    key=controller_claim_key, timeout_s=result_window_s)
+                from lab_sync_acquisition.controller_authority import OccupiedControllerClaim
+                async def acquire():
+                    return await maintenance.acquire_controller_authority(boundary,
+                        account=controller_claim_account, bucket=controller_claim_bucket,
+                        key=controller_claim_key, timeout_s=result_window_s)
+                try:
+                    await acquire()
+                except OccupiedControllerClaim as occupied:
+                    await _recover_occupied_controller(boundary, occupied.snapshot, timeout_s=result_window_s,
+                        report=report, nats_auth=nats_auth)
+                    report('Manual claim recovery confirmed; acquiring Controller authority.')
+                    await acquire()
                 admitted = True
             report("Installing service maintenance handlers.")
             await prepare_maintenance()

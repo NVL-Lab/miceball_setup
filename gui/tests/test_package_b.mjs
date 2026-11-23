@@ -11,7 +11,8 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
     assert.ok(predicate(), 'Expected public workflow did not complete');
   };
   for (const scenario of ['success', 'launch-rejected', 'start-rejected', 'start-uncertain',
-    'launch-uncertain', 'pending', 'control-loss', 'takeover', 'replacement', 'disconnect']) {
+    'launch-uncertain', 'pending', 'control-loss', 'takeover', 'replacement', 'disconnect',
+    'busy-feedback', 'pending-feedback', 'uncertain-feedback']) {
     const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
     const requests = [], errors = [];
     let accepted = null, sessionState = null, instance = 'package-owner', generation = 1;
@@ -26,8 +27,9 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
       type: 'result', id: request.id, instance_id: instance, result: {
         request_id: `package-browser-${request.id}`, status, error, outcome: {details}}}));
     const accept = request => {
-      accepted = {...fixture.snapshots[0].configuration, ...request.parameters.config_parameters,
-        session_id: 'package-session', selected_devices: inventories[0].devices};
+      accepted = {...request.parameters.config_parameters,
+        session_id: 'package-session', selected_devices: inventories[0].devices,
+        expected_runtime_participants: [{component_type: 'acquisition_node', component_id: 'node'}]};
       sessionState = 'initialized';
     };
     page.on('pageerror', error => errors.push(error.message));
@@ -39,6 +41,8 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
         if (request.operation === 'read_controller_state') return reply(route, request, 'succeeded', snapshot());
         if (request.operation === 'get_node_inventory') return reply(route, request, 'succeeded', inventory);
         if (request.operation === 'read_operation_outcome') {
+          if (scenario === 'pending-feedback' || scenario === 'uncertain-feedback')
+            return reply(route, request, 'succeeded', {status: scenario === 'pending-feedback' ? 'pending' : 'uncertain', result: null});
           if (pending) {
             accept(pending);
             const details = {status: 'succeeded', result: {status: 'succeeded',
@@ -49,6 +53,9 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
         }
         if (request.operation === 'launch_session') {
           launchSeen = true;
+          if (scenario === 'busy-feedback') return;
+          if (scenario === 'pending-feedback' || scenario === 'uncertain-feedback')
+            return reply(route, request, scenario === 'pending-feedback' ? 'pending' : 'uncertain');
           if (scenario === 'launch-rejected') return reply(route, request, 'rejected', {}, 'Owner refused launch');
           if (scenario === 'pending' || scenario === 'launch-uncertain') {
             pending = request;
@@ -82,11 +89,18 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
       await page.locator('#load-inventory').click();
       await page.locator('#inventory-status').filter({hasText: 'inventory confirmed'}).waitFor();
       await page.locator('#session-device-list input').first().check();
-      await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().locator(':scope > summary').click();
-      await page.locator('#session-framework-fields').fill(JSON.stringify(fixture.snapshots[0].configuration));
       // Dispatch two immediate actions. Only the original action may allocate a Session.
       await page.locator('.launch-session-demo').evaluate(button => { button.click(); button.click(); });
       await wait(page, () => launchSeen);
+      if (scenario.endsWith('-feedback')) {
+        const text = scenario === 'busy-feedback' ? /request is in progress/
+          : scenario === 'pending-feedback' ? /sequence is still pending/ : /could not be confirmed/;
+        await page.locator('.launch-session-demo span').filter({hasText: text}).waitFor();
+        assert.equal(await page.locator('.launch-session-demo').isDisabled(), true);
+        assert.equal(requests.filter(request => request.operation === 'launch_session').length, 1);
+        assert.equal(requests.filter(request => request.operation === 'start_launched_session').length, 0);
+        continue;
+      }
       const shouldStart = ['success', 'pending', 'start-rejected', 'start-uncertain'].includes(scenario);
       if (shouldStart) await wait(page, () => requests.some(request => request.operation === 'start_launched_session'));
       await page.waitForTimeout(2500);
@@ -99,6 +113,7 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
       }
       if (scenario === 'disconnect') assert.equal(await page.locator('.topbar__eyebrow').textContent(), 'Connected Framework');
       if (scenario !== 'success') { assert.deepEqual(errors, []); continue; }
+      assert.match(await page.locator('.launch-session-demo span').textContent(), /Session already accepted/);
       await section(page, 'session');
       assert.equal(await page.locator('[data-start-session]').isDisabled(), true);
       await page.locator('[data-prepare-free-operation]').click();
@@ -118,9 +133,11 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
       assert.equal(await field('frame_width').inputValue(), '800');
       assert.equal(await field('frame_height').inputValue(), '480');
       assert.equal(await field('fps').inputValue(), '');
-      assert.match(await field('fps').locator('../..').innerText(), /Inherited configured null/);
+      assert.match(await field('fps').locator('../..').innerText(), /Inherited configuration: no value requested/);
       assert.equal(await field('frames_per_collect').count(), 0, 'Administrative values are not ordinary overrides');
       await field('frame_width').fill('900');
+      await field('fps').fill('30');
+      await field('fps').fill('');
       await page.locator('#experiment-duration').fill('2');
       await page.locator('[data-framework-field="experimentId"]').fill('package-experiment');
       await page.locator('[data-framework-field="preservationBudget"]').fill('100000');
@@ -136,9 +153,15 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
       await page.locator('[data-launch-experiment]:enabled').waitFor();
       await page.locator('[data-session-navigate="parameters"]').click();
       assert.equal(await field('frame_width').inputValue(), '900', 'Rejected command retains preparation');
-      const reset = page.locator('[data-unset-parameter]')
-        .locator(`xpath=self::*[@data-unset-parameter='${JSON.stringify(['node', 'camera', 'frame_width'])}']`);
-      await reset.click();
+      await page.locator('[data-null-parameter]').last().check();
+      await page.locator('[data-return-session]').click(); await page.locator('[data-launch-experiment]').click();
+      await wait(page, () => requests.filter(request => request.operation === 'start_launched_experiment').length === 2);
+      assert.deepEqual(requests.filter(request => request.operation === 'start_launched_experiment').at(-1).parameters.configuration.device_configurations,
+        {node: {camera: {frame_width: 900, fps: null}}});
+      await page.locator('[data-launch-experiment]:enabled').waitFor();
+      await page.locator('[data-session-navigate="parameters"]').click();
+      await field('frame_width').fill('');
+      await section(page, 'session'); await section(page, 'parameters');
       assert.equal(await field('frame_width').inputValue(), '800');
       await field('frame_width').fill('900');
       await section(page, 'session');
@@ -158,5 +181,5 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
     assert.equal(await demo.locator('.topbar__eyebrow').textContent(), 'Demonstration — no framework operations');
     assert.equal(await demo.locator('#connection-state').count(), 0);
   } finally { await demo.close(); }
-  console.log('PASS: 10 launch/interruption scenarios, scoped inherited values, null, untouched omission, draft retention, default restoration and independent mode identity');
+  console.log('PASS: 13 launch/interruption/eligibility scenarios; numeric clearing versus explicit empty-value request; inherited values, draft retention and independent mode identity');
 }

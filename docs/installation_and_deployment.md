@@ -160,6 +160,16 @@ cancellation or missing acknowledgments do not confirm successful recovery.
 Never substitute a newly observed revision automatically or clear a replacement's
 claim to resolve uncertainty. Manual clearing does not start a Controller.
 
+Ordinary interactive Controller startup now offers this same manual recovery after
+a definitive occupied-key refusal (developer implementation; independent validation
+and audit pending). It displays the exact inspected scope/owner/revision, requires
+administrator identity, independent installation-wide termination verification,
+an evidence reference and explicit clearing authorization. Blank input, EOF and
+non-interactive startup authorize nothing. Only confirmed conditional clearing
+permits one subsequent ordinary acquisition; a changed claim or uncertain outcome
+stops startup. Acquisition timeout/cancellation never resets its one-attempt guard.
+There is no automatic takeover, process termination or new authority mechanism.
+
 Once the replacement acquires authority, its transport obtains a fresh
 registration acknowledgment from each service needed for an operation. The
 acknowledgment and command identify that service's operational lifetime. Restarted

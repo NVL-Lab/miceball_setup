@@ -66,11 +66,9 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     }
     await page.locator('#artifact-destination').selectOption('default');
     await page.locator('#error-evidence-location').fill(config.errors);
-    await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().evaluate(element => element.open = true);
-    await page.locator('#session-framework-fields').fill(JSON.stringify(config.fields));
     await page.locator('.launch-session-demo').click();
     await page.locator('[data-start-session]').waitFor();
-    await page.locator('[data-start-session]').click();
+    await page.locator('[data-prepare-free-operation]:enabled').waitFor();
     await page.locator('[data-prepare-free-operation]').click();
     await page.locator('.experiment-additional-devices').evaluate(element => element.open = true);
     await page.locator('[data-session-experiment-device]').first().check();
@@ -80,9 +78,9 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await page.locator('[data-framework-field="preservationBudget"]').fill('1000000');
     await page.locator('[data-recording-budget]').fill('1000000');
     await page.locator('[data-scientific-output]').first().check();
-    await page.locator('[data-example-value]').nth(0).fill('1');
-    await page.locator('[data-example-value]').nth(3).fill('1');
-    await page.locator('[data-example-value]').nth(3).fill('');
+    await page.getByRole('spinbutton', {name: 'fps', exact: true}).fill('1');
+    await page.getByRole('spinbutton', {name: 'fps', exact: true}).fill('');
+    await page.locator('[data-null-parameter]').last().check();
     const acceptedBeforeCatalogSave = JSON.stringify(lastState.configuration);
     await page.locator('#personal-experiment-template [name="templateName"]').fill('My acquisition');
     await page.locator('#personal-experiment-template button[type="submit"]').click();
@@ -105,7 +103,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await shot('connected-session');
     await page.locator('[data-launch-experiment]').click();
     await page.locator('[data-stop-experiment]').waitFor();
-    const intendedOverrides = {node: {device: {frames_per_collect: 1, fps: null}}};
+    const intendedOverrides = {node: {device: {fps: null}}};
     assert.deepEqual(submittedData.find(message => message.operation === 'start_launched_experiment').parameters.configuration.device_configurations, intendedOverrides);
     assert.deepEqual(lastState.experiments.find(experiment => experiment.experiment_id === 'browser-recording').configuration.device_configurations, intendedOverrides);
     const observer = await browser.newPage();

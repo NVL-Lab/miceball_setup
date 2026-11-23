@@ -62,7 +62,7 @@ class ConnectedPresentationTests(unittest.IsolatedAsyncioTestCase):
             "MICEBALL_BROWSER_ORIGIN": self.origin, "MICEBALL_DEMO_ORIGIN": demos["baseline"],
             "MICEBALL_DEMO_CURRENT_ORIGIN": demos["current"],
             "MICEBALL_BROWSER_CONFIGURATION": json.dumps({"storage": str(self.root / "records"),
-                "errors": str(self.root / "errors"), "fields": {"protocol_plan": {}}}),
+                "errors": str(self.root / "errors")}),
             "MICEBALL_BROWSER_EVIDENCE": os.environ.get("LAB_SYNC_GUI_EVIDENCE_DIR", directory)}
         result = await asyncio.to_thread(subprocess.run,
             [node, str(Path(__file__).with_suffix(".mjs"))], env=environment,

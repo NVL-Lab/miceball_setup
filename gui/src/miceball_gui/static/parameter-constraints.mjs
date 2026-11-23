@@ -22,6 +22,8 @@ export function deviceParameterFields(node, device, definitions) {
     type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text',
     integer: definition.type === 'integer', min: definition.minimum, max: definition.maximum,
     exclusiveMin: definition.exclusive_minimum, nullable: definition.nullable,
+    nullDescription: typeof definition.null_description === 'string' && definition.null_description.trim()
+      ? definition.null_description : 'Use the adapter-defined empty value',
     ...(Object.hasOwn(definition, 'allowed_values') ? {allowedValues: definition.allowed_values} : {}),
     };
   });

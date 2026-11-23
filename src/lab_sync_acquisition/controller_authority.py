@@ -5,9 +5,18 @@ from contextvars import ContextVar
 from math import isfinite
 
 from nats.js.api import RetentionPolicy, StorageType
+from nats.js.errors import KeyWrongLastSequenceError
 
 
 _admitted_commands = ContextVar("admitted_controller_commands", default=())
+
+
+class OccupiedControllerClaim(KeyWrongLastSequenceError):
+    """A definitively refused acquisition with a subsequently inspected occupied claim."""
+
+    def __init__(self, snapshot):
+        super().__init__('Controller authority is occupied; independent termination verification is required')
+        self.snapshot = snapshot
 
 
 @dataclass(frozen=True)

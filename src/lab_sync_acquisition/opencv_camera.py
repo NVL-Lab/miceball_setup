@@ -90,9 +90,12 @@ class SeeedIMX219OpenCVCameraAdapter(DeviceAdapter):
         return {
             "frames_per_collect": {"type": "integer", "minimum": 1,
                                    "adjustment_scope": "administrator", "initial_value": 1},
-            "frame_width": {"type": "integer", "minimum": 1, "nullable": True},
-            "frame_height": {"type": "integer", "minimum": 1, "nullable": True},
-            "fps": {"type": "number", "exclusive_minimum": 0, "nullable": True},
+            "frame_width": {"type": "integer", "minimum": 1, "nullable": True,
+                            "null_description": "Do not request a value from the device"},
+            "frame_height": {"type": "integer", "minimum": 1, "nullable": True,
+                             "null_description": "Do not request a value from the device"},
+            "fps": {"type": "number", "exclusive_minimum": 0, "nullable": True,
+                    "null_description": "Do not request a value from the device"},
         }
 
     def validate_configuration(self, configuration: Any) -> None:

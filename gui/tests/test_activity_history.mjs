@@ -81,8 +81,6 @@ export async function verifyActivityHistory(browser, origin, fixture, section, d
     await page.locator('#load-inventory').click();
     await page.locator('#inventory-status').filter({hasText: 'inventory confirmed'}).waitFor();
     await page.locator('#session-device-list input').first().check();
-    await page.locator('details').filter({has: page.locator('#session-framework-fields')}).last().locator(':scope > summary').click();
-    await page.locator('#session-framework-fields').fill(JSON.stringify(fixture.snapshots[0].configuration));
     await page.locator('.launch-session-demo').click(); await showHistory();
     await latest().filter({hasText: /synchronization configuration is missing/}).waitFor();
     launchMode = 'rejected'; await section(page, 'setup'); await page.locator('.launch-session-demo').click(); await showHistory();

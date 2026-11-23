@@ -107,6 +107,12 @@ test('adapter constraints retain typed choices, defaults, null and inclusive/exc
   assert.ok(parameterIssue(flag, 0));
   assert.equal(parameterIssue(text, '\r\n\0\ud800"\\'), '');
   assert.equal('value' in number, false, 'Unavailable resolved defaults are never manufactured');
+  const described = deviceParameterFields('node', 'camera', {
+    fps: {type: 'number', nullable: true, null_description: 'Do not request a value from the device'},
+    other: {type: 'number', nullable: true, null_description: {unexpected: 'metadata'}},
+  });
+  assert.equal(described[0].nullDescription, 'Do not request a value from the device');
+  assert.equal(described[1].nullDescription, 'Use the adapter-defined empty value');
   assert.throws(() => deviceParameterFields('node', 'device', {unknown: {type: 'unsupported'}}), /Unsupported/);
 });
 

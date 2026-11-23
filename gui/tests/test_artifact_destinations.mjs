@@ -114,8 +114,8 @@ try {
     }
   }
   await section('setup');
-  await page.locator('#session-framework-fields').evaluate(input => { for (let parent = input.parentElement; parent; parent = parent.parentElement) if (parent.tagName === 'DETAILS') parent.open = true; });
-  await page.locator('#session-framework-fields').fill('{"protocol_plan":{},"session_parameters":{"extra":"preserved"}}');
+  await page.locator('[data-open-setup]').click();
+  await page.locator('.session-identity-grid textarea[data-configuration-string]').fill('Destination Session');
   await page.locator('.launch-session-demo').click();
   await page.locator('#activity-history').filter({hasText: 'could not be confirmed'}).waitFor({state: 'attached'});
   assert.equal(configuration, null);
@@ -126,7 +126,7 @@ try {
   await page.locator('#artifact-destination-info').filter({hasText: 'Controller-confirmed'}).waitFor();
   assert.equal(await page.locator('#artifact-destination').isDisabled(), true);
   assert.equal(configuration.storage_location, 'default');
-  assert.equal(configuration.session_parameters.extra, 'preserved');
+  assert.equal(configuration.session_parameters.name, 'Destination Session');
   await section('storage'); uncertain = true;
   await register('/uncertain');
   await page.locator('[data-destination-dialog-status]').filter({hasText: 'could not be confirmed'}).waitFor();

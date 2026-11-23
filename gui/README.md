@@ -341,21 +341,32 @@ Superseded connections cannot issue new mutations; already-admitted work continu
 Refresh inventory for an actual configured AcquisitionNode and select its returned
 device declarations in the existing device card. Catalog dialogs create local,
 unsaved entries only. Session identity, notes and storage retain their original
-controls; the storage card's additional configuration disclosure accepts explicit
-framework fields not yet covered by dedicated controls, including `protocol_plan`
-and synchronization settings. No local protocol/catalog/template edit claims durable
-application persistence. Only final Controller-accepted Session values are preserved.
+controls. Connected launch constructs configuration from these typed controls,
+selected declarations and existing preparation state; no framework JSON is needed.
+The required legacy `protocol_plan` is an empty mapping, while `protocol_reference`
+is the selected protocol name or `None` in Free Mode. The backend supplies its
+authoritative synchronization configuration. Only final Controller-accepted Session
+values establish acceptance and preservation.
 Controller validates readiness, selection and durable initial preservation. No
 fictional inventory or capacity is substituted. Accepted configuration is read-only.
-Launch does not start acquisition: use Start Session afterward. Experiment identity
+Launch requests Session acceptance and then Session start within the same guarded
+user action; it does not start an Experiment or scientific acquisition. Experiment identity
 and configuration use the existing Session preparation and Parameters controls:
 duration, node recording budgets, preservation budget, participating devices,
 explicit scientific outputs and adapter-declared overrides. Missing values are not
-filled from the former camera/stimulation examples. The read-only drawer uses
+filled from the former camera/stimulation examples. The read-only Parameters view uses
 Controller-reported executed configuration, not later working edits.
 Start/Stop Experiment, explicit expiry reconciliation, Normal Session Stop and
 release delegate to existing Controller operations. Released Sessions permit another
 launch without restarting the GUI.
+
+Bounded deployment corrections are developer implementation, pending independent
+validation/audit. Launch feedback uses its existing control/busy/pending/uncertain/
+accepted-Session predicates, not a second readiness decision. Ordinary numeric
+clearing removes a draft override; untouched fields inherit without a default button.
+An explicit empty-value checkbox remains distinct, with camera wording supplied by
+adapter metadata. Non-numeric explicit empty/false values retain a small draft-clear
+control because clearing their visible value alone cannot mean omission.
 
 Readback uses `read_controller_state`, existing `read_session_configuration`,
 `get_node_inventory` and non-executing `read_operation_outcome`. Pending/uncertain
