@@ -2930,6 +2930,8 @@ class NatsIngestorCommunication:
             framework_state["pending"][identity] = message
             await receive_evidence(message)
             framework_state["pending"].pop(identity)
+            # SDK queue reads and ACK submission need not suspend during replay.
+            await asyncio.sleep(0)
 
         if framework_state is not None:
             subscription = await self._boundary._subscribe_jetstream(subject, receive, **options)

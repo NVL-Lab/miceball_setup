@@ -2282,7 +2282,20 @@ physical crash recovery or resolve the G5 Normal Stop/Kill incidents.
 - _participant_result: Builds an existing correlated service-owned result while echoing an explicitly supplied request nonce.
 - _execute_service_command: Delegates readiness/preparation/abort to the owner, reports existing resource diagnostics and maintenance identity, and retains command-ID deduplication while refreshing only the reply nonce on redelivery.
 - NatsIngestorCommunication.subscribe_evidence(session_id, callback=None): Validates subject identity before intake and ACK, retains framework callback/subscription obligations through cleanup, and permits retired framework ACK only for complete-content duplicates verified against the physical journal; Session binding and durable-consumer checks remain unchanged.
-- NatsIngestorCommunication.subscribe_evidence.receive_evidence(message): Applies existing intake-before-ACK or retired exact-journal-duplicate handling while the enclosing callback retains failed or cancelled framework deliveries.
+- NatsIngestorCommunication.subscribe_evidence.receive_evidence(message): Applies existing intake-before-ACK or retired exact-journal-duplicate handling while the enclosing callback retains failed or cancelled framework deliveries and yields cooperatively only after successful framework delivery bookkeeping.
+
+Framework intake scheduling fairness is implemented; independent validation and
+audit remain pending. The post-completion yield changes neither journal durability,
+Session-scoped intake, publication timeouts nor maintenance semantics. It addresses
+the reproduced scheduling mechanism, not confirmed attribution or resolution of the
+Ubuntu deployment incident.
+
+- tests.test_framework_intake_scheduling.FrameworkIntakeSchedulingTests: Exercises sequential framework intake with real journal durability, peer scheduling, duplicate/conflict handling and cancellation accounting.
+- FrameworkIntakeSchedulingTests.test_backlog_yields_after_durable_ack_without_reordering_or_losing_duplicate_audit: Verifies ready peer work runs between completed deliveries while every intake audit retains its order.
+- FrameworkIntakeSchedulingTests.test_conflict_and_durability_failure_remain_unacknowledged_and_pending: Preserves failed delivery accounting and fail-closed journal behavior.
+- FrameworkIntakeSchedulingTests.test_cancellation_during_ack_retains_durable_delivery_for_cleanup: Retains an incomplete delivery and verifies durable restart readback.
+- FrameworkIntakeSchedulingTests.test_cancellation_after_ack_does_not_retain_completed_delivery: Verifies cancellation at the new scheduling boundary cannot resurrect an already completed obligation.
+- FrameworkIntakeSchedulingTests.test_paired_startup_puback_is_processed_before_historical_replay_finishes: Exercises real isolated JetStream, SDK callback dispatch, paired readiness publication and subscription shutdown with controlled synchronous durability delays.
 - NatsIngestorCommunication.verify_acquisition_evidence_receipt(marker): Reconciles Session-filtered publications through the marker with exact retained journal evidence under the Ingestor guard, plus receiving-origin/history and contiguous ACK checks; returns receipt confirmation/reason and broker sequences without repair, Session completion, or archival confirmation.
 - NatsIngestorCommunication._marker_acceptance_failure(marker): Separates invalid scope/identity, unavailable or failed journals and conflicting content from pending exact durable acceptance without waiting or proving completeness.
 - NatsIngestorCommunication._session_consumer_name(session_id): Derives a stable broker-safe durable consumer name from the Session identity without changing evidence identities.
