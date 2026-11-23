@@ -1,5 +1,10 @@
 # Code Map
 
+**Current-status qualification (November 23, 2026):** Phase 16 operational
+software scope is CLOSED as recorded in framework_milestones.md. M015, Q022,
+Q024 and broader G5 remain OPEN. Earlier open-status statements within historical
+implementation/closure notes describe those checkpoints, not the current phase status.
+
 ## gui/src/miceball_gui/static/ownership-presentation.js
 
 - syncOwnershipPresentation(): Applies the existing confirmed browser ownership to editable controls while retaining independent disabled states and inspection/navigation access.
@@ -1177,6 +1182,15 @@ their validated scopes. Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 r
 additional architectural API or storage schema is defined here.
 
 ## Phase 16 accepted responsibilities (binding release, maintenance, shutdown, and startup/return slices complete)
+
+**Current status, November 23, 2026:** Phase 16 operational software scope is
+CLOSED using W035-W038 independent validation/audits; see the
+[closure assessment](framework_milestones.md#phase-16---operational-service-lifetime-and-framework-stopkill).
+Reported Ubuntu-Jetson acquisition and sequential execution add bounded hardware
+evidence, not new API behavior or an audit of every deployed path. M015, Q022,
+Q024 and broader G5 remain OPEN. Historical open-status statements below retain
+their original checkpoint context; deferred memory/recovery and later reliability
+corrections are not closed by this entry.
 
 The implemented historical Decision 323 uses the Evidence Archive's deployment-scoped
 `framework/evidence/` partition for Session-independent runtime evidence with

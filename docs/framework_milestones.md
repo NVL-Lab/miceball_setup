@@ -1,5 +1,10 @@
 # Framework Milestones
 
+**Current-status qualification (November 23, 2026):** Phase 16 operational
+software scope is CLOSED; M015 and broader G5 remain OPEN. See their current
+entries and the dated deployment record. Older open-status statements are retained
+as historical slice-closure checkpoints, not current project-wide status.
+
 This document records major technical milestones in the evolution of the Lab Sync Acquisition framework.
 
 Unlike the Architecture Decisions, which capture *why* the system is designed a certain way, milestones capture *what has been successfully demonstrated*. A milestone represents a significant increase in confidence in the framework through implementation and validation.
@@ -578,7 +583,7 @@ reconstruction beyond the existing handoff semantics.
 
 # M015 - Phase 15 / Slice 28 Controller-owned Session Launch and Runtime Assembly
 
-**Status:** Open - sequential DeviceAdapter reuse implemented; independent validation and audit pending
+**Status:** OPEN - sequential DeviceAdapter reuse implemented; dedicated independent validation and audit closure pending. Reported Ubuntu-Jetson launch/acquisition and sequential execution were added on November 23, 2026; see the G5 record below.
 
 ## Goal
 
@@ -610,6 +615,17 @@ rollback. No remote Session replicas or participant-process startup authority
 were introduced.
 
 ## Validation and boundaries
+
+### November 23, 2026 deployment qualification
+
+The [dated G5 report](validated_workflows.md#november-23-2026-ubuntu-jetson-acquisition-and-sequential-execution)
+adds real distributed GUI/Controller launch, Jetson camera acquisition, Experiment
+completion, Normal Stop and a subsequent Session/Experiment. It supersedes the
+earlier absence of hardware/multi-process evidence only for those exercised paths.
+It does not establish uninterrupted reuse of every service/adapter instance,
+configuration isolation, failed-launch cleanup or all Decision 302 cases. M015's
+dedicated independent validation/audit closure remains unrecorded; M015 stays OPEN.
+The original Slice 28 implementation/validation history below is preserved.
 
 ### Sequential-reuse implementation (Decision 302)
 
@@ -675,7 +691,35 @@ cleanup/reuse, not implementation of those service binding-release contracts.
 
 ---
 
+# Phase 16 - Operational Service Lifetime and Framework Stop/Kill
+
+**Status: CLOSED within its validated operational software scope, November 23, 2026.**
+This user-authorized closure reuses existing independent validation and audits;
+it is not a new audit or certification of every physical failure path.
+
+| Accepted requirement | Completed independent software evidence |
+| --- | --- |
+| Session/GUI-independent service lifetime and owner-confirmed binding release (Decisions 304, 313, 322) | W035: release, preservation guards, asynchronous isolation and sequential reuse; audit PASS |
+| Scoped owner-controlled Stop/Kill/Cancel, dependency and evidence safeguards (Decisions 305-324, as clarified by 325-326) | W036: individual-service maintenance and confirmed retirement; final audit PASS |
+| Progressive shutdown, separate blocked-attempt authorization and two-phase cleanup/preservation (Decisions 325-326) | W037: coordinated shutdown and complete archival coverage; final re-audit PASS |
+| Independent startup/return, truthful dependency readiness and retained preservation obligations (Decisions 320-321, 327-331) | W038: independent manual validation and final re-audit PASS after corrections |
+
+The [November 23 G5 observations](validated_workflows.md#november-23-2026-ubuntu-jetson-acquisition-and-sequential-execution)
+add distributed real-camera acquisition, readable HDF5 on Ubuntu and sequential
+Session execution, not a hardware revalidation of every W035-W038 scenario.
+Decision 305 explicitly separates framework Stop from artifact collection;
+Decisions 330/338 defer broader recovery to Q024. Q024's deferred 353/435 memory
+retirement, Q022 deployment amendments, scientific synchronization quality and
+historical SSH collection are not silently closed or added as Phase 16 gates.
+M015 retains its separate launch/reuse validation and audit obligations. G5 remains
+OPEN for its broader objectives. Later reliability/GUI corrections retain their
+own pending validation/audit status. Historical "Phase 16 incomplete/OPEN" entries
+below describe their original checkpoints, not the current closure status.
+
 # Future Milestones
+
+The following implementation checkpoints retain their historical status wording;
+the current Phase 16 closure is recorded above.
 
 Phase 16 Operational Service Lifetime and Framework Stop/Kill architecture is
 accepted in Decisions 304-365. At the earlier checkpoint implementation was
@@ -1828,6 +1872,16 @@ Q024, M015 and Phase 16 remain open; G5 is not started by this closure.
 ## G5 First Real-Hardware Integration Evidence
 
 **Status:** OPEN - first successful deployment workflow recorded, not G5 closure.
+**November 23, 2026 update:** Real camera acquisition and readable HDF5 on the
+Ubuntu storage computer, followed by another successful Session/Experiment, are
+now reported. This is a completed bounded acquisition/sequential-execution
+achievement, not full G5 closure. Five historical Sessions were discovered, but a
+subsequent SSH collection request remained unconfirmed with a key-signing error.
+See the [dated evidence and limitations](validated_workflows.md#november-23-2026-ubuntu-jetson-acquisition-and-sequential-execution).
+Phase 16's operational software scope is CLOSED as recorded above; M015, Q022,
+Q024 and broader G5 remain OPEN. The earlier Windows-Jetson report below retains
+its original observations and limitations; it is not the November 23 Ubuntu run.
+
 The user reported Windows Controller `ball-controller`, Windows NATS/JetStream,
 Ingestor, StorageManager and SynchronizationManager, with Jetson AcquisitionNode
 `2p-ball-node` and USB camera `cam1`. Session

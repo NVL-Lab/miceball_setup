@@ -259,8 +259,11 @@ configuration and credentials outside Git.
 | Known blocker | Specific unmet integration requirement or observed environmental failure, not a presumed architectural defect |
 
 G2, G3 and G4-A/B/C are CLOSED within their validated software scopes. Q013's G4
-software scope is CLOSED; Q022, Q024, M015 and Phase 16 remain OPEN. G5 remains
-incomplete. Historical findings and counts remain in [validated workflows](validated_workflows.md)
+software scope is CLOSED. Phase 16 operational software scope is CLOSED using
+W035-W038; Q022, Q024 and M015 remain OPEN. The November 23, 2026 Ubuntu-Jetson
+report establishes bounded real-camera acquisition/readable HDF5 and sequential
+Session execution, not complete G5 or historical-collection validation. G5 remains
+incomplete. Historical findings and counts remain in [validated workflows](validated_workflows.md#november-23-2026-ubuntu-jetson-acquisition-and-sequential-execution)
 and [open-question tracking](open_questions.md); they are not physical passes.
 
 ## 2. Prerequisites And Platforms
@@ -1876,7 +1879,7 @@ another Controller or temporary interface to skip that gate.
 | G2/G3 | Capacity/deadlines and sustained execution CLOSED software scopes; physical timing/performance still unverified. |
 | G4/Q013 | G4-A/B/C CLOSED software scopes. G4-A at `2672879`; G4-B re-audit 14 checks; G4-C ICC 12/12 and independent re-audit at `9f6f73b` 16/16 scenarios plus four regression checks PASS, both P2 findings resolved. |
 | GUI integration | Known pending integration for operator interaction with the running Controller, not a requirement for another CLI. |
-| Physical G5 | Multi-host NATS, SSH/SFTP, scientific webcam recording, synchronization quality, preservation/release and repeated Sessions pending. Readiness-only success is narrower. |
+| Physical G5 | November 23 Ubuntu-Jetson GUI launch, camera acquisition, readable HDF5 on Ubuntu, Normal Stop and sequential Session/Experiment execution reported. Historical discovery found five Sessions; subsequent SSH collection remained unconfirmed. Synchronization accuracy, complete integrity/preservation, deletion and physical failure recovery remain unverified. See the dated G5 record; full G5 remains OPEN. |
 
 Counts overlap; do not add historical campaigns. Original FAIL reports,
 corrections, audits and limitations remain in [validated_workflows.md](validated_workflows.md),

@@ -1,5 +1,10 @@
 # Open Architectural Questions
 
+**Current-status qualification (November 23, 2026):** Phase 16 operational
+software scope is CLOSED; Q022, Q024, M015 and broader G5 remain OPEN. The Q025
+update and roadmap below reflect this status; older slice-closure statements retain
+their historical meaning. No architectural question is closed by the deployment report.
+
 This document tracks unresolved architectural questions.
 
 A question remains open until an explicit architectural decision has been accepted and recorded in `architecture_decisions.md`.
@@ -4188,6 +4193,17 @@ introduced.
 
 **Status:** RESOLVED architecturally by Decisions 313-321 and 323-326 - individual-service maintenance validated (W036); progressive two-phase coordinated shutdown validated and independently re-audited PASS (W037)
 
+**November 23, 2026 status synchronization:** Phase 16's operational software
+scope is CLOSED using W035-W038 independent validation/audits; see the
+[closure assessment](framework_milestones.md#phase-16---operational-service-lifetime-and-framework-stopkill).
+This does not close Q022/Q024 or their separately deferred implementation work.
+The [dated G5 report](validated_workflows.md#november-23-2026-ubuntu-jetson-acquisition-and-sequential-execution)
+adds real Ubuntu-Jetson camera acquisition and sequential Session execution.
+M015 remains OPEN: dedicated Slice 28/Decision 302 independent validation/audit
+closure is still unrecorded, and uninterrupted reuse of every instance was not
+reported. Broader G5 remains OPEN; historical collection is unconfirmed following
+the SSH signing error. Earlier Phase 16 open-status checkpoints below are historical.
+
 ### Accepted boundaries
 
 Decisions 304-312 settle principal operational service lifetime, Controller-owned
@@ -4267,7 +4283,8 @@ and independent re-audit PASS for coordinated shutdown and its complete Evidence
 Archive preservation guard. W038 records completed startup/returning-service
 integration under Decisions 327-331, independent manual software validation, and
 final independent re-audit PASS after correction of the two initial P2 findings.
-Phase 16 and M015 remain open.
+The earlier checkpoint kept Phase 16 and M015 open. Phase 16 operational software
+closure is now recorded in the November 23 update above; M015 remains OPEN.
 Transport publication alone is not permanent persistence, and the framework
 partition never requires a Session Record or fabricated Session binding.
 
@@ -4292,7 +4309,7 @@ The roadmap distinguishes accepted architecture from implemented milestones:
 Phase 13 — Global StorageManager (Evidence)
 Phase 14 — Global StorageManager (Finalized Scientific Data)
 Phase 15 — Controller-owned Session Launch & Runtime Assembly (launch path and Decision 302 sequential reuse implemented; independent validation/audit and M015 closure pending)
-Phase 16 — Operational Service Lifetime and Framework Stop/Kill (Decisions 304-366 accepted; Q025 resolved architecturally; narrow Session-binding release under Decisions 313/322 complete, manually software-validated and independently audited PASS in W035; individual-service maintenance complete, manually software-validated and independently audited PASS in W036; progressive two-phase coordinated shutdown complete, manually software-validated and independently re-audited PASS in W037; startup/return under Decisions 327-331 complete, independently manually software-validated and independently re-audited PASS after correction in W038; supported Q024-B cases under Decisions 339-348 complete with automated coverage, independent manual validation, and final independent re-audit PASS after correction in W039; supported Decisions 351-352 startup reconciliation/reservation protection complete, independently manually validated and independently re-audited PASS after correction in W040; bounded Decision 349/393 is CLOSED in W070B after independent ICC validation and source audit PASS; Decision 354's bounded monthly implementation is CLOSED in W071 after independent ICC validation/review PASS; Decision 350 and Decisions 353/355 remain unimplemented; Decision 361 receiving foundation and routing prerequisite complete with automated testing, independent manual validation, and final independent re-audit PASS after correction in W041; Decision 366's supported producer/marker prerequisite is complete with automated coverage, independent manual validation, and targeted independent re-audit PASS after correction in W042; bounded Stage A under Decision 362 is complete with automated testing, independent manual validation, and independent audit PASS in W043; bounded Decision 364 durable handoff is complete with automated testing, independent manual validation, and independent audit PASS (W044); bounded Stage B collection/Decision 363 evidence persistence is complete with independent manual validation and final targeted re-audit PASS after correction (W045); W046 explicit permanent closure is complete with independent manual validation and targeted independent re-audit PASS after correction; bounded Normal Stop integration is complete with independent validation and targeted re-audit PASS after correction (W047); Bounded Kill Session integration is complete in W048; eligible-Session selection is complete with independent validation and final audit PASS after correction (W049), and overall Q019 software integration validation is complete in W050; Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 remain open)
+Phase 16 — Operational Service Lifetime and Framework Stop/Kill — CLOSED within operational software scope on November 23, 2026 (W035-W038 independent validation/audits; see framework_milestones.md). Q019 remains CLOSED in W050. Q022, Q024, M015 and broader G5 remain OPEN; separately deferred recovery/memory retirement and later implementation slices retain their own status.
 Phase 17 — Device Acceptance / Validation
 Phase 18 — End-to-End Demo Architecture
 

@@ -5897,6 +5897,57 @@ earlier audit history remain unchanged. No tests or audit were rerun for closure
 
 # G5 - First Real-Hardware Distributed Camera Integration
 
+## November 23, 2026 Ubuntu-Jetson acquisition and sequential execution
+
+**Status: Bounded real-hardware acquisition/sequential-execution achievement
+reported; broader G5 remains OPEN.** These are user deployment observations
+conveyed by ICC, not files independently inspected or new tests/audits by Codex.
+The deployed revision is not supplied and is not inferred from this documentation
+checkout. The earlier Windows-Jetson report below remains separate historical evidence.
+
+Ubuntu hosted Controller, Ingestor, StorageManager, SynchronizationManager,
+NATS/JetStream and GUI; Jetson hosted AcquisitionNode `2p-ball-node` and USB camera
+`cam1`. All five framework services reported Ready. The earlier Ingestor readiness
+publication timeout did not recur in this startup; permanent resolution is not established.
+
+The experimenter launched a Session and Experiment through the GUI, completed the
+Experiment, performed Normal Stop, confirmed a recording on Ubuntu, inspected its
+HDF5 datasets and extracted/visually inspected an actual camera frame:
+
+`/mnt/miceball-data/artifacts/0f6eeaa6764c44e7930156b48ea3f73c/test3/2p-ball-node/dffaff61bc9e4610bb9e64f8841ff638/frames.h5`
+
+| Reported inspection | Value |
+| --- | --- |
+| File size | Approximately 113 MB |
+| Camera frames | 128; 640 x 480 x 3; `uint8` |
+| Frame indices, Experiment timestamps, Session timestamps | 128 entries each |
+| Acquisition-node timestamps, timestamp status, frame metadata | 128 entries each |
+| Image | An actual camera frame was visually inspected successfully |
+
+A second Session and Experiment executed successfully, and the second Session
+appeared in StorageManager historical readback. This demonstrates sequential
+execution; uninterrupted retention of every service process is not reported.
+Storage GUI discovered five historical Sessions and permitted initial selection.
+
+A subsequent historical collection attempt raised
+`paramiko.ssh_exception.SSHException: key cannot be used for signing`; the GUI
+reported `StorageManager collection response is unavailable; outcome remains unconfirmed`.
+The retrieval key signed successfully after unlocking, but no successful historical
+collection, transfer verification or deletion eligibility is established by that fact.
+The successful acquisition/recording and this separate unconfirmed collection must
+not be conflated. The collection incident remains for separate investigation.
+
+This report does not validate synchronization quality/accuracy, complete HDF5
+integrity, full Session preservation, historical SSH/SFTP collection, original
+deletion, physical crash/power-loss recovery, exhaustive real-hardware maintenance,
+multi-node acquisition or permanent startup-timeout resolution. It does not close
+M015's dedicated independent validation/audit requirement, Q022, Q024 or all of G5.
+Phase 16 operational software closure reuses the existing W035-W038 independent
+validation/audits, not an invented new deployment audit; see
+[the closure assessment](framework_milestones.md#phase-16---operational-service-lifetime-and-framework-stopkill).
+
+## Earlier Windows-Jetson report (date and deployed revision not supplied)
+
 **Status: Deployment evidence recorded; G5 remains OPEN.** This records the first
 successful real-hardware G5 integration reported by the user, not a new Codex
 test, independent audit or milestone closure. Earlier software-only validation
