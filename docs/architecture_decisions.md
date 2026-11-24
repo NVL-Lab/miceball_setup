@@ -11843,6 +11843,60 @@ remain distinct evidence; see [G2 closure](validated_workflows.md#g2---experimen
 and installation_and_deployment.md. This closure does not establish live NATS,
 hardware, OS-signal, power-loss or normal Windows asynchronous scheduling behavior.
 
+### Accepted clarification: scientific acquisition does not await evidence publication
+
+The project owner explicitly accepted the LLC clarification that, after Experiment
+admission and start, AcquisitionNode scientific collection, local timestamping and
+local scientific storage must not wait for NATS evidence publication or remote
+acknowledgment. Evidence publication progresses independently in normal operation
+and during temporary communication loss, delays and retries.
+
+Preserve Decisions 379-381 timing ownership, mapping provenance and quality
+interpretation, captured autonomous deadlines, manual Stop, local failure handling
+and scientific-product finalization. Controller retains canonical lifecycle
+authority. Preserve required evidence, stable identities, publication ordering,
+acknowledgment, retry/reconciliation, preservation and closeout requirements.
+Outstanding publication is not completed preservation; communication loss alone
+neither authorizes acquisition Stop nor establishes node failure.
+
+**Implementation status:** Following ICC authorization, developer implementation
+separates acquisition and publication tasks, shares serialized finite-prefix
+publication with explicit flushes, resumes pending publication on SDK reconnect,
+and removes preserved unbound producer prefixes without full-history copying.
+Independent validation, audit and physical outage verification remain pending.
+Source inspection at
+`39a24611cec2e777c67b537b74afb70b8b6c1966` found publication awaited inside
+`NatsAcquisitionNodeCommunication._run_acquisition()`, allowing remote delays to
+delay later collection. Historical [G3 validation](validated_workflows.md#g3---sustained-acquisition-execution)
+does not establish publication-independent acquisition; physical outage validation
+has not been performed. G2 and Phase 16 remain CLOSED within their existing scopes.
+
+**Accepted retention clarification:** Reuse existing in-memory retention for
+ordinary finite Experiments and temporary interruptions, proportional to actual
+operational evidence rather than scientific frame production. Indefinite
+disconnected operation is not guaranteed. No new evidence queue, journal, durable
+outbox, configurable capacity or maximum outage duration is authorized. The
+approximately 60-second outage is a validation scenario, not a supported limit.
+
+The project owner accepts existing resource-exhaustion failure behavior, including
+process crash. Capacity admission reduces recording-space risk but does not
+guarantee RAM capacity. Preserve applicable existing failure handling; add no
+memory monitoring, thresholds, preventive Stop or special exhaustion recovery.
+Temporary communication loss alone must not stop or pause scientific collection.
+
+Retire acknowledged producer message objects only when existing publication,
+identity, retry, reconciliation and preservation obligations no longer require
+them; acknowledgment alone is insufficient. Eliminate unnecessary full-history
+deep copying and access only messages needed for the publication operation.
+This removes working-memory copies, not historical evidence. No additional
+retention infrastructure is authorized. The prior retention/exhaustion questions
+are resolved by this clarification; Q011's broader recovery scope remains open.
+This correction does not
+authorize a durable outbox, new journal, restart recovery of unpublished evidence,
+distributed crash detection, Controller restart recovery, altered timing policy,
+new lifecycle states or hard-real-time guarantees. Decision 423 restores transport,
+not proof of publication, consumption or preservation.
+
 ---
 
 ## Decision 396: The GUI is a general-purpose framework client accessible from the microscope workstation

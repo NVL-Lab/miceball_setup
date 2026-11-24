@@ -17,12 +17,14 @@ from lab_sync_acquisition import (
     NatsSynchronizationManagerCommunication, OpenCVCameraConfig, PersistentStorageManager,
     RuntimeParticipant, ScientificOutputSelection, ScientificProductDeclaration, ExperimentConfiguration,
     NatsStorageManagerCommunication,
+    NatsCommunicationBoundary,
     SeeedIMX219OpenCVCameraAdapter, ServiceMaintenanceInterface, SynchronizationManager,
 )
 from tests.test_distributed_synchronization import configuration
 from tests.test_scientific_camera_collection import FakeCV2
-from tests.test_session_launch import _Boundary, _Broker
-from tests.nats_server_fixture import acquire_test_controller_authority
+from tests.test_session_launch import _Boundary
+from tests.test_distributed_session_closeout import CloseoutBroker
+from tests.nats_server_fixture import acquire_test_controller_authority, restartable_jetstream_server
 
 
 class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
@@ -38,7 +40,7 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         self.declaration = DeviceDeclaration("camera", "opencv", True, True, ("camera_frames",), (
             getattr(self, "scientific_product", None) or ScientificProductDeclaration("frames", "camera_frames",
                 {"frame_shape": [2, 4, 3], "frame_dtype": "uint16"}, "hdf5"),))
-        self.broker = _Broker()
+        self.broker = CloseoutBroker()
         self.storage = PersistentStorageManager(self.root / "storage", global_artifact_root=self.root / "artifacts")
         self.storage_handler = NatsStorageManagerCommunication(_Boundary("storage_manager", "storage", self.broker), self.storage)
         await self.storage_handler.subscribe_commands()
@@ -93,6 +95,11 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         if self.node.status()["is_running"]:
             self.node.stop_runtime()
         self.local.cleanup()
+        # Dispose the test process even when its scenario deliberately leaves
+        # unconfirmed evidence; this is not successful framework retirement.
+        if self.handler._publication_task is not None:
+            self.handler._publication_task.cancel()
+            await asyncio.gather(self.handler._publication_task, return_exceptions=True)
         await self.sync.close()
 
     async def until(self, predicate):
@@ -147,14 +154,10 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         await self.experiment()
         await self.until(lambda: self.camera.capture.read_count >= 2)
         count = self.camera.capture.read_count
-        self.pc.available = False
-        try:
-            self.assertFalse(self.pc.connected)
+        with patch.object(self.pc, "_require_jetstream", side_effect=ConnectionError("Controller disconnected")):
             await self.until(lambda: self.camera.capture.read_count >= count + 4)
             self.assertTrue(self.handler.acquisition_execution_active)
             self.assertTrue(self.node.status()["is_running"])
-        finally:
-            self.pc.available = True
         self.assertTrue((await self.controller.stop_launched_session()).succeeded)
         self.assertFalse(self.handler.acquisition_execution_active)
         self.assertTrue(self.camera.capture.released)
@@ -232,29 +235,115 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(m.evidence_id == interpretation.evidence_id for m in accepted), 1)
         self.assertEqual(self.saved()[1][-1]["timestamp_status"], "synchronization_degraded")
 
-    async def test_interrupted_scheduler_shutdown_can_be_retried_without_background_reads(self):
+    async def test_pending_ack_does_not_pause_scientific_recording(self):
+        await self.experiment()
+        entered, release = asyncio.Event(), asyncio.Event()
+        publish = self.handler._boundary.publish_evidence
+
+        async def delayed(message):
+            entered.set()
+            await release.wait()
+            await publish(message)
+
+        with patch.object(self.handler._boundary, "publish_evidence", side_effect=delayed):
+            quality = self.clock.mark_synchronization_unavailable(self.sid, "node", "sync", "offline")
+            self.node.accept_synchronization_quality(self.sid, "sync", quality)
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                count = self.camera.capture.read_count
+                await self.until(lambda: self.camera.capture.read_count >= count + 8)
+                manifest, = self.local.manifests
+                with h5py.File(manifest.local_storage_path, "r") as artifact:
+                    self.assertGreaterEqual(len(artifact["frames"]), count + 8)
+                    times = artifact["acquisition_node_local_time_s"][:]
+                    self.assertTrue(np.all(np.diff(times) >= 0))
+                    print(f"Blocked ACK: {len(times) - count} additional persisted frames; "
+                          f"max local interval {np.max(np.diff(times)):.6f}s")
+                self.assertFalse(release.is_set())
+            finally:
+                release.set()
+        self.assertTrue((await self.controller.stop_launched_experiment("experiment")).succeeded)
+
+    async def test_expiry_finalizes_before_pending_ack_and_later_publishes(self):
+        await self.experiment()
+        entered, release = asyncio.Event(), asyncio.Event()
+        publish = self.handler._boundary.publish_evidence
+
+        async def delayed(message):
+            entered.set()
+            await release.wait()
+            await publish(message)
+
+        with patch.object(self.handler._boundary, "publish_evidence", side_effect=delayed):
+            quality = self.clock.mark_synchronization_unavailable(self.sid, "node", "sync", "offline")
+            self.node.accept_synchronization_quality(self.sid, "sync", quality)
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                with patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=10**12):
+                    await self.until(lambda: not self.handler.acquisition_execution_active)
+                self.assertIsNotNone(self.node.read_experiment_expiry("experiment"))
+                self.assertEqual(self.local.manifests[0].lifecycle_state, "finalized")
+                self.assertIsNone(self.communication.session_acquisition_completion(self.target, self.sid))
+                self.assertEqual(self.controller.get_status()["active_experiment_id"], "experiment")
+            finally:
+                release.set()
+        await self.until(lambda: any(m.evidence_type == "experiment_duration_expired"
+            for m in self.ingestor.compile_persistent_runtime_evidence()["runtime_evidence"]))
+        self.assertTrue(await self.controller.reconcile_launched_experiment_expiry("experiment"))
+
+    async def test_ack_timeouts_after_expiry_retry_without_another_command(self):
+        await self.experiment()
+        entered, release = asyncio.Event(), asyncio.Event()
+        publish = self.handler._boundary.publish_evidence
+        attempts = []
+
+        async def delayed(message):
+            entered.set()
+            await release.wait()
+            attempts.append(message.to_dict())
+            retries = [m for m in attempts if m["evidence_id"] == attempts[0]["evidence_id"]]
+            if message.evidence_id == attempts[0]["evidence_id"] and len(retries) <= 3:
+                raise asyncio.TimeoutError("Connected transport did not confirm publication")
+            await publish(message)
+
+        with patch.object(self.handler._boundary, "publish_evidence", side_effect=delayed):
+            quality = self.clock.mark_synchronization_unavailable(self.sid, "node", "sync", "offline")
+            self.node.accept_synchronization_quality(self.sid, "sync", quality)
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                with patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=10**12):
+                    await self.until(lambda: not self.handler.acquisition_execution_active)
+                with self.assertLogs("lab_sync_acquisition.nats_communication", level="ERROR"):
+                    release.set()
+                    await self.until(lambda: sum(m["evidence_id"] == attempts[0]["evidence_id"]
+                                                for m in attempts) >= 4)
+                self.assertTrue(all(m == attempts[0] for m in attempts
+                                    if m["evidence_id"] == attempts[0]["evidence_id"]))
+            finally:
+                release.set()
+        await self.until(lambda: any(m.evidence_type == "experiment_duration_expired"
+            for m in self.ingestor.compile_persistent_runtime_evidence()["runtime_evidence"]))
+
+    async def test_cancelled_flush_retains_publication_without_background_reads(self):
         await self.experiment()
         publishing = asyncio.Event()
-        cleaning = asyncio.Event()
         release = asyncio.Event()
 
         async def paused_publication():
             publishing.set()
-            try:
-                await asyncio.Event().wait()
-            finally:
-                cleaning.set()
-                await release.wait()
+            await release.wait()
 
         with patch.object(self.handler, "publish_new_runtime_evidence", side_effect=paused_publication):
             await publishing.wait()
-            stopping = asyncio.create_task(self.handler.stop_acquisition_execution())
-            await cleaning.wait()
-            stopping.cancel()
-            release.set()
-            with self.assertRaises(asyncio.CancelledError):
-                await stopping
             await self.handler.stop_acquisition_execution()
+            flush = asyncio.create_task(self.handler._finish_evidence_publication())
+            await asyncio.sleep(0)
+            self.assertFalse(flush.done())
+            flush.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await flush
+            self.assertFalse(self.handler._publication_task.done())
+            release.set()
         self.assertFalse(self.handler.acquisition_execution_active)
         count = self.camera.capture.read_count
         for _ in range(5):
@@ -280,8 +369,8 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
             await self.handler.stop_acquisition_execution()
             return True
 
-        maintenance = ServiceMaintenanceInterface(self.node, self.target, ingestor=self.ingestor,
-            storage_manager=self.storage, preservation_window_s=0.1, close_resources=cleaned)
+        maintenance = self.node._maintenance
+        maintenance.close_resources = cleaned
         await self.experiment()
         await self.until(lambda: self.camera.capture.read_count >= 2)
 
@@ -309,6 +398,236 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.node.status()["is_running"])
         self.assertTrue(self.camera.capture.released)
         self.assertGreaterEqual(len(self.saved()[0]), count + 2)
+
+    async def test_manual_stop_finalizes_while_ack_is_pending_without_completion_proof(self):
+        await self.experiment()
+        await self.until(lambda: self.camera.capture.read_count >= 3)
+        entered, release = asyncio.Event(), asyncio.Event()
+        publish = self.handler._boundary.publish_evidence
+
+        async def delayed(message):
+            entered.set()
+            await release.wait()
+            await publish(message)
+
+        with patch.object(self.handler._boundary, "publish_evidence", side_effect=delayed):
+            quality = self.clock.mark_synchronization_unavailable(self.sid, "node", "sync", "offline")
+            self.node.accept_synchronization_quality(self.sid, "sync", quality)
+            await asyncio.wait_for(entered.wait(), 2)
+            stopping = asyncio.create_task(self.controller.stop_launched_session())
+            try:
+                await self.until(lambda: not self.node.status()["is_running"])
+                self.assertEqual(self.local.manifests[0].lifecycle_state, "finalized")
+                self.assertIsNone(self.communication.session_acquisition_completion(self.target, self.sid))
+                self.assertFalse(stopping.done())
+                count = self.camera.capture.read_count
+                for _ in range(5):
+                    await asyncio.sleep(0)
+                self.assertEqual(self.camera.capture.read_count, count)
+            finally:
+                release.set()
+            self.assertTrue((await stopping).succeeded)
+
+    async def test_camera_failure_finalizes_partial_products_before_pending_ack(self):
+        await self.experiment()
+        entered, release = asyncio.Event(), asyncio.Event()
+        publish = self.handler._boundary.publish_evidence
+
+        async def delayed(message):
+            entered.set()
+            await release.wait()
+            await publish(message)
+
+        with patch.object(self.handler._boundary, "publish_evidence", side_effect=delayed):
+            quality = self.clock.mark_synchronization_unavailable(self.sid, "node", "sync", "offline")
+            self.node.accept_synchronization_quality(self.sid, "sync", quality)
+            await asyncio.wait_for(entered.wait(), 2)
+            try:
+                self.camera.capture.frames = iter((self.frame, self.frame, None))
+                count = self.camera.capture.read_count
+                with self.assertLogs("lab_sync_acquisition.nats_communication", level="ERROR"):
+                    await self.until(lambda: not self.handler.acquisition_execution_active)
+                self.assertTrue(self.node.status()["failed"])
+                self.assertTrue(self.node.status()["cleanup_confirmed"])
+                self.assertEqual(len(self.saved()[0]), count + 2)
+                failure, = [m for m in self.node.runtime_evidence
+                            if m.payload.get("event_type") == "acquisition_failure"]
+            finally:
+                release.set()
+        await self.until(lambda: self.ingestor.has_durable_runtime_evidence(failure))
+
+    async def test_uncertain_ack_retries_identical_content_and_deduplicates_intake(self):
+        await self.experiment()
+        publish = self.handler._boundary.publish_evidence
+        attempted = []
+
+        async def uncertain(message):
+            attempted.append(message.to_dict())
+            await publish(message)
+            if len(attempted) == 1:
+                raise asyncio.TimeoutError("ACK was lost after durable intake")
+
+        with patch.object(self.handler._boundary, "publish_evidence", side_effect=uncertain):
+            quality = self.clock.mark_synchronization_unavailable(self.sid, "node", "sync", "offline")
+            self.node.accept_synchronization_quality(self.sid, "sync", quality)
+            with self.assertLogs("lab_sync_acquisition.nats_communication", level="ERROR"):
+                await self.until(lambda: len(attempted) >= 2)
+            self.assertEqual(attempted[0], attempted[1])
+        messages = self.ingestor.compile_persistent_runtime_evidence()["runtime_evidence"]
+        self.assertEqual(sum(m.evidence_id == attempted[0]["evidence_id"] for m in messages), 1)
+        self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+
+    async def test_unbound_preserved_evidence_retires_without_republishing_or_losing_conflict_protection(self):
+        await self.experiment()
+        await self.until(lambda: self.camera.capture.read_count >= 3)
+        retained = self.node.runtime_evidence
+        self.assertTrue(retained)
+        self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+        self.assertIsNone(self.node.status()["session_id"])
+        # Intake is independently durable before producer copies can retire.
+        self.assertTrue(all(self.ingestor.has_durable_runtime_evidence(m) for m in retained))
+        with patch.object(self.handler._boundary, "publish_evidence", wraps=self.handler._boundary.publish_evidence) as publish:
+            await self.handler.publish_new_runtime_evidence()
+            await self.handler.publish_new_artifact_manifest_evidence()
+            publish.assert_not_called()
+        self.assertFalse(self.node.runtime_evidence)
+        duplicate = retained[0]
+        self.assertEqual(self.ingestor.receive_runtime_evidence(duplicate).reason, "already_accepted")
+        from dataclasses import replace
+        with self.assertRaises(ValueError):
+            self.ingestor.receive_runtime_evidence(replace(duplicate, payload={"changed": True}))
+
+    async def _record_through_broker_restart(self, *, expire):
+        await self.experiment()
+        await self.handler._publish_acquisition_evidence()
+        original = self.handler._boundary
+        async with restartable_jetstream_server() as server:
+            boundary = NatsCommunicationBoundary("acquisition_node", "node", (server.url,))
+            await boundary.connect()
+            try:
+                await boundary.ensure_streams()
+                disconnected, reconnected, delivered = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+                async def on_disconnect():
+                    disconnected.set()
+
+                async def on_reconnect():
+                    await boundary._resume_acquisition_publication()
+                    reconnected.set()
+
+                async def receive(message):
+                    payload = json.loads(message.data)
+                    if payload["evidence_id"] == expected:
+                        delivered.set()
+                    await message.ack()
+
+                boundary._client._disconnected_cb = on_disconnect
+                boundary._client._reconnected_cb = on_reconnect
+                boundary._acquisition_publication_notification = self.handler._publication_requested
+                self.handler._boundary = boundary
+                subscription = await boundary._require_jetstream().subscribe(
+                    f"messages.{self.sid}.evidence.acquisition_node.node.>", cb=receive, manual_ack=True)
+                await boundary._client.flush()
+                server.stop()
+                await asyncio.wait_for(disconnected.wait(), 5)
+                quality = self.clock.mark_synchronization_unavailable(self.sid, "node", "sync", "broker offline")
+                self.node.accept_synchronization_quality(self.sid, "sync", quality)
+                count = self.camera.capture.read_count
+                await self.until(lambda: self.camera.capture.read_count >= count + 8)
+                if expire:
+                    with patch("lab_sync_acquisition.acquisition_node.monotonic", return_value=10**12):
+                        await self.until(lambda: not self.handler.acquisition_execution_active)
+                    expected = self.node.read_experiment_expiry("experiment").evidence_id
+                    self.assertEqual(len(self.saved()[0]), self.camera.capture.read_count)
+                else:
+                    expected = next(m.evidence_id for m in self.node.runtime_evidence
+                                    if m.evidence_type == "timing_quality_interpretation")
+                count = self.camera.capture.read_count
+                await server.start()
+                await asyncio.wait_for(reconnected.wait(), 8)
+                await asyncio.wait_for(delivered.wait(), 8)
+                stored = await boundary._require_jetstream().get_last_msg(
+                    "LAB_EVIDENCE", f"messages.{self.sid}.evidence.acquisition_node.node."
+                    + ("experiment_duration_expired" if expire else "timing_quality_interpretation"))
+                self.assertEqual(json.loads(stored.data)["evidence_id"], expected)
+                if expire:
+                    self.assertEqual(self.camera.capture.read_count, count)
+                else:
+                    self.assertGreater(self.camera.capture.read_count, count)
+                await subscription.unsubscribe()
+            finally:
+                # Join any real publication before restoring the fixture transport.
+                await self.handler.stop_acquisition_execution()
+                await self.handler._publish_acquisition_evidence()
+                self.handler._boundary = original
+                await boundary.close()
+
+    async def test_broker_restart_resumes_publication_while_scientific_recording_continues(self):
+        await self._record_through_broker_restart(expire=False)
+
+    async def test_broker_restart_resumes_publication_after_local_expiry(self):
+        await self._record_through_broker_restart(expire=True)
+
+    async def test_publication_ack_alone_does_not_retire_unpreserved_evidence(self):
+        await self.experiment()
+        await self.until(lambda: self.camera.capture.read_count >= 3)
+        with patch.object(self.node._maintenance, "evidence_preserved", return_value=False):
+            self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+            retained = self.node.runtime_evidence
+            self.assertTrue(retained)
+            with patch.object(self.handler._boundary, "publish_evidence", wraps=self.handler._boundary.publish_evidence) as publish:
+                await self.handler.publish_new_runtime_evidence()
+                self.assertEqual(self.node.runtime_evidence, retained)
+                publish.assert_not_called()
+        await self.handler.publish_new_runtime_evidence()
+        self.assertFalse(self.node.runtime_evidence)
+
+    async def test_successive_sessions_publish_after_retirement_without_changing_first_archive(self):
+        await self.experiment()
+        await self.until(lambda: self.camera.capture.read_count >= 3)
+        topic = f"messages.{self.sid}.evidence.*.*.*"
+        durable = next(name for name, consumer in self.broker.consumers.items()
+                       if consumer.config.filter_subject == topic)
+        self.broker.callbacks[durable] = next(s.callback for s in self.broker.subscriptions if s.subject == topic)
+        publish = self.broker.publish
+
+        async def receive_marker(subject, data, stream):
+            result = await publish(subject, data, stream)
+            if stream == "LAB_EVIDENCE" and json.loads(data)["evidence_type"] == "acquisition_evidence_completion":
+                for sequence, record in sorted(self.broker.records.items()):
+                    if self.broker.matches(topic, record.subject):
+                        await self.broker.deliver(durable, sequence)
+            return result
+
+        with patch.object(self.broker, "publish", side_effect=receive_marker):
+            stopped = await self.controller.normal_stop_session(communication=self.communication,
+                storage_participant=RuntimeParticipant("storage_manager", "storage"), result_window_s=2)
+        self.assertTrue(stopped.succeeded, stopped.error)
+        first_session = self.sid
+        first_products = {p: p.read_bytes() for p in self.storage.storage_root.rglob("*")
+                          if p.is_file() and first_session in str(p)}
+        self.assertTrue(first_products)
+        released = await self.controller.release_session(communication=self.communication, result_window_s=2)
+        self.assertTrue(released.succeeded, released.error)
+        self.camera.capture = FakeCV2(repeat(self.frame), {0: 12.5}).capture
+        launched = await self.controller.launch_session({"node": (self.declaration,)},
+            communication=self.communication, participants=(RuntimeParticipant("ingestor", "ingestor"),
+                RuntimeParticipant("storage_manager", "storage"),
+                RuntimeParticipant("synchronization_manager", "sync"), self.target),
+            config_parameters={"storage_location": "default", "protocol_plan": {},
+                "error_evidence_location": str(self.root / "errors"),
+                "synchronization_configuration": configuration()}, result_window_s=2)
+        self.assertTrue(launched.succeeded, launched.error)
+        self.sid = launched.details["session_id"]
+        self.assertNotEqual(self.sid, first_session)
+        self.assertTrue((await self.controller.start_launched_session()).succeeded)
+        self.local = self.node.local_storage_manager
+        count = self.camera.capture.read_count
+        await self.experiment("second")
+        await self.until(lambda: self.camera.capture.read_count >= count + 3)
+        self.assertTrue((await self.controller.stop_launched_session()).succeeded)
+        self.assertEqual(first_products, {p: p.read_bytes() for p in first_products})
+        self.assertGreaterEqual(len(self.saved("second")[0]), 3)
 
 
 if __name__ == "__main__":

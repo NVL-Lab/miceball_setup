@@ -515,10 +515,11 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
         f = self.fixture
         self.assertTrue((await self.start(configuration=ExperimentConfiguration(0.2, {"node": 1000000}, 1000, participating_devices={"node": ["camera"]}))).succeeded)
         entered = asyncio.Event()
+        release = asyncio.Event()
 
         async def unavailable():
             entered.set()
-            await asyncio.Event().wait()
+            await release.wait()
 
         with patch.object(f.handler, "publish_new_runtime_evidence", side_effect=unavailable):
             await entered.wait()
@@ -526,6 +527,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(f.node.scientific_acquisition_active)
             self.assertIsNotNone(f.node.read_experiment_expiry("experiment"))
             await f.handler.stop_acquisition_execution()
+            release.set()
         self.assertFalse(f.node.scientific_acquisition_active)
         self.assertIsNotNone(f.node.read_experiment_expiry("experiment"))
         self.assertTrue(await f.controller.reconcile_launched_experiment_expiry("experiment"))

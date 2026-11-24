@@ -461,7 +461,8 @@ class NatsCommunicationBoundary:
         self._jetstream = None
         failure = None
         try:
-            await self._client.connect(**self._connect_options, allow_reconnect=False, error_cb=report_nats_error)
+            await self._client.connect(**self._connect_options, allow_reconnect=False, error_cb=report_nats_error,
+                                       reconnected_cb=self._resume_acquisition_publication)
             # Arm runtime recovery only after the initial handshake. Passing these
             # options into connect() would also change initial failure behavior.
             self._client.options.update(allow_reconnect=True, max_reconnect_attempts=-1)
@@ -477,6 +478,11 @@ class NatsCommunicationBoundary:
             raise
         if failure is not None:
             raise failure
+
+    async def _resume_acquisition_publication(self) -> None:
+        notification = getattr(self, "_acquisition_publication_notification", None)
+        if notification is not None:
+            notification.set()
 
     async def close(self) -> None:
         """Finish owned cleanup before releasing references or propagating cancellation."""
@@ -2036,8 +2042,10 @@ class NatsAcquisitionNodeCommunication:
         self._commands_by_id: dict[str, dict[str, Any]] = {}
         self._published_runtime_evidence_count = 0
         self._published_artifact_manifest_count = 0
-        self._runtime_publication_lock = asyncio.Lock()
-        self._artifact_manifest_publication_lock = asyncio.Lock()
+        self._publication_lock = asyncio.Lock()
+        self._publication_requested = asyncio.Event()
+        self._publication_task: asyncio.Task | None = None
+        boundary._acquisition_publication_notification = self._publication_requested
         self._unpublished_evidence: dict[str, RuntimeEvidenceMessage] = {}
         self._sustained_acquisition_enabled = False
         self._acquisition_task: asyncio.Task | None = None
@@ -2051,7 +2059,42 @@ class NatsAcquisitionNodeCommunication:
     async def start_acquisition_execution(self) -> None:
         """Enable service-local iteration scheduling for active scientific Experiments."""
         self._sustained_acquisition_enabled = True
+        self._request_evidence_publication()
         await self._refresh_acquisition_execution()
+
+    def _request_evidence_publication(self) -> None:
+        if self._sustained_acquisition_enabled and (
+                self._publication_task is None or self._publication_task.done()):
+            self._boundary._acquisition_publication_notification = self._publication_requested
+            self._publication_task = asyncio.create_task(self._run_evidence_publication())
+        self._publication_requested.set()
+
+    async def _run_evidence_publication(self) -> None:
+        while True:
+            await self._publication_requested.wait()
+            self._publication_requested.clear()
+            if not self._boundary.connected:
+                # SDK reconnection wakes the same publisher, including after expiry.
+                continue
+            try:
+                await self._publish_acquisition_evidence()
+            except Exception:
+                logger.exception("sustained_acquisition_publication_unconfirmed")
+                self._publication_requested.set()
+                await asyncio.sleep(0)
+
+    async def _finish_evidence_publication(self) -> None:
+        # Retirement cannot discard pending evidence to make cleanup succeed.
+        await self._publish_acquisition_evidence()
+        task = self._publication_task
+        if task is not None:
+            task.cancel()
+            try:
+                await asyncio.gather(task, return_exceptions=True)
+            finally:
+                if task.done() and self._publication_task is task:
+                    self._publication_task = None
+        self._boundary._acquisition_publication_notification = None
 
     async def stop_acquisition_execution(self) -> None:
         """Disable scheduling and join its owned task; this does not finalize devices."""
@@ -2071,6 +2114,7 @@ class NatsAcquisitionNodeCommunication:
                 self._acquisition_task = None
 
     async def _refresh_acquisition_execution(self) -> None:
+        self._request_evidence_publication()
         async with self._acquisition_execution_lock:
             if self._sustained_acquisition_enabled and self._acquisition_node.experiment_runtime_active:
                 if not self.acquisition_execution_active:
@@ -2082,52 +2126,19 @@ class NatsAcquisitionNodeCommunication:
         # Bounded synchronous iterations and lifecycle commands share the service
         # event loop: finalization cannot overlap a camera read or local append.
         while self._sustained_acquisition_enabled and self._acquisition_node.experiment_runtime_active:
-            failed = False
             try:
                 if not self._acquisition_node.expire_experiment_if_due():
                     if self._acquisition_node.scientific_acquisition_active:
                         self._acquisition_node.run_one_iteration()
             except Exception:
-                failed = True
                 logger.exception("sustained_acquisition_failed")
                 try:
                     self._acquisition_node.stop_runtime()
                 except Exception:
                     logger.exception("sustained_acquisition_cleanup_unconfirmed")
-            try:
-                if self._acquisition_node.experiment_runtime_active:
-                    await asyncio.wait_for(self._publish_acquisition_evidence(),
-                        timeout=self._acquisition_node.experiment_deadline_remaining_s)
-                else:
-                    await self._publish_acquisition_evidence()
-            except asyncio.TimeoutError:
-                # An unconfirmed publication cannot hold the recording deadline open.
-                try:
-                    expired = self._acquisition_node.expire_experiment_if_due()
-                except Exception:
-                    logger.exception("experiment_expiry_finalization_failed")
-                    try:
-                        self._acquisition_node.stop_runtime()
-                    except Exception:
-                        logger.exception("sustained_acquisition_cleanup_unconfirmed")
-                    return
-                if not expired and self._acquisition_node.experiment_runtime_active:
-                    # The transport can time out before the Experiment does.
-                    # Retry only through the deadline-bounded path above.
-                    await asyncio.sleep(0)
-                    continue
-                # Recording is now quiescent. Publish its terminal evidence once
-                # through existing transport timeouts, retaining failures for retry.
-                try:
-                    await self._publish_acquisition_evidence()
-                except Exception:
-                    logger.exception("sustained_acquisition_publication_unconfirmed")
-            except Exception:
-                # Existing cursors and producer retention keep unconfirmed evidence;
-                # communication failure is not an acquisition-stop authorization.
-                logger.exception("sustained_acquisition_publication_unconfirmed")
-            if failed:
+                self._request_evidence_publication()
                 return
+            self._request_evidence_publication()
             if (self._acquisition_node.experiment_runtime_active
                     and not self._acquisition_node.scientific_acquisition_active):
                 await asyncio.sleep(self._acquisition_node.experiment_deadline_remaining_s)
@@ -2406,22 +2417,31 @@ class NatsAcquisitionNodeCommunication:
 
     async def publish_new_artifact_manifest_evidence(self) -> None:
         """Publish produced manifest lifecycle evidence through the existing boundary."""
-        async with self._artifact_manifest_publication_lock:
-            evidence = getattr(self._acquisition_node, "artifact_manifest_evidence", ())
-            for message in evidence[self._published_artifact_manifest_count:]:
-                await self.publish_evidence(message)
-                self._published_artifact_manifest_count += 1
+        await self._publish_evidence_prefix(artifacts=True)
 
     async def publish_new_runtime_evidence(self) -> None:
         """Publish retained operational evidence once per confirmed cursor entry."""
-        async with self._runtime_publication_lock:
-            messages = self._acquisition_node.runtime_evidence
-            for message in messages[self._published_runtime_evidence_count:]:
-                await self.publish_evidence(message)
-                self._published_runtime_evidence_count += 1
+        await self._publish_evidence_prefix(artifacts=False)
+
+    async def _publish_evidence_prefix(self, *, artifacts: bool) -> None:
+        async with self._publication_lock:
+            owner = self._acquisition_node
+            messages = owner._artifact_manifest_evidence if artifacts else owner._runtime_evidence
+            cursor = "_published_artifact_manifest_count" if artifacts else "_published_runtime_evidence_count"
+            # Capture a finite boundary; new Session evidence cannot extend this flush.
+            boundary = len(messages)
+            while getattr(self, cursor) < boundary:
+                await self._publish_retained_evidence(messages[getattr(self, cursor)])
+                setattr(self, cursor, getattr(self, cursor) + 1)
+            retired = owner._retire_publication_prefix(messages, getattr(self, cursor))
+            setattr(self, cursor, getattr(self, cursor) - retired)
 
     async def publish_evidence(self, message: RuntimeEvidenceMessage) -> None:
         """Publish AcquisitionNode-owned durable runtime evidence."""
+        async with self._publication_lock:
+            await self._publish_retained_evidence(message)
+
+    async def _publish_retained_evidence(self, message: RuntimeEvidenceMessage) -> None:
 
         if message.source_id != self._boundary.component_id:
             raise ValueError("Runtime evidence source_id does not match AcquisitionNode")

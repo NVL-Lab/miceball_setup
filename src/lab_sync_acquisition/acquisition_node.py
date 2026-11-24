@@ -1319,6 +1319,23 @@ class AcquisitionNode:
             if not audit.accepted:
                 raise RuntimeError("Operational evidence acceptance is unconfirmed")
 
+    def _retire_publication_prefix(self, messages: list[RuntimeEvidenceMessage], confirmed: int) -> int:
+        """Retire published, preserved producer copies only after their Session is unbound."""
+        with self._reservation_lock:
+            if self._session_id is not None or self._reserved_for_session_id is not None:
+                return 0
+            maintenance = getattr(self, "_maintenance", None)
+            if maintenance is None:
+                return 0
+            count = 0
+            while count < confirmed and maintenance.evidence_preserved(messages[count]):
+                count += 1
+            retired = {m.evidence_id for m in messages[:count]}
+            del messages[:count]
+            self._health_runtime_evidence[:] = [m for m in self._health_runtime_evidence
+                                               if m.evidence_id not in retired]
+            return count
+
     def _record_acquisition_failure(self, error) -> None:
         self._failed = True
         self._last_error = f"{type(error).__name__}: {error}"

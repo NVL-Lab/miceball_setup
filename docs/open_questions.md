@@ -1259,6 +1259,21 @@ retry/replay, or recovery of uncertain and unpublished messages.
 * How are successful recovery and permanently unpublished messages recorded?
 * If future local preservation is accepted, what ownership and storage limits apply?
 
+### Accepted acquisition-independence and retention clarifications
+
+Decision 395's [accepted clarification](architecture_decisions.md#accepted-clarification-scientific-acquisition-does-not-await-evidence-publication)
+requires admitted scientific acquisition, timestamping and local storage to
+progress without awaiting NATS evidence publication. Developer implementation is
+present; independent validation/audit and physical outage verification remain
+pending. Existing G2/G3 and Phase 16 closures are unchanged. The implementation
+uses existing RAM retention for finite Experiments and temporary interruptions,
+without indefinite-outage guarantees, new queues or configurable limits. Existing
+resource-exhaustion failure, including crash, is accepted without monitoring or
+preventive Stop. Acknowledged producer copies retire only after existing identity,
+retry, reconciliation and preservation obligations permit; publication must avoid
+unnecessary full-history copying. These bounded questions are resolved, not a new
+durable outbox or restart-durable recovery contract. Q011 remains OPEN.
+
 ### Current direction
 
 Do not infer recovery behavior from JetStream durability. Publication recovery remains a separate future architecture decision.

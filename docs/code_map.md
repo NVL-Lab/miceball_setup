@@ -2311,6 +2311,25 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsAcquisitionNodeCommunication.start_acquisition_execution(): Enables the service-owned sustained task and idempotently schedules existing bounded iterations when scientific acquisition becomes active through NATS commands.
 - NatsAcquisitionNodeCommunication.stop_acquisition_execution(): Disables scheduling and cancels/joins the owned execution task without claiming device cleanup or scientific finalization.
 - NatsAcquisitionNodeCommunication.acquisition_execution_active: Reports whether an unfinished sustained execution task is still owned by the adapter.
+
+**Developer implementation; independent validation/audit pending:** Decision 395's
+[acquisition-independence clarification](architecture_decisions.md#accepted-clarification-scientific-acquisition-does-not-await-evidence-publication)
+separates scientific iteration from remote publication using one adapter-owned
+publisher, a coalesced notification and existing evidence/cursors. Explicit flushes
+share publication serialization and retain existing producer-completion barriers.
+This is finite-Experiment RAM retention, not a bounded or restart-durable outbox;
+existing resource-exhaustion failure is accepted. G2/G3 and Phase 16 closures remain
+unchanged; physical outage continuity is not yet validated.
+
+- NatsCommunicationBoundary._resume_acquisition_publication(): Wakes the existing node publisher after SDK reconnection without replaying lifecycle commands.
+- NatsAcquisitionNodeCommunication._request_evidence_publication(): Coalesces publication work and starts at most one service-owned publisher.
+- NatsAcquisitionNodeCommunication._run_evidence_publication(): Publishes independently of scientific collection and retains failed work for existing retry/reconnect opportunities.
+- NatsAcquisitionNodeCommunication._finish_evidence_publication(): Flushes outstanding producer evidence before cancelling and joining publication execution during service cleanup.
+- NatsAcquisitionNodeCommunication._publish_acquisition_evidence(): Uses the existing manifest-then-runtime publication paths without involving the collection task.
+- NatsAcquisitionNodeCommunication._publish_evidence_prefix(artifacts): Publishes a finite retained prefix under one lock, advancing only acknowledged cursors and adjusting them after safe prefix retirement.
+- NatsAcquisitionNodeCommunication._publish_retained_evidence(message): Retains one exact attempted message until acknowledged publication, including uncertain outcomes.
+- AcquisitionNode._retire_publication_prefix(messages, confirmed): Removes published producer copies only when Session/reservation bindings are absent and existing exact preservation checks confirm coverage.
+
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
 - NatsIngestorCommunication.subscribe_commands(): Admits fresh readiness/preparation, evidence readback and serialized closeout commands, validating complete scoped resolution history and publishing owner results before command ACK.
 - NatsIngestorCommunication._execute_closeout_command(command): Coordinates optional bounded exact-marker acceptance before complete Normal Stop proof, and executes existing partial preservation, terminal persistence, restart reconciliation and guarded intake release.
@@ -3337,9 +3356,48 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - SustainedAcquisitionTests.test_rejected_runtime_stop_leaves_recording_active: Rejects another Session's stop without interrupting the active recording.
 - SustainedAcquisitionTests.test_experiment_without_selected_products_keeps_expiry_without_reads: Keeps idle deadline enforcement without reading the camera.
 - SustainedAcquisitionTests.test_publication_failure_retains_timing_evidence_without_stopping_frames: Preserves degraded timing evidence across publication failure while recording continues and later intake deduplicates it.
-- SustainedAcquisitionTests.test_interrupted_scheduler_shutdown_can_be_retried_without_background_reads: Retains accountable shutdown across cancellation and permits explicit retry without further acquisition.
+- SustainedAcquisitionTests.test_cancelled_flush_retains_publication_without_background_reads: Stops collection independently while cancelled flush admission leaves the owned publisher and required evidence intact.
 - SustainedAcquisitionTests.test_acquisition_failure_preserves_partial_frames_and_cleans_devices: Finalizes completed frames and records failure without inventing a Controller lifecycle transition.
 - SustainedAcquisitionTests.test_blocked_stop_cancel_and_authorized_kill_preserve_existing_semantics: Continues existing acquisition during blocked maintenance/Cancel and joins execution after explicitly authorized Kill.
+- SustainedAcquisitionTests.test_pending_ack_does_not_pause_scientific_recording: Confirms successive persisted frames and timestamps before releasing a blocked publication acknowledgment.
+- SustainedAcquisitionTests.test_expiry_finalizes_before_pending_ack_and_later_publishes: Verifies local expiry/finalization and later evidence delivery without premature Controller completion.
+- SustainedAcquisitionTests.test_ack_timeouts_after_expiry_retry_without_another_command: Confirms connected-but-unconfirmed publication retries the identical retained message after collection ends.
+- SustainedAcquisitionTests.test_manual_stop_finalizes_while_ack_is_pending_without_completion_proof: Checks local Stop/finalization before publication and withholds producer-completion proof until flush succeeds.
+- SustainedAcquisitionTests.test_camera_failure_finalizes_partial_products_before_pending_ack: Preserves partial camera products locally and later delivers retained failure evidence.
+- SustainedAcquisitionTests.test_uncertain_ack_retries_identical_content_and_deduplicates_intake: Exercises lost acknowledgment after durable intake and exact idempotent retry.
+- SustainedAcquisitionTests.test_unbound_preserved_evidence_retires_without_republishing_or_losing_conflict_protection: Confirms safe producer retirement with independent durable duplicate/conflict protection.
+- SustainedAcquisitionTests._record_through_broker_restart(expire): Records through an isolated real broker outage and verifies restored durable publication during recording or after expiry.
+- SustainedAcquisitionTests.test_broker_restart_resumes_publication_while_scientific_recording_continues: Verifies continued local recording and publication after actual isolated SDK reconnection.
+- SustainedAcquisitionTests.test_broker_restart_resumes_publication_after_local_expiry: Verifies reconnect notification publishes retained terminal evidence without further collection iterations.
+- SustainedAcquisitionTests.test_publication_ack_alone_does_not_retire_unpreserved_evidence: Retains acknowledged messages until existing preservation confirmation permits retirement.
+- SustainedAcquisitionTests.test_successive_sessions_publish_after_retirement_without_changing_first_archive: Exercises complete closeout/release and recording in another Session while retaining original archive bytes.
+
+Developer verification for the Decision 395 publication-independence correction:
+The final main batch passed 34 tests with zero failures/errors/skips (20
+sustained-acquisition tests, six deadline/finalization checks, four closeout
+barriers, one manifest-transport check and three authentication/connection checks).
+A final four-test connected-timeout retry batch also passed, including three
+overlapping controls: 35 distinct passing checks, not 38. Both gated-publication
+regressions failed before correction. With ACK blocked, eight additional frames
+and their timestamps persisted; observed maximum local interval was 0.016 seconds
+in the synthetic-camera fixture, not a physical acquisition-rate guarantee.
+Two isolated real-NATS restart workflows covered publication during acquisition
+and after expiry. Environment: Windows, Python 3.12.13, nats-py 2.15.0, h5py 3.16.0.
+Expanded legacy checks retain 19 unrelated errors reproduced against an untouched
+HEAD archive (authority/configuration fixtures and obsolete test doubles); they
+are not passing or skipped coverage. Two directly affected baseline fixture
+problems were corrected to exercise Controller disconnection and maintenance.
+Independent validation/audit, deployed SDK 2.16.0 and physical Ubuntu-Jetson outage
+continuity remain unverified. No closure or indefinite-disconnection guarantee is
+claimed.
+
+Exact developer commands (the first ran before the final retry test was added;
+the second covers that addition and its three directly affected controls):
+
+```text
+C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe -B -m unittest -v tests.test_sustained_acquisition tests.test_experiment_capacity.ExperimentPreflightWorkflows.test_expiry_finalizes_locally_and_controller_reconciles_only_experiment tests.test_experiment_capacity.ExperimentPreflightWorkflows.test_offline_controller_and_degraded_sync_do_not_disable_captured_deadline tests.test_experiment_capacity.ExperimentPreflightWorkflows.test_publication_wait_cannot_extend_recording_deadline tests.test_experiment_capacity.ExperimentPreflightWorkflows.test_early_transport_timeout_followed_by_pending_publication_still_expires tests.test_experiment_capacity.ExperimentPreflightWorkflows.test_failed_expiry_finalization_is_not_canonical_completion tests.test_experiment_capacity.ExperimentPreflightWorkflows.test_delayed_expiry_uses_activation_mapping_after_resynchronization tests.test_distributed_session_closeout.DistributedSessionCloseoutTests.test_normal_stop_quiesces_sustained_recording_before_finalized_intake tests.test_distributed_session_closeout.DistributedSessionCloseoutTests.test_preservation_failure_retains_finality_and_blocks_release tests.test_distributed_session_closeout.DistributedSessionCloseoutTests.test_acceptance_timeout_and_cancel_retain_explicit_retry tests.test_distributed_session_closeout.DistributedSessionCloseoutTests.test_kill_preserves_partial_evidence_without_confirming_missing_cleanup tests.test_nats_communication.NatsCommunicationUnitTests.test_artifact_manifest_uses_evidence_stream_and_ingestor_intake tests.test_nats_authentication.NatsAuthenticationTests.test_runtime_exact_strings_and_legacy_urls tests.test_nats_authentication.NatsAuthenticationTests.test_connection_errors_and_callbacks_do_not_disclose_credentials tests.test_nats_authentication.NatsAuthenticationTests.test_real_authenticated_connection_reconnect_and_legacy_control
+C:\Users\Nuria\anaconda3\envs\miceball_setup\python.exe -B -m unittest -v tests.test_sustained_acquisition.SustainedAcquisitionTests.test_ack_timeouts_after_expiry_retry_without_another_command tests.test_sustained_acquisition.SustainedAcquisitionTests.test_uncertain_ack_retries_identical_content_and_deduplicates_intake tests.test_sustained_acquisition.SustainedAcquisitionTests.test_publication_failure_retains_timing_evidence_without_stopping_frames tests.test_sustained_acquisition.SustainedAcquisitionTests.test_cancelled_flush_retains_publication_without_background_reads
+```
 
 ## tests/test_launch_cleanup.py
 

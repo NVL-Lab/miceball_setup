@@ -137,6 +137,7 @@ async def launch_independent_service(*, role, servers, service_id, ingestor_id, 
             await external.close(retiring_command_id=commands[-1]["command_id"] if commands else None)
         if isinstance(runtime, NatsAcquisitionNodeCommunication):
             await runtime.stop_acquisition_execution()
+            await runtime._finish_evidence_publication()
         if isinstance(runtime, NatsSynchronizationManagerCommunication) and runtime._assessment_task is not None:
             runtime._assessment_task.cancel()
             try:

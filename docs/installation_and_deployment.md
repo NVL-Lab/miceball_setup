@@ -1473,6 +1473,17 @@ recording. Authorized cleanup joins execution and finalizes scientific products.
 Camera failures retain partial data/failure evidence and attempt cleanup.
 Synchronous device calls are not preemptible hardware deadline guarantees.
 
+**Developer implementation; independent validation/audit pending:** Decision 395's
+[acquisition-independence clarification](architecture_decisions.md#accepted-clarification-scientific-acquisition-does-not-await-evidence-publication)
+uses separate adapter-owned collection/publication tasks, finite serialized flushes
+and SDK reconnect notification. Local expiry/finalization can precede publication;
+producer-completion and preservation barriers still require their existing proof.
+RAM retention supports finite Experiments and temporary interruptions, not
+indefinite disconnection or restart-durable unpublished recovery. Resource
+exhaustion prevention and hard-real-time acquisition are not guaranteed. Existing
+G3 validation is not proof of physical outage continuity; Ubuntu-Jetson outage
+testing remains pending. G2 and Phase 16 remain CLOSED.
+
 <a id="experiment-capacity-and-duration-g2-closed"></a>
 ### Experiment Capacity And Duration (G2 Closed)
 
