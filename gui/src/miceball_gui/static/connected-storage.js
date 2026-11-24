@@ -37,10 +37,10 @@ export function renderConnectedStorage() {
   const opened = new Set([...root.querySelectorAll('details[open][data-storage-detail]')].map(item => item.dataset.storageDetail));
   const rows = history?.sessions || [], available = current && !loading && !collecting;
   const visible = rows.filter(row => JSON.stringify([row.session_id, row.accepted_session_config?.session_parameters]).toLowerCase().includes(query.toLowerCase()));
-  root.innerHTML = `<header><h2 class="visually-hidden" id="heading-storage">Storage</h2><p>Controller-mediated historical readback and whole-Session collection. Collection never deletes originals.</p></header>
+  root.innerHTML = `<header><h2 class="visually-hidden" id="heading-storage">Storage</h2><p>Controller-mediated historical readback and whole-Session collection.</p></header>
     <div class="storage-tabs">${button('data-storage-live-refresh', 'Refresh Sessions', !adapter || loading || collecting)}${button('data-storage-live-workspace="collection"', 'Collection')}${button('data-storage-live-workspace="history"', 'History')}${button('data-storage-live-workspace="deletion"', 'Delete originals')}</div>
     <p role="status" data-storage-live-feedback>${esc(message)}${history && !current ? ' Last-known history only; current availability unconfirmed.' : ''}</p>
-    ${workspace === 'deletion' ? '<p>Original-recording deletion is not connected in this integration. Collection does not authorize deletion.</p>' : `
+    ${workspace === 'deletion' ? '<p>Separate manual deletion is unavailable here. Optional deletion after verified collection can be authorized in the Store review.</p>' : `
     <div class="storage-columns"><section class="storage-card"><h3>Available Sessions</h3>
     <label>Search Sessions<input type="search" data-storage-live-query value="${esc(query)}"></label>
     ${button('data-storage-live-pending', 'Collect everything pending', !available || !adapter?.canControl())}
@@ -53,7 +53,7 @@ export function renderConnectedStorage() {
       <pre>${json(details.get(row.session_id) || row)}</pre></details>
       ${results.has(row.session_id) ? `<p data-storage-live-result="${esc(row.session_id)}">${esc(activityPresentation(results.get(row.session_id)).message)}</p><pre>${json(results.get(row.session_id).result?.outcome?.details || {})}</pre>` : ''}</article>`).join('') || `<p>${current ? 'No matching historical Sessions in the confirmed readback.' : 'Historical Session discovery unavailable. No empty-history conclusion is implied.'}</p>`}
     </section><section class="storage-card storage-bucket"><h3>Collection bucket (${selected.size})</h3><div data-storage-live-bucket>${[...selected].map(id => `<div class="storage-row"><span>${esc(identity(rows.find(row => row.session_id === id) || {session_id: id}))} · ${esc(id)}</span>${button(`data-storage-live-remove="${esc(id)}"`, 'Remove', collecting)}</div>`).join('')}</div>
-    <p>Whole Sessions only. Selection does not initiate transfer. Originals will not be deleted.</p>${button('data-storage-live-review', 'Store — review selection', !available || !selected.size || !adapter?.canControl())}</section></div>
+    <p>Whole Sessions only. Originals are preserved unless deletion is explicitly authorized in review.</p>${button('data-storage-live-review class="dialog-button dialog-button--primary"', 'Store — review selection', !available || !selected.size || !adapter?.canControl())}</section></div>
     <section class="storage-card"><h3>Collection progress and capacity</h3><p>Per-file outcomes, verification and preservation are reported separately. Transfer speed and live byte progress are unavailable.</p><pre data-storage-live-capacity>${history?.capacity ? json(history.capacity) : 'Capacity unavailable'}</pre><p>Capacity is an owner observation, not collection admission or a complete total/used-space report.</p></section>`}`;
   root.insertAdjacentHTML('beforeend', destinationManagementMarkup());
 }
@@ -123,16 +123,30 @@ export function installConnectedStorage(operations) {
         && (!row.collection_history?.length || row.collection_history.at(-1).payload?.artifact_results?.some(file => file.collection_status !== 'success'))).forEach(row => selected.add(row.session_id));
       if (target.hasAttribute('data-storage-live-review') && selected.size) {
         const ids = [...selected], version = revision, owner = operator();
-        dialog.innerHTML = `<h2>Review whole-Session collection</h2><ul>${ids.map(id => `<li>${esc(identity(history.sessions.find(row => row.session_id === id)))} · ${esc(id)}</li>`).join('')}</ul><p>StorageManager will revalidate eligibility, retrieve and verify artifacts, and preserve the actual outcome. No original recordings will be deleted.</p>${button('data-storage-live-cancel', 'Cancel')}${button('data-storage-live-confirm', 'Store')}`;
+        dialog.innerHTML = `<h2>Review whole-Session collection</h2><ul>${ids.map(id => `<li>${esc(identity(history.sessions.find(row => row.session_id === id)))} · ${esc(id)} — entire Session, all original scientific artifact files</li>`).join('')}</ul><label><input type="checkbox" data-storage-live-delete>Delete originals after successful collection</label><p>Leave unchecked to preserve original recordings.</p><label data-storage-live-warning hidden><input type="checkbox" data-storage-live-acknowledge>I understand that deleting these originals is irreversible. Deletion requires verified global copies and preserved evidence; global copies and historical records are not deleted.</label><div class="catalog-dialog__actions">${button('data-storage-live-cancel', 'Cancel')}${button('data-storage-live-confirm class="dialog-button dialog-button--primary"', 'Store')}</div>`;
+        const deletion = dialog.querySelector('[data-storage-live-delete]');
+        const acknowledgment = dialog.querySelector('[data-storage-live-acknowledge]');
+        const confirm = dialog.querySelector('[data-storage-live-confirm]');
+        deletion.onchange = () => {
+          acknowledgment.checked = false;
+          acknowledgment.closest('label').hidden = !deletion.checked;
+          confirm.disabled = deletion.checked;
+        };
+        acknowledgment.onchange = () => { confirm.disabled = deletion.checked && !acknowledgment.checked; };
         dialog.querySelector('[data-storage-live-cancel]').onclick = () => dialog.close();
         dialog.querySelector('[data-storage-live-confirm]').onclick = async event => {
-          if (collecting || version !== revision || !current || !adapter.canControl()) { dialog.close(); return; }
+          if (collecting || version !== revision || !current || !adapter.canControl()
+              || ids.length !== selected.size || !ids.every(id => selected.has(id) && history.sessions.some(row => row.session_id === id && eligible(row)))) { dialog.close(); return; }
+          if (deletion.checked && !acknowledgment.checked) return;
+          const deleteOriginals = deletion.checked;
           event.target.disabled = true; dialog.close(); collecting = true;
           try {
             for (const id of ids) {
               if (version !== revision || !adapter.canControl()) { message = 'Remaining selections were not submitted: control or confirmation is unavailable.'; break; }
               message = `${id}: collection requested; awaiting authoritative outcome.`; renderConnectedStorage();
-              const result = await adapter.collect(id, {...owner, evidence_id: crypto.randomUUID()});
+              const result = await adapter.collect(id, {...owner, evidence_id: crypto.randomUUID(),
+                ...(deleteOriginals ? {deletion: {operation_id: crypto.randomUUID(), experiment_ids: null,
+                  confirmed: true, warning_acknowledged: true}} : {})});
               if (version !== revision) break;
               results.set(id, result);
               message = `${id}: ${activityPresentation(result).message}`;

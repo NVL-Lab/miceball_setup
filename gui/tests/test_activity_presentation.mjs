@@ -29,3 +29,24 @@ test('pending, timeout and unknown never imply execution failure, cancellation o
 test('local preparation is never presented as framework execution', () => {
   assert.equal(activityPresentation({...entry, operation: 'prepare_experiment', source: 'local', status: 'succeeded'}).message, 'Experiment prepared locally.');
 });
+
+test('collection success does not imply deletion success', () => {
+  const collection = {...entry, operation: 'collect_saved_session_artifacts_remote', session_id: 'saved', status: 'succeeded'};
+  assert.match(activityPresentation(collection).message, /collection succeeded.*Originals were preserved/i);
+  const result = {outcome: {details: {session_id: 'saved', collection_outcome: {
+    session_id: 'saved', archival_confirmed: true, artifact_collection_result: {succeeded: true}},
+    deletion: {command: 'delete_original_artifacts', succeeded: false, details: {session_id: 'saved', operation_id: 'delete-original'}, error: 'Deletion outcome is unconfirmed'}}}};
+  const requested = {...collection, deletion_requested: true, deletion_operation_id: 'delete-original', status: 'failed', result};
+  assert.match(activityPresentation(requested).message, /Collection succeeded.*deletion.*not.*confirmed/);
+  result.outcome.details.deletion.succeeded = true;
+  assert.match(activityPresentation({...requested, status: 'succeeded'}).message, /Collection succeeded.*original deletion succeeded/);
+  result.outcome.details.deletion.details.operation_id = 'another-operation';
+  assert.doesNotMatch(activityPresentation({...requested, status: 'succeeded'}).message, /deletion succeeded/);
+});
+
+test('uncertain collection with requested deletion never certifies either operation', () => {
+  for (const status of ['pending', 'uncertain', 'failed']) {
+    const view = activityPresentation({...entry, operation: 'collect_saved_session_artifacts_remote', deletion_requested: true, status});
+    assert.doesNotMatch(view.message, /collection succeeded|deletion succeeded/i);
+  }
+});

@@ -657,13 +657,24 @@ source-node availability is separate from enumeration. Add/drop and Collect ever
 pending only select whole Sessions. Store reviews the exact selection and submits
 independent requests using existing command identity, authority and outcome readback.
 Failed or uncertain outcomes are not success; pending/uncertain requests are never
-automatically replayed on reconnect. Collection never requests original deletion.
+automatically replayed on reconnect. Store is the primary action and opens review;
+the final Store confirmation uses the same primary styling. Originals are
+preserved by default. Each review offers an unchecked **Delete originals after
+successful collection** option for the listed entire Sessions, requiring explicit
+irreversible-deletion warning acknowledgment before submission. Authorization is
+not retained for later reviews. Controller invokes the existing separate deletion
+operation only after successful collection; StorageManager verifies exact current
+global copies and archived evidence, and AcquisitionNodes enforce local safety.
+Feedback distinguishes collection success from deletion success or incomplete
+confirmation. Refresh and outcome lookup never repeat either execution request.
 Source inspection can remain unconfirmed without removing historical Sessions.
 The connected History workspace exposes retained owner readback and search, without
 inventing missing collection-completion dates or estimating transfer progress.
 Only owner-reported available capacity is shown, not invented total/used space.
 No real G5 collection, SSH retrieval or physical deployment validation is claimed.
-Original-file deletion remains disconnected in this bounded integration.
+This bounded optional-deletion GUI integration awaits independent validation,
+audit and physical deployment verification. Separate manual original deletion
+remains disconnected; no original-deletion safety contract has changed.
 The following Slice 7 record describes the unchanged disconnected demonstration.
 
 Primary navigation is Setup, Session, Experiment, Analysis, Storage and Services;

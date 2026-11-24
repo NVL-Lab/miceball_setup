@@ -88,7 +88,8 @@ installConnectedStorage({snapshot: current, canControl,
   collect: async (sid, parameters) => {
     const connection = socket;
     const entry = recordActivity('collect_saved_session_artifacts_remote');
-    Object.assign(entry, {session_id: sid, evidence_id: parameters.evidence_id});
+    Object.assign(entry, {session_id: sid, evidence_id: parameters.evidence_id,
+      deletion_requested: Boolean(parameters.deletion), deletion_operation_id: parameters.deletion?.operation_id});
     await command('collect_saved_session_artifacts_remote', parameters, sid, entry);
     await waitForPendingOutcome(entry, connection);
     return entry;
@@ -245,6 +246,9 @@ async function refresh() {
         if (result.status !== recovered.status) continue;
         if (recovered.status === 'succeeded'
             && recovered.outcome?.details?.collection_outcome?.collection_evidence?.evidence_id !== entry.evidence_id) continue;
+        if (entry.deletion_requested && recovered.outcome?.details?.deletion
+            && recovered.outcome.details.deletion.details?.operation_id !== entry.deletion_operation_id) continue;
+        if (entry.deletion_requested && recovered.status === 'succeeded' && !recovered.outcome?.details?.deletion) continue;
       }
       if (entry.operation === 'update_device_configuration' && entry.status === 'uncertain' && result.status === 'unknown') continue;
       updateActivity(entry, {status: result.status, result: result.result, error: result.result?.error || (result.status === 'unknown' ? 'No matching outcome is available from the current Controller.' : entry.error)});

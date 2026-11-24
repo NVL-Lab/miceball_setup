@@ -206,7 +206,7 @@ general maintenance-history/memory retirement is not implemented by this closure
 
 ## gui/src/miceball_gui/static/connected-storage.js — G5 integration (independent verification pending)
 
-- `installConnectedStorage(operations)`: Binds existing Storage controls to Controller-owned readback and explicit whole-Session collection without deletion or a persistent GUI registry.
+- `installConnectedStorage(operations)`: Binds existing Storage controls to Controller-owned readback and explicit whole-Session collection with an unchecked per-review optional deletion request, exact scope and risk acknowledgment, without a persistent GUI registry.
 - `renderConnectedStorage()`: Presents historical Session records, owner-reported eligibility, artifact details, capacity and distinct request outcomes using existing Storage styles.
 - `syncConnectedStorage()`: Invalidates projections and selections when Controller/control or cooperative operator context changes.
 - `invalidateConnectedStorage()`: Marks last-known historical information unconfirmed after transport or Controller confirmation loss.
@@ -215,6 +215,20 @@ general maintenance-history/memory retirement is not implemented by this closure
 - `collectionLabel(row)`: Separates archived collection outcomes from per-artifact verification rather than treating Session completion as collection.
 - `ConnectedStorageTests.test_historical_collection_in_browser`: Exercises production-browser discovery, inspection, selection, explicit collection, failures, uncertainty, authority and reconnect using controlled responses.
 - `GUIIntegrationTests.test_historical_storage_readback_and_explicit_collection_use_existing_owners`: Exercises the GUI WebSocket, real isolated NATS owners, recorded ownership and durable saved-Session collection while preserving original Session Records.
+
+The bounded Store presentation/optional-deletion batch reuses existing primary
+button styling and the collection request's structured `deletion` field. Each
+review defaults to preserving originals; final confirmation captures whole-Session
+scope and a fresh deletion operation ID only after warning acknowledgment.
+Controller, StorageManager and AcquisitionNode/LocalStorageManager retain all
+verification, authorization, preservation and deletion ownership. Activity feedback
+separates successful collection from confirmed or unconfirmed deletion; outcome
+recovery retains original collection/evidence/deletion identities and never
+executes either operation. Independent validation/audit and physical deployment
+verification remain pending, separately from the earlier collection correction.
+- `CollectedOriginalDeletionTests.collect_through_controller`: Exercises scoped collection and optional deletion through isolated real NATS, confirmed Controller authority and durable disposable scientific fixtures with simulated SSH/SFTP.
+- `CollectedOriginalDeletionTests.deletion_request`: Supplies explicit whole-Session deletion scope and confirmations for the owner-workflow fixture.
+- `CollectedOriginalDeletionTests.check_missing_deletion_confirmation`: Verifies that either absent authorization confirmation preserves the exact original despite successful collection.
 
 ## gui/src/miceball_gui/static/artifact-destinations.js
 

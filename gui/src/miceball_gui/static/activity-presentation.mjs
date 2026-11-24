@@ -20,7 +20,7 @@ const operations = {
   normal_stop_session: ['Session Stop', 'Session stopped.'],
   kill_session: ['Session Kill', 'Session Kill completed.'],
   release_session: ['Session release', 'Session released.'],
-  collect_saved_session_artifacts_remote: ['Session collection', 'Session collection outcome confirmed. Inspect per-artifact verification and preservation results.'],
+  collect_saved_session_artifacts_remote: ['Session collection', 'Session collection succeeded. Originals were preserved.'],
   reconcile_launched_experiment_expiry: ['Experiment completion check', 'Experiment completion checked.'],
   get_node_inventory: ['Inventory refresh', 'Inventory refreshed.'],
   check_readiness: ['Readiness check', 'Readiness check completed.'],
@@ -52,6 +52,19 @@ export function activityPresentation(entry) {
   else if (['uncertain', 'unknown'].includes(entry.status)) {
     message = `${label} could not be confirmed.${entry.operation === 'launch_session' ? ' Check Session status.' : ''} ${reason || 'The outcome is unavailable.'} No automatic retry.`;
   } else message = `${label} ${entry.source === 'local' ? 'could not proceed locally' : entry.source === 'submission' ? 'was not accepted for submission' : entry.status === 'rejected' ? 'was rejected by Controller' : 'failed'}: ${reason || 'No further reason was provided.'}`;
+  if (entry.operation === 'collect_saved_session_artifacts_remote') {
+    const details = entry.result?.outcome?.details, collection = details?.collection_outcome, deletion = details?.deletion;
+    const collected = details?.session_id === entry.session_id && collection?.session_id === entry.session_id
+      && collection?.archival_confirmed === true && collection?.artifact_collection_result?.succeeded === true;
+    const deleted = deletion?.command === 'delete_original_artifacts' && deletion?.succeeded === true
+      && deletion?.details?.session_id === entry.session_id && deletion?.details?.operation_id === entry.deletion_operation_id;
+    if (collected && deletion) message = deleted
+      ? 'Collection succeeded. Authorized original deletion succeeded.'
+      : 'Collection succeeded. Original deletion was not fully confirmed. Check the per-node outcomes before another request.';
+    else if (entry.deletion_requested && entry.status === 'succeeded') message = 'Collection or requested original deletion could not be confirmed. No automatic retry.';
+    else if (entry.deletion_requested && ['pending', 'uncertain', 'unknown'].includes(entry.status))
+      message += ' Requested original deletion is not confirmed.';
+  }
   if (entry.feedback_error) message += ' The display could not be refreshed; check current Session status.';
   return {message, time: new Date(entry.observed_at).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}), status: entry.status};
 }

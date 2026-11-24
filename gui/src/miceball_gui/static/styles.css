@@ -1234,7 +1234,7 @@ html[data-administrator="true"] .workspace__content { background: var(--administ
   min-height: 36px;
 }
 
-.dialog-button--primary {
+.dialog-button--primary, #panel-storage .dialog-button--primary, .storage-dialog .dialog-button--primary {
   border-color: var(--blue-500);
   background: var(--blue-500);
   color: white;
@@ -1403,7 +1403,9 @@ html[data-theme="dark"] .catalog-dialog::backdrop {
   background: rgb(2 5 9 / 68%);
 }
 
-html[data-theme="dark"] .dialog-button--primary {
+html[data-theme="dark"] .dialog-button--primary,
+html[data-theme="dark"] #panel-storage .dialog-button--primary,
+html[data-theme="dark"] .storage-dialog .dialog-button--primary {
   border-color: #5d8fc4;
   background: #4e7eaf;
   color: #fff;

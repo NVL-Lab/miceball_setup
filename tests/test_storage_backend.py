@@ -809,29 +809,98 @@ class CollectedOriginalDeletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(proof["archival_confirmed"])
         self.assertEqual(before, {p: p.read_bytes() for p in before})
 
-    async def test_whole_session_collection_optional_deletion_through_controller(self):
-        broker = _Broker()
-        handler = NatsAcquisitionNodeCommunication(_Boundary("acquisition_node", "node", broker), self.node)
-        await handler.subscribe_commands()
+    async def collect_through_controller(self, deletion, *, discard_collection_response=False):
+        from tests.nats_server_fixture import acquire_test_controller_authority
+        controller = Controller()
+        maintenance = ServiceMaintenanceInterface(controller, RuntimeParticipant("controller", "controller"),
+            ingestor=None, storage_manager=None, preservation_window_s=1,
+            close_resources=AsyncMock(return_value=True))
+        authority = await acquire_test_controller_authority(self, maintenance)
+        await authority.ensure_streams()
         intake = InMemoryIngestor(storage_manager=self.storage,
             framework_recovery_journal_path=self.root / "deletion-framework.jsonl")
-        receiver = NatsIngestorCommunication(_Boundary("ingestor", "ingestor", broker), intake)
-        await receiver.subscribe_evidence(None)
-        await receiver.subscribe_commands()
-        await NatsStorageManagerCommunication(_Boundary("storage_manager", "storage", broker), self.storage).subscribe_commands()
-        communication = NatsControllerCommunication(_Boundary("controller", "controller", broker))
+        for role, identity, owner, handler_type in (
+                ("ingestor", "ingestor", intake, NatsIngestorCommunication),
+                ("storage_manager", "storage", self.storage, NatsStorageManagerCommunication),
+                ("acquisition_node", "node", self.node, NatsAcquisitionNodeCommunication)):
+            ServiceMaintenanceInterface(owner, RuntimeParticipant(role, identity), ingestor=intake,
+                storage_manager=self.storage, preservation_window_s=1, close_resources=AsyncMock(return_value=True))
+            boundary = NatsCommunicationBoundary(role, identity, authority.servers)
+            await boundary.connect()
+            self.addAsyncCleanup(boundary.close)
+            boundary.configure_controller_authority(account="LAB", bucket="AUTHORITY", key="controller", timeout_s=2)
+            handler = handler_type(boundary, owner)
+            await handler.subscribe_commands()
+            if role == "ingestor":
+                await handler.subscribe_evidence(None)
+        communication = NatsControllerCommunication(authority)
+        request = communication.request_persistence_command
+        async def response(*args, **kwargs):
+            result = await request(*args, **kwargs)
+            return None if discard_collection_response and args[1] == "collect_saved_artifacts" else result
         transport, _ = self.fixture.retrieval.ssh(self.fixture.sftp)
-        with transport:
-            result = await Controller().collect_saved_session_artifacts_remote("session", evidence_id="selected-collection",
+        with transport, patch.object(communication, "request_persistence_command", side_effect=response):
+            return await controller.collect_saved_session_artifacts_remote("session", evidence_id="selected-collection",
                 communication=communication, storage_participant=RuntimeParticipant("storage_manager", "storage"),
-                result_window_s=.2, experimenter_name=None, administrator_mode=True,
+                result_window_s=2, experimenter_name=None, administrator_mode=True,
                 participants=(RuntimeParticipant("acquisition_node", "node"), RuntimeParticipant("ingestor", "ingestor")),
-                deletion={"operation_id": "selected-deletion", "experiment_ids": None,
-                          "confirmed": True, "warning_acknowledged": True})
+                deletion=deletion)
+
+    def deletion_request(self):
+        return {"operation_id": "selected-deletion", "experiment_ids": None,
+                "confirmed": True, "warning_acknowledged": True}
+
+    async def test_whole_session_collection_optional_deletion_through_controller(self):
+        result = await self.collect_through_controller(self.deletion_request())
         self.assertTrue(result.succeeded, result.error)
         self.assertTrue(result.details["collection_outcome"]["archival_confirmed"])
         self.assertTrue(result.details["deletion"]["succeeded"])
         self.assertFalse(Path(self.fixture.manifest.local_storage_path).exists())
+        self.assertTrue(self.storage.confirm_collected_originals("session", [self.fixture.manifest.to_dict()])["verification_confirmed"])
+
+    async def check_missing_deletion_confirmation(self, field):
+        original = Path(self.fixture.manifest.local_storage_path)
+        before = original.read_bytes()
+        result = await self.collect_through_controller({**self.deletion_request(), field: False})
+        self.assertFalse(result.succeeded)
+        self.assertTrue(result.details["collection_outcome"]["artifact_collection_result"]["succeeded"])
+        self.assertFalse(result.details["deletion"]["succeeded"])
+        self.assertEqual(original.read_bytes(), before)
+
+    async def test_optional_deletion_requires_confirmation(self):
+        await self.check_missing_deletion_confirmation("confirmed")
+
+    async def test_optional_deletion_requires_warning_acknowledgment(self):
+        await self.check_missing_deletion_confirmation("warning_acknowledged")
+
+    async def test_optional_deletion_cannot_use_unverified_global_copy(self):
+        original = Path(self.fixture.manifest.local_storage_path)
+        before = original.read_bytes()
+        with patch.object(self.storage, "_verify_artifact", return_value=("copied_unverified", "No verification contract")):
+            result = await self.collect_through_controller(self.deletion_request())
+        self.assertFalse(result.succeeded, result.to_dict())
+        self.assertFalse((result.details.get("deletion") or {}).get("succeeded", False))
+        self.assertEqual(self.storage.read_storage_session("session")["collection_history"][-1]["payload"]["artifact_results"][0]["verification_status"], "copied_unverified")
+        self.assertEqual(original.read_bytes(), before)
+
+    async def test_optional_deletion_cannot_follow_missing_collection_response(self):
+        original = Path(self.fixture.manifest.local_storage_path)
+        before = original.read_bytes()
+        result = await self.collect_through_controller(self.deletion_request(), discard_collection_response=True)
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.details["outcome"], "unconfirmed")
+        self.assertNotIn("deletion", result.details)
+        self.assertEqual(original.read_bytes(), before)
+        self.assertEqual(self.storage.read_storage_session("session")["collection_history"][-1]["evidence_id"], "selected-collection")
+
+    async def test_optional_deletion_cannot_follow_failed_collection(self):
+        original = Path(self.fixture.manifest.local_storage_path)
+        before = original.read_bytes()
+        self.fixture.files.clear()
+        result = await self.collect_through_controller(self.deletion_request())
+        self.assertFalse(result.succeeded)
+        self.assertNotIn("deletion", result.details)
+        self.assertEqual(original.read_bytes(), before)
 
 
 class StorageExternalModelsTests(unittest.TestCase):
