@@ -1136,6 +1136,17 @@ or NATS state. If a process was forcibly ended, assess its preserved obligations
 before explicit return under Decision 329; do not label the old exit graceful.
 See [restart and retained-result guidance](#independent-role-startup-w063-closed).
 
+### Destructive disposable test-deployment reset
+
+The [November 24, 2026 reset record](deployment_test_reset.md) documents the
+observed historical-delivery/accumulation symptoms, the authorized destructive
+Ubuntu/Jetson test reset, required safety precautions and authority-store
+reinitialization. It is not production recovery or an implemented factory reset.
+The precise historical-processing cause and architectural corrections remain under
+LLC discussion; short healthy operation after reset does not establish long-term
+stability. Future reset architecture remains unresolved in
+[Q035](open_questions.md#q035-framework-factory-reset-and-clean-deployment-reinitialization).
+
 ### Validated Ubuntu GUI Launch
 
 After starting the deployment services above using their platform-appropriate

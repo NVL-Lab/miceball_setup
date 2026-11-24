@@ -1163,6 +1163,41 @@ Q020/Q021/Q024/Q030 retain broader scope; Q034 remains OPEN.
 
 # Future Questions
 
+## Q035: Framework factory reset and clean deployment reinitialization
+
+**Status:** OPEN - future architectural discussion only; no reset mechanism is
+accepted or implemented. Consider alongside Q022 and the deferred Decision 453
+graphical installer/installation-administration work, not necessarily the ordinary
+experimenter-facing operational GUI.
+
+The objective is a supported way to return an installed framework to a clean
+operational state without necessarily uninstalling/reinstalling software. The
+[November 24, 2026 destructive test reset](deployment_test_reset.md) motivates this
+question; its manual commands and installation-specific paths are historical
+evidence, not a permanently hard-coded design or complete persistent-state inventory.
+
+Architectural discussion must address:
+
+- Reset scopes: experimental history only with installation configuration retained,
+  versus complete factory reset; authoritative state that must be reset together.
+- Discovery of actual configured storage across distributed computers and safe
+  handling of NATS streams, consumers and Controller authority infrastructure.
+- Preservation, when requested, of software, credentials, network settings and
+  hardware configuration; protection of scientific data and unrelated shared state.
+- Explicit destructive authorization, confirmation that affected services are
+  stopped, interrupted/incomplete reset handling and infrastructure reinitialization.
+- How future components identify their persistent state and participate as the
+  framework evolves; whether the mechanism belongs in an administrative CLI,
+  installer maintenance interface or another dedicated interface.
+
+Historical accumulation and excessive historical delivery/recovery remain under
+LLC discussion, with implementation corrections awaiting instructions. Clean
+startup and short healthy idle windows were demonstrated, not long-duration
+stability. Q022 and broader recovery/deployment work remain OPEN; Decision 453
+implementation remains deferred. G2 and Phase 16 remain CLOSED.
+
+---
+
 ## Q001: What is the future hardware Synchronization Anchor schema?
 
 ### Why this matters
