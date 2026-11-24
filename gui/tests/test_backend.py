@@ -698,6 +698,24 @@ class GUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
         read = await self.completed(ws, "read_storage_sessions", context)
         self.assertTrue(read["outcome"]["details"]["sessions"][0]["collection_progress"]["outcome_archived"])
         self.assertIsNone(self.controller.get_status()["session_id"])
+        request_owner = self.communication.request_persistence_command
+        async def lose_collection_response(*args, **kwargs):
+            response = await request_owner(*args, **kwargs)
+            return None if args[1] == "collect_saved_artifacts" else response
+        with patch.object(self.communication, "request_persistence_command", side_effect=lose_collection_response):
+            uncertain = await self.completed(ws, "collect_saved_session_artifacts_remote",
+                {**context, "evidence_id": "preserved-without-response"}, sid, identifier="collect-unconfirmed")
+        self.assertEqual(uncertain["status"], "uncertain", uncertain)
+        self.assertEqual(uncertain["session_id"], sid)
+        self.assertIsNone(uncertain["outcome"])
+        lookup = await self.completed(ws, "read_operation_outcome", {
+            "target_request_id": uncertain["request_id"], "instance_id": self.maintenance.operational_instance_id})
+        self.assertEqual(lookup["outcome"]["details"]["result"], uncertain)
+        history = await self.completed(ws, "read_storage_sessions", context)
+        latest = history["outcome"]["details"]["sessions"][0]["collection_history"][-1]
+        self.assertEqual(latest["evidence_id"], "preserved-without-response")
+        self.assertEqual(uncertain["status"], "uncertain", "Owner history is not the missing command response")
+        self.assertEqual(before, {path: path.read_bytes() for path in before})
 
     async def test_controller_reconstruction_reports_new_lifetime_without_session_recovery(self):
         from lab_sync_acquisition import Controller, NatsExternalSessionLaunchReceiver

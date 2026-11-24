@@ -1,3 +1,4 @@
+import {returnFromParameters} from './parameter_navigation.mjs';
 // Invoked by the Python fixture so every UI command reaches real isolated owners.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -99,7 +100,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     assert.equal(JSON.stringify(lastState.configuration), acceptedBeforeCatalogSave);
     await page.locator('#experiment-duration').fill('30');
     await shot('connected-parameters');
-    await page.locator('[data-return-session]').click();
+    await returnFromParameters(page);
     await shot('connected-session');
     await page.locator('[data-launch-experiment]').click();
     await page.locator('[data-stop-experiment]').waitFor();
@@ -122,17 +123,17 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await observer.close();
     await page.locator('[data-experiment-parameters]').click();
     assert.equal(await page.locator('#experiment-duration').isDisabled(), true);
-    assert.match(await page.locator('#panel-parameters').innerText(), /Fixed executing-attempt configuration/);
+    assert.match(await page.locator('#panel-parameters').innerText(), /Executed parameters/);
     await shot('connected-experiment-parameters');
-    await page.locator('[data-return-session]').click();
+    await returnFromParameters(page);
     await page.locator('[data-stop-experiment]').click();
     await shot('connected-stop-dialog');
     await page.getByRole('button', {name: 'Confirm Stop', exact: true}).click();
     await page.waitForFunction(() => document.querySelector('#experiment-monitor-fields')?.textContent.includes('completed'));
     await page.locator('[data-experiment-parameters]').click();
-    await page.locator('#panel-parameters').filter({hasText: 'Fixed executed-attempt configuration'}).waitFor();
+    await page.locator('#panel-parameters').filter({hasText: 'Executed parameters'}).waitFor();
     assert.equal(await page.locator('#experiment-duration').isDisabled(), true);
-    await page.locator('[data-return-session]').click();
+    await returnFromParameters(page);
     for (const mode of ['connected', 'demo']) {
       if (mode === 'demo') await page.goto(process.env.MICEBALL_DEMO_CURRENT_ORIGIN);
       for (const [width, height, size] of [[1440,1000,'desktop'], [800,900,'narrow']]) {
@@ -151,7 +152,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
             if (name === 'experiment') {
               await page.locator('[data-experiment-parameters]').click();
               await shot(`${mode}-${size}-${theme}-executed-parameters`);
-              await page.locator('[data-return-session]').click();
+              await returnFromParameters(page);
             }
             if (name === 'storage') {
               for (const workspace of ['deletion', 'history']) {
@@ -184,7 +185,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
         await page.locator('[data-session-navigate="parameters"]').click();
         assert.equal(await page.locator('[data-scientific-output]').first().isChecked(), true);
         assert.equal(await page.locator('[data-scientific-output]').first().isDisabled(), true);
-        await page.locator('[data-return-session]').click();
+        await returnFromParameters(page);
         await page.locator('[data-prepare-experiment]').click();
         await page.locator('[data-session-navigate="parameters"]').click();
         const output = page.locator('[data-scientific-output]').first();
@@ -193,7 +194,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
         // Allow pending command/readback polling to observe the running controls.
         await page.locator('#experiment-duration').fill('10');
         await page.locator('[data-framework-field="experimentId"]').fill('browser-expiry');
-        await page.locator('[data-return-session]').click();
+        await returnFromParameters(page);
         await page.locator('[data-launch-experiment]').click();
         await page.locator('[data-reconcile-expiry]').waitFor();
         await page.waitForTimeout(1500);
@@ -206,7 +207,7 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
         await output.uncheck(); await output.check(); await output.uncheck();
         await page.locator('#experiment-duration').fill('30');
         await page.locator('[data-framework-field="experimentId"]').fill('browser-outputless');
-        await page.locator('[data-return-session]').click();
+        await returnFromParameters(page);
         await page.locator('[data-launch-experiment]').click();
         await page.locator('[data-stop-experiment]').waitFor();
         assert.deepEqual(submittedData.filter(message => message.operation === 'start_launched_experiment').at(-1).parameters.scientific_outputs, []);

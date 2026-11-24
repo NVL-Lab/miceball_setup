@@ -1,3 +1,4 @@
+import {returnFromParameters} from './parameter_navigation.mjs';
 import {replyArtifactDestinations} from './artifact_destination_fixture.mjs';
 
 async function fillString(control, value) {
@@ -155,7 +156,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       await input.fill(text);
       assert.equal(await input.inputValue(), text);
       assert.ok((await page.locator('#parameter-feedback').innerText()).includes(text));
-      await page.locator('[data-return-session]').click();
+      await returnFromParameters(page);
       assert.ok((await page.locator('.experiment-parameter-summary').innerText()).includes(`count: ${text}`));
       assert.equal(await page.locator('[data-launch-experiment]').isDisabled(), true);
       await page.locator('[data-launch-experiment]').evaluate(button => button.dispatchEvent(new MouseEvent('click', {bubbles: true})));
@@ -166,7 +167,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     for (const [text, expected] of [['7', 7], ['1e3', 1000], ['100e-2', 1], ['0', 0],
       ['9007199254740991', 9007199254740991], ['-9007199254740991', -9007199254740991]]) {
       await (await control('data-example-value', count)).fill(text);
-      await page.locator('[data-return-session]').click();
+      await returnFromParameters(page);
       assert.equal(await page.locator('[data-launch-experiment]').isEnabled(), true);
       numericExpected = expected;
       await page.locator('[data-launch-experiment]').click();
@@ -181,7 +182,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       if (await input.getAttribute('data-string-encoding') !== 'exact') await input.locator('xpath=following-sibling::button[1]').click();
       await input.fill(invalid);
       assert.equal(await input.evaluate(element => element.validity.customError), true);
-      await page.locator('[data-return-session]').click();
+      await returnFromParameters(page);
       assert.equal(await page.locator('[data-launch-experiment]').isDisabled(), true);
       await page.locator('[data-launch-experiment]').evaluate(button => button.click());
       assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests);
@@ -222,7 +223,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     const large = ['__proto__', '__proto__', 'large'];
     await (await control('data-example-value', large)).fill('9007199254740993');
     assert.match(await page.locator('#parameter-feedback').innerText(), /cannot be represented faithfully/);
-    await page.locator('[data-return-session]').click();
+    await returnFromParameters(page);
     assert.equal(await page.locator('[data-launch-experiment]').isDisabled(), true);
     await page.locator('[data-launch-experiment]').evaluate(button => button.click());
     assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests);
@@ -231,13 +232,13 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     await overflow.fill(''); await overflow.pressSequentially('1e999');
     assert.equal(await overflow.evaluate(input => input.validity.badInput), true);
     assert.match(await page.locator('#parameter-feedback').innerText(), /Invalid numeric input/);
-    await page.locator('[data-return-session]').click();
+    await returnFromParameters(page);
     assert.equal(await page.locator('[data-launch-experiment]').isDisabled(), true);
     await page.locator('[data-launch-experiment]').evaluate(button => button.click());
     assert.equal(sent.filter(message => message.operation === 'start_launched_experiment').length, numericRequests);
     await page.locator('[data-session-navigate="parameters"]').click();
     await (await control('data-example-value', large)).fill('7');
-    await page.locator('[data-return-session]').click();
+    await returnFromParameters(page);
     await page.locator('[data-launch-experiment]').click();
     await page.locator('.experiment-current-card h4').filter({hasText: 'executed'}).waitFor({state: 'attached'});
     await section(page, 'session');
@@ -272,7 +273,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
       assert.equal(await input.isDisabled(), true);
       assert.equal(await readString(input), row.value);
     }
-    assert.match(await page.locator('#panel-parameters').innerText(), /Fixed executing-attempt configuration/);
+    assert.match(await page.locator('#panel-parameters').innerText(), /Executed parameters/);
     unsafeReadback = true;
     await page.locator('#connection-state').filter({hasText: 'Unconfirmed'}).waitFor();
     await section(page, 'session');
@@ -296,7 +297,7 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     const submitRepeat = async outputs => {
       repeatExpected = outputs;
       const previous = repeatRequests;
-      await page.locator('[data-return-session]').click();
+      await returnFromParameters(page);
       await page.locator('[data-launch-experiment]').click();
       await page.waitForFunction(() => !document.querySelector('[data-launch-experiment]').disabled);
       assert.equal(repeatRequests, previous + 1);
@@ -381,10 +382,10 @@ export async function verifyExperimentReconnection(browser, origin, fixture, sec
     await page.locator('[data-session-navigate="parameters"]').click();
     await page.locator('#experiment-duration').fill('99');
     await section(page, 'experiment');
-    await monitor('first', 11, 1.25, 'Fixed executed-attempt configuration');
+    await monitor('first', 11, 1.25, 'Executed parameters');
     snapshot = fixture.snapshots[1];
     await reconnect();
-    await monitor('latest', 22, 8.5, 'Fixed executed-attempt configuration');
+    await monitor('latest', 22, 8.5, 'Executed parameters');
     await section(page, 'session');
     await page.locator('[data-session-navigate="parameters"]').click();
     assert.equal(await page.locator('#experiment-duration').inputValue(), '99');
@@ -394,13 +395,13 @@ export async function verifyExperimentReconnection(browser, origin, fixture, sec
     snapshot.status.active_experiment_id = 'latest';
     snapshot.status.experiment_lifecycle_evidence.pop();
     await reconnect();
-    await monitor('latest', 22, 8.5, 'Fixed executing-attempt configuration');
+    await monitor('latest', 22, 8.5, 'Executed parameters');
     snapshot = fixture.snapshots[1];
     await page.reload();
     await page.locator('#connection-state').filter({hasText: 'View Only'}).waitFor();
     await inventory();
     await section(page, 'experiment');
-    await monitor('latest', 22, 8.5, 'Fixed executed-attempt configuration');
+    await monitor('latest', 22, 8.5, 'Executed parameters');
     assert.deepEqual(errors, []);
     assert.ok(requests.includes('read_controller_state'));
     assert.ok(requests.every(operation => ['read_controller_state', 'get_node_inventory', 'take_browser_control'].includes(operation)));

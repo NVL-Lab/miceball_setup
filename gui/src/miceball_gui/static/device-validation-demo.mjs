@@ -11,14 +11,14 @@ export function deviceValidationEligibility(state, deviceId) {
   const device = devices.find(item => item.id === deviceId);
   const { step, record } = selectedStepContext(state);
   const { monitor, record: running } = monitoredExperiment(state);
-  const maximumSeconds = context.sessionValues?.maxDeviceValidationSeconds;
+  const maximumSeconds = state.deviceValidationMaximumSeconds;
   let reason = '';
   if (!state.activeSession) reason = 'Launch a demonstration Session first.';
   else if (!device || !context.selectedDevices.includes(deviceId)) reason = 'Device is outside the fixed Session pool.';
   else if (!step || operations.find(operation => operation.id === step.operation)?.type !== 'Experiment' || !experimentView(state, step, record).configuration.participants.includes(deviceId)) reason = 'Select a participating Experiment device in Session.';
   else if (!device.available) reason = 'This fixture reports the device unavailable; no activation is simulated.';
   else if (!(deviceId in validationExamples)) reason = 'No supported device-function Validation fixture is available.';
-  else if (!Number.isFinite(maximumSeconds) || maximumSeconds <= 0) reason = 'No positive maximum Device Validation duration was captured. Configure it in Setup before launching a new demonstration Session.';
+  else if (!Number.isFinite(maximumSeconds) || maximumSeconds <= 0) reason = 'Enter a positive maximum Device Validation duration in Parameters.';
   else if (running?.status === 'running' && monitor.configuration.participants.includes(deviceId)) reason = 'This device participates in a running Experiment. Compatible concurrent use is not established by the demo; no Validation activation is simulated and the Experiment is unchanged.';
   return { device, maximumSeconds, output: validationExamples[deviceId], reason, eligible: !reason };
 }

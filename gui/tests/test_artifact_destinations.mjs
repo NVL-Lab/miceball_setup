@@ -20,6 +20,8 @@ await page.routeWebSocket('**/ws', route => {
   route.onMessage(raw => {
     const message = JSON.parse(raw); let details = {}, status = 'succeeded', error = '';
     if (message.operation === 'read_controller_state') details = snapshot();
+    else if (message.operation === 'start_launched_session') details = {session_id: 'accepted'};
+    else if (message.operation === 'read_storage_sessions') details = {sessions: [], capacity: null};
     else if (message.operation === 'list_artifact_destinations') {
       if (unavailable) {status = 'failed'; error = 'Destination readback unavailable';}
       else details = {storage_id: 'storage', default_destination_id: 'default', destinations};
@@ -123,7 +125,8 @@ try {
   rejectLaunch = false;
   await page.locator('.launch-session-demo').click();
   await section('setup');
-  await page.locator('#artifact-destination-info').filter({hasText: 'Controller-confirmed'}).waitFor();
+  await page.locator('#artifact-destination-info').filter({hasText: 'Session destination: Installation default'}).waitFor();
+  assert.equal(await page.locator('#artifact-destination-info').evaluate(element => getComputedStyle(element).fontWeight), '400');
   assert.equal(await page.locator('#artifact-destination').isDisabled(), true);
   assert.equal(configuration.storage_location, 'default');
   assert.equal(configuration.session_parameters.name, 'Destination Session');

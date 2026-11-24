@@ -1,3 +1,4 @@
+import {returnFromParameters} from './parameter_navigation.mjs';
 import assert from 'node:assert/strict';
 import {replyArtifactDestinations} from './artifact_destination_fixture.mjs';
 
@@ -146,7 +147,7 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
       await page.locator('#inventory-status').filter({hasText: 'inventory confirmed'}).waitFor();
       await section(page, 'parameters');
       assert.equal(await field('frame_width').inputValue(), '900', 'Refresh preserves explicit draft');
-      await page.locator('[data-return-session]').click(); await page.locator('[data-launch-experiment]').click();
+      await returnFromParameters(page); await page.locator('[data-launch-experiment]').click();
       await wait(page, () => requests.some(request => request.operation === 'start_launched_experiment'));
       const submitted = requests.find(request => request.operation === 'start_launched_experiment');
       assert.deepEqual(submitted.parameters.configuration.device_configurations, {node: {camera: {frame_width: 900}}});
@@ -154,7 +155,7 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
       await page.locator('[data-session-navigate="parameters"]').click();
       assert.equal(await field('frame_width').inputValue(), '900', 'Rejected command retains preparation');
       await page.locator('[data-null-parameter]').last().check();
-      await page.locator('[data-return-session]').click(); await page.locator('[data-launch-experiment]').click();
+      await returnFromParameters(page); await page.locator('[data-launch-experiment]').click();
       await wait(page, () => requests.filter(request => request.operation === 'start_launched_experiment').length === 2);
       assert.deepEqual(requests.filter(request => request.operation === 'start_launched_experiment').at(-1).parameters.configuration.device_configurations,
         {node: {camera: {frame_width: 900, fps: null}}});

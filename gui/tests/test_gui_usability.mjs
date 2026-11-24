@@ -159,12 +159,36 @@ export async function verifyGuiUsability(browser, origin, configuration, section
     await name.fill(text);
     await page.locator('[aria-labelledby="notes-title"] textarea').fill(notes);
     await page.locator('#artifact-destination').selectOption('default');
-    await page.locator('#error-evidence-location').fill('C:\\errors');
+    const errorLocation = page.locator('#error-evidence-location');
+    assert.equal(await errorLocation.locator('xpath=following-sibling::button[1]').isVisible(), false);
+    const paths = ['C:\\errors', '  plain & "quoted" Ω  ', 'first\nsecond', 'first\rsecond', 'first\r\nsecond', 'tab\tand\0control'];
+    for (const path of paths) {
+      await errorLocation.fill('');
+      // Loaded exceptional values and paste share the automatic lossless boundary.
+      if (await errorLocation.getAttribute('data-string-encoding') === 'exact') {
+        await errorLocation.fill('""'); await errorLocation.blur();
+      }
+      await errorLocation.evaluate((control, text) => {
+        const transfer = new DataTransfer(); transfer.setData('text/plain', text);
+        control.dispatchEvent(new ClipboardEvent('paste', {clipboardData: transfer, bubbles: true, cancelable: true}));
+        if (!/[\r\x00]/.test(text)) { control.value = text; control.dispatchEvent(new Event('input', {bubbles: true})); }
+      }, path);
+      const represented = await errorLocation.inputValue();
+      assert.equal(await errorLocation.getAttribute('data-string-encoding') === 'exact' ? JSON.parse(represented) : represented, path);
+      assert.equal(await errorLocation.locator('xpath=following-sibling::button[1]').isVisible(), false);
+    }
+    await errorLocation.fill('invalid escape');
+    await page.locator('.launch-session-demo').click();
+    assert.equal(submitted.filter(entry => entry.operation === 'launch_session').length, 0);
+    const exactPath = '  C:\\errors Ω\r\n\0  ';
+    await errorLocation.fill(JSON.stringify(exactPath));
     await page.locator('.launch-session-demo').click();
     await page.locator('.session-identity-grid textarea[readonly]').waitFor({state:'attached'});
     const sent = submitted.find(entry => entry.operation === 'launch_session').parameters.config_parameters;
     assert.equal(sent.session_parameters.name, text); assert.equal(sent.storage_location, 'default');
     assert.equal(sent.session_parameters.notes, notes); assert.equal(sent.session_parameters.date, '2026-11-15');
+    assert.equal(sent.error_evidence_location, exactPath);
+    assert.equal(JSON.parse(await errorLocation.inputValue()), exactPath, 'Accepted readback preserves the submitted path');
     await section(page, 'session');
     assert.match(await page.locator('#activity-history').textContent(), /Session launched successfully/);
     await page.locator('[data-release-session]').click(); await page.locator('[data-confirm-stop]').click();

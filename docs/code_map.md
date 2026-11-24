@@ -210,7 +210,7 @@ general maintenance-history/memory retirement is not implemented by this closure
 - `renderConnectedStorage()`: Presents historical Session records, owner-reported eligibility, artifact details, capacity and distinct request outcomes using existing Storage styles.
 - `syncConnectedStorage()`: Invalidates projections and selections when Controller/control or cooperative operator context changes.
 - `invalidateConnectedStorage()`: Marks last-known historical information unconfirmed after transport or Controller confirmation loss.
-- `refreshConnectedStorage()`: Reads historical Sessions and capacity through the existing external Controller operation without requiring original-node connectivity.
+- `refreshConnectedStorage()`: Refreshes retained request outcomes separately from historical Sessions and capacity, without executing collection or using history as command-success proof (developer correction; independent validation and audit pending).
 - `inspectSession(id)`: Requests existing Session/source-owner detail readback while retaining historical records when source detail is unavailable.
 - `collectionLabel(row)`: Separates archived collection outcomes from per-artifact verification rather than treating Session completion as collection.
 - `ConnectedStorageTests.test_historical_collection_in_browser`: Exercises production-browser discovery, inspection, selection, explicit collection, failures, uncertainty, authority and reconnect using controlled responses.
@@ -343,7 +343,7 @@ contradictory historical ownership requires administrator mode, not inference.
 - Controller._read_storage_session_owner: Obtains fresh scoped authoritative metadata before ownership-sensitive work.
 - Controller._read_original_owners: Reads registered original owners and explicitly reports missing/unconfirmed nodes without inventing inventories.
 - Controller._delete_original_artifacts: Shares manual and optional post-collection deletion, rejects unconfirmed identities before filtering, and selects by authoritative manifest Experiment IDs without interpreting remote paths.
-- Controller._collect_saved_session_artifacts_remote: Retains the existing scoped StorageManager collection/proof implementation behind the authorized serialized entry point.
+- Controller._collect_saved_session_artifacts_remote: Retains scoped StorageManager collection/proof validation and distinguishes unavailable or invalid confirmation from a confirmed owner failure, preserving stable Session/evidence/command identity (developer correction; independent validation and audit pending).
 - AcquisitionNode.read_storage_history(*, session_id): Reads historical exact-original inventory, capacity and durable deletion operations without device preparation or Session rebinding.
 - AcquisitionNode.delete_original_artifacts(*, operation_id, request): Applies current node participation/cleanup safety under its existing reservation lock and delegates physical deletion to LocalStorageManager.
 - AcquisitionNode.deletion_evidence(*, session_id=None): Reconstructs stable persistent framework-scoped evidence from durable local operation records, including after restart.
@@ -3479,6 +3479,23 @@ discrepancies C/D remain evidence-gated, not speculatively corrected.
 - openRecordingPicker: Opens native file/folder controls in the shared dialog styling and delivers metadata only after Use selection, leaving cancellation inert.
 
 ## gui/src/miceball_gui/static/device-validation-demo.mjs
+
+Decision 425's accepted 2026-11-23 clarification is implemented in the bounded GUI
+usability batch: `createDemo()` initializes the page-local working maximum to 5
+seconds; Parameters editing is separate from immutable scientific configuration;
+each demonstration captures its limit at admission. Existing eligibility,
+Stop/tick and ownership presentation remain authoritative; connected Validation
+is unavailable. Independent validation and audit remain pending, separately from
+the StorageManager collection correction above.
+
+- parameters-view.renderDeviceValidationSettings(): Renders the general next-Validation working maximum independently of read-only Experiment fields and without persistence.
+- gui/tests/parameter_navigation.returnFromParameters(page): Exercises existing sidebar navigation to the originating workspace instead of the removed heading button.
+
+The same batch compacts numeric Parameters controls with wider budgets and
+content sizing where supported, simplifies working/executed/template and accepted
+destination labels, removes redundant success copy, and uses the shared automatic
+lossless editor for Error evidence location. No framework API or live Validation
+integration is introduced; the existing shell's 720px minimum width is unchanged.
 
 - deviceValidationEligibility: Explains fixed-pool/participation, fixture, configured-maximum and unverified concurrent-use constraints without claiming real readiness or authorization.
 - startDeviceValidation: Creates only a transient browser-local device activity or honest non-started presentation, separate from scientific execution records.

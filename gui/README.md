@@ -474,7 +474,7 @@ the drawer distinguishes explicit null from missing overrides.
 The consolidated usability batch uses ordinary text for connected Session name,
 notes, storage/error paths, Experiment ID and adapter string settings. No surrounding
 quotes are needed; quotes, whitespace, Unicode and literal backslashes are values.
-Multiline text uses a textarea. Session names automatically use the lossless
+Multiline text uses a textarea. Session names and Error evidence location automatically use the lossless
 representation only when required, with an explanation and no editing-mode toggle.
 For other configuration strings, **Edit exact characters** retains the existing
 escaped-string editor for CR/CRLF, control characters and lone surrogates that a
@@ -921,10 +921,20 @@ two remain unpopulated: no procedures, bounds, decisions or acknowledgment/outco
 fixtures have been supplied. Slice 6 adds no scientific examples or execution
 semantics for them. This is deferred application work, not an architectural blocker.
 
-**Device Validation:** Before Session launch, enter a positive **Device Validation
+**Device Validation (historical demonstration implementation):**
+Before Session launch, enter a positive **Device Validation
 maximum (seconds)** in Setup. No default is assumed. This field is needed only
 for Validation; a missing value does not prevent normal Session/Experiment demos.
 The captured limit cannot be changed by editing future Setup preparation.
+
+The accepted [Decision 425 clarification](../docs/architecture_decisions.md#accepted-device-validation-maximum-clarification-2026-11-23)
+changes this to a general Parameters control initialized to 5 seconds per GUI
+opening, retained without persistence across Sessions and editable under existing
+control authority. Each Validation captures its own maximum at admission; edits
+affect only subsequent Validations. This bounded GUI/demonstration correction is
+implemented; independent validation and audit are pending. Connected Device
+Validation remains unavailable. The control is editable in connected mode under
+existing browser authority, but does not enforce a hardware deadline there.
 
 In Session, participating Experiment devices have **Validate** controls even when
 their configuration is read-only. Validate opens the separate Device Validation

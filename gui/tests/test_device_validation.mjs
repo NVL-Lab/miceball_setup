@@ -8,9 +8,10 @@ import { deviceValidationEligibility, startDeviceValidation, stopDeviceValidatio
 
 function session(free = false, maximum = 5) {
   const state = createDemo();
+  state.deviceValidationMaximumSeconds = maximum;
   state.selectedDevices.push('reward', 'holograph');
   if (free) selectProtocol(state, null);
-  launchSessionDemo(state, { animal: 'Demo animal' }, { maxDeviceValidationSeconds: maximum });
+  launchSessionDemo(state, { animal: 'Demo animal' });
   if (free) prepareFreeOperation(state, 'baseline');
   const { step, record } = selectedStepContext(state);
   experimentView(state, step, record);
@@ -97,7 +98,8 @@ test('Validation cannot modify the fixed pool, configured maximum, recorded inpu
   tickDeviceValidation(state, 6000);
   assert.deepEqual(state.activeSession.sessionDemo, before);
   assert.deepEqual(state.activeSession.selectedDevices, pool);
-  assert.equal(state.activeSession.sessionValues.maxDeviceValidationSeconds, 5);
+  assert.equal(state.deviceValidationMaximumSeconds, 5);
+  assert.equal('maxDeviceValidationSeconds' in state.activeSession.sessionValues, false);
   assert.equal(state.activeSession.protocolId, 'cabmi');
   assert.equal(deviceValidationEligibility(state, 'invented').eligible, false);
 });
@@ -111,4 +113,31 @@ test('unsupported concurrent use cannot be silently enabled by starting an Exper
   stopDeviceValidation(state);
   actOnSessionStep(state, step.id, 'run');
   assert.equal(record.status, 'running');
+});
+
+test('GUI working maximum starts at five and each admission captures an independent limit', () => {
+  assert.equal(createDemo().deviceValidationMaximumSeconds, 5);
+  const state = session(), scientific = clone(state.activeSession);
+  const first = startDeviceValidation(state, 'orca', 1000);
+  state.deviceValidationMaximumSeconds = 12;
+  assert.equal(first.maximumSeconds, 5);
+  tickDeviceValidation(state, 6000);
+  assert.equal(first.endedBy, 'maximum-duration');
+  const next = startDeviceValidation(state, 'orca', 7000);
+  assert.equal(next.maximumSeconds, 12);
+  stopDeviceValidation(state);
+  assert.deepEqual(state.activeSession.sessionValues, scientific.sessionValues);
+  assert.deepEqual(state.activeSession.sessionDemo, scientific.sessionDemo);
+  assert.equal(createDemo().deviceValidationMaximumSeconds, 5, 'New GUI state does not persist the prior working value');
+});
+
+test('invalid working maxima refuse new Validation without changing an admitted run', () => {
+  for (const value of [null, '', 0, -1, NaN, Infinity, 'invalid']) {
+    const state = session();
+    const admitted = startDeviceValidation(state, 'orca', 1000);
+    state.deviceValidationMaximumSeconds = value;
+    assert.equal(admitted.maximumSeconds, 5);
+    stopDeviceValidation(state);
+    assert.equal(startDeviceValidation(state, 'orca', 2000).status, 'not-started');
+  }
 });

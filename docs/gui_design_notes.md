@@ -182,7 +182,8 @@ camera images, fixed sensor/position traces with update counters, actuator statu
 or no visualization as appropriate. They do not activate hardware or create
 scientific execution, recording, progression or preservation evidence.
 
-Setup now exposes the Device Validation maximum in seconds, without a default.
+**Historical demonstration implementation (superseded by the clarification below):**
+Setup exposes the Device Validation maximum in seconds, without a default.
 Its positive value is captured at simulated Session launch. Without it the demo
 explains why activity cannot start; it does not run indefinitely or block ordinary
 Session launch. Manual Stop Validation and the configured deadline return to the
@@ -194,6 +195,14 @@ concurrent use of a running device are explained without asserting real readines
 or interrupting the Experiment. Reverse-order conflicting demo starts are likewise
 refused. Actual permission, compatibility, reservations, activation, cleanup and
 deadline enforcement remain framework-owner integration responsibilities.
+
+Decision 425's [accepted 2026-11-23 clarification](architecture_decisions.md#accepted-device-validation-maximum-clarification-2026-11-23)
+instead places a general Device Validation section in Parameters, with a
+GUI-owned, nonpersistent 5-second initial working value and "Applies to the next
+Device Validation." Authorized edits during Sessions affect only subsequent
+admissions, not running limits or accepted Session/Experiment configuration.
+This bounded GUI/demonstration correction is implemented; independent validation
+and audit remain pending. Connected Device Validation remains deferred.
 
 Slice 4 replaces the one-click previous-result mock with native file/folder
 selection for the existing ROI-identification and cursor-calibration Analysis

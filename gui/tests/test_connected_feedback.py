@@ -19,6 +19,9 @@ from lab_sync_acquisition.device_adapter import DeviceAdapter
 
 
 class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_parameter_usability_and_string_fidelity_in_browser(self):
+        await self._check_feedback(activity_only=False, usability_only=True)
+
     async def test_package_c_administrative_settings_in_browser(self):
         await self._check_feedback(activity_only=False, package_c_only=True)
 
@@ -34,7 +37,7 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_historical_identity_rendering_in_browser(self):
         await self._check_feedback(activity_only=False, rendering_only=True)
 
-    async def _check_feedback(self, *, activity_only, rendering_only=False, package_b_only=False, package_c_only=False):
+    async def _check_feedback(self, *, activity_only, rendering_only=False, package_b_only=False, package_c_only=False, usability_only=False):
         node = shutil.which("node")
         module = os.environ.get("LAB_SYNC_PLAYWRIGHT_MODULE", "playwright")
         if not node or subprocess.run([node, "-e", "require(process.argv[1])", module], capture_output=True).returncode:
@@ -202,6 +205,7 @@ class ConnectedFeedbackTests(unittest.IsolatedAsyncioTestCase):
             "LAB_SYNC_GUI_PACKAGE_C_ONLY": "1" if package_c_only else "",
             "MICEBALL_ADMINISTRATIVE_INVENTORY": json.dumps(administrative_inventory),
             "LAB_SYNC_GUI_PACKAGE_B_ONLY": "1" if package_b_only else "",
+            "LAB_SYNC_GUI_USABILITY_ONLY": "1" if usability_only else "",
             "MICEBALL_CONFIGURED_INVENTORIES": json.dumps([configured_installation, configured_session]),
             "LAB_SYNC_GUI_RENDERING_ONLY": "1" if rendering_only else "",
             "LAB_SYNC_GUI_ACTIVITY_ONLY": "1" if activity_only else "",

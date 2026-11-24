@@ -3,6 +3,7 @@ import {escapeText as esc} from './gui-presentation.js';
 import {servicesAdministrator} from './services-view.js';
 import {destinationManagementMarkup} from './artifact-destinations.js';
 import {activityPresentation} from './activity-presentation.mjs';
+import {activities} from './activity-history.mjs';
 
 let adapter, history = null, current = false, loading = false, collecting = false;
 let message = 'Historical Session information is unconfirmed.', workspace = 'collection';
@@ -63,6 +64,8 @@ export function syncConnectedStorage() {
     contextKey = key; revision++; current = false; history = null; details.clear(); selected.clear(); results.clear();
     message = 'Controller or operator context changed. Refresh Sessions; earlier requests are not replayed. Their outcomes remain in Activity History.';
   }
+  for (const entry of activities.filter(entry => entry.operation === 'collect_saved_session_artifacts_remote' && entry.session_id))
+    results.set(entry.session_id, entry);
   renderConnectedStorage();
 }
 
@@ -78,6 +81,8 @@ export async function refreshConnectedStorage() {
   const version = revision;
   loading = true; message = 'Reading historical Sessions; confirmation pending.'; renderConnectedStorage();
   try {
+    await adapter.refreshOutcomes();
+    if (version !== revision) return;
     const data = await adapter.read('read_storage_sessions', operator(), null);
     if (version !== revision) return;
     if (!Array.isArray(data.sessions)) throw new Error('Historical Session response is invalid.');

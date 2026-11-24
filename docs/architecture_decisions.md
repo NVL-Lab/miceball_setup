@@ -13095,6 +13095,39 @@ six-section and unresolved-contract boundaries in this decision remain unchanged
 
 ---
 
+### Accepted Device Validation maximum clarification (2026-11-23)
+
+The project owner explicitly accepted this bounded supplement to Decision 425.
+It replaces only the earlier Setup placement and Session-capture interpretation
+of the Device Validation maximum; other ownership and safety contracts remain.
+
+- Parameters contains a general Device Validation section, separate from
+  device-specific acquisition parameters, with a compact seconds input and the
+  explanation "Applies to the next Device Validation."
+- GUI owns an editable application working value initialized to 5 seconds on
+  opening. The experimenter may edit it without Administrator mode, subject to
+  existing control authority, before or during a Session. Retain it across
+  successive Sessions in the same open GUI, without persistent storage.
+- This value is independent of Experiment duration/configuration and immutable
+  accepted Session configuration. Each Device Validation captures its applicable
+  maximum at admission. Later edits affect subsequent Validations only, never
+  the limit of a running Validation. No Apply button or confirmation is required.
+- Future connected integration submits the maximum with the individual Validation
+  request. Controller retains admission and execution coordination; editing the
+  working value requires no separate Controller configuration-update command.
+- Preserve manual/automatic Stop, device isolation, cleanup, reservation and
+  operational evidence requirements. Current implementation scope is relocation,
+  initialization, authorized editing/retention, and demonstration-mode capture at
+  individual Validation admission rather than Session launch. Connected Device
+  Validation remains unavailable and deferred; no new NATS command, runtime
+  enforcement, lifecycle mechanism, service or safety subsystem is authorized.
+
+**Status:** Accepted; bounded GUI/demonstration implementation is present;
+independent validation and separate audit are pending. This supplement does not
+reopen Phase 16 or close broader GUI work.
+
+---
+
 ## Decision 426: The GUI shares the repository while remaining separately packaged and independently executable
 
 **Status:** Accepted

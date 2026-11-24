@@ -1,3 +1,4 @@
+import {returnFromParameters} from './parameter_navigation.mjs';
 import {replyArtifactDestinations} from './artifact_destination_fixture.mjs';
 import assert from 'node:assert/strict';
 
@@ -100,7 +101,7 @@ export async function verifyActivityHistory(browser, origin, fixture, section, d
     await page.locator('[data-framework-field="experimentId"]').fill('activity-experiment');
     await page.locator('[data-framework-field="preservationBudget"]').fill('1000000');
     await page.locator('[data-recording-budget]').fill('100000');
-    await page.locator('[data-return-session]').click(); await page.locator('[data-launch-experiment]').click();
+    await returnFromParameters(page); await page.locator('[data-launch-experiment]').click();
     await page.locator('#panel-experiment:not([hidden])').waitFor();
     await page.locator('[data-stop-experiment]').click();
     const beforeDismiss = await history.locator('[data-activity]').count();

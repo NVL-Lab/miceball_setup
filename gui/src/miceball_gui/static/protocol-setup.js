@@ -7,11 +7,6 @@ import { selectParameterContext } from './parameter-context.mjs';
 import { recordLocalActivity } from './activity-history.mjs';
 import { confirmCatalogRemoval, initializeCatalogManagement } from './catalog-removal.js';
 
-const validationLimit = document.createElement('label');
-validationLimit.className = 'validation-duration-field';
-validationLimit.innerHTML = 'Device Validation maximum (seconds)<input id="device-validation-maximum" type="number" min="0" step="any" placeholder="Enter a positive limit"><small>Required for device Validation only. Set before Session launch; no default or real hardware safety enforcement.</small>';
-document.querySelector('.launch-session-demo').before(validationLimit);
-
 export const state = createDemo();
 state.actions.recordActivity = recordLocalActivity;
 const $ = selector => document.querySelector(selector);
@@ -419,7 +414,6 @@ $('.launch-session-demo').addEventListener('click', () => {
   try {
     launchSessionDemo(state, sessionIdentity(), {
       number: $('.session-identity-grid input[type="number"]').value,
-      maxDeviceValidationSeconds: Number($('#device-validation-maximum').value) || null,
       notes: $('[aria-labelledby="notes-title"] textarea')?.value || '',
       templateId: state.templateId,
       baseDirectory: $('[aria-labelledby="storage-title"] input').value,

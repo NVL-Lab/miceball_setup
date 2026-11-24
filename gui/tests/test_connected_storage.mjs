@@ -3,12 +3,12 @@ import {createRequire} from 'node:module';
 import {replyArtifactDestinations} from './artifact_destination_fixture.mjs';
 const {chromium} = createRequire(import.meta.url)(process.env.LAB_SYNC_PLAYWRIGHT_MODULE || 'playwright');
 const browser = await chromium.launch({headless: true, channel: process.env.LAB_SYNC_BROWSER_CHANNEL || undefined});
-const scenarios = ['success', 'empty', 'unavailable', 'source-offline', 'failed', 'incomplete', 'uncertain', 'pending', 'view-only', 'disconnect', 'multiple', 'partial-batch', 'takeover'];
+const scenarios = ['success', 'empty', 'unavailable', 'source-offline', 'failed', 'incomplete', 'uncertain', 'pending', 'view-only', 'disconnect', 'multiple', 'partial-batch', 'takeover', 'recovered', 'mismatched', 'history-only'];
 try {
   for (const scenario of scenarios) {
     console.log(`Storage scenario: ${scenario}`);
     const page = await browser.newPage(), requests = [], errors = [];
-    let collected = false, controlling = true;
+    let collected = false, controlling = true, original = null, recover = false;
     const record = id => ({session_id: id, experimenter_name: 'Scientist',
       accepted_session_config: {session_parameters: {name: 'Recorded <Session>', experimenter: 'Scientist'}},
       collection_status: {eligible: true, collection_available: true, lifecycle_state: 'completed'},
@@ -36,6 +36,7 @@ try {
           nodes: {node: scenario === 'source-offline' ? {confirmed: false, reason: 'Node historical state is unavailable'}
             : {confirmed: true, inventory: {artifacts: [{manifest: {artifact_manifest_id: 'camera-file'}}]}}}});
         if (request.operation === 'collect_saved_session_artifacts_remote') {
+          original = request;
           assert.equal(typeof request.parameters.evidence_id, 'string');
           assert.equal('deletion' in request.parameters, false);
           assert.equal(request.parameters.experimenter_name, 'Scientist');
@@ -44,13 +45,21 @@ try {
           if (scenario === 'partial-batch' && request.session_id === 'old') return reply(request, 'failed', {}, 'First source unavailable; collection incomplete');
           if (['failed', 'incomplete', 'source-offline'].includes(scenario)) return reply(request, 'failed',
             {collection_outcome: {artifact_collection_result: {succeeded: false}}}, 'Source unavailable or collection incomplete');
-          if (scenario === 'uncertain') return reply(request, 'uncertain', {}, 'Collection response unconfirmed');
+          if (['uncertain', 'recovered', 'mismatched', 'history-only'].includes(scenario)) return reply(request, 'uncertain', {}, 'Collection response unconfirmed');
           collected = true;
           return reply(request, scenario === 'pending' ? 'pending' : 'succeeded', {session_id: request.session_id,
             collection_outcome: {archival_confirmed: true, artifact_collection_result: {succeeded: true}}});
         }
-        if (request.operation === 'read_operation_outcome') return reply(request, 'succeeded', {status: 'succeeded',
-          result: {status: 'succeeded', outcome: {details: {collection_outcome: {archival_confirmed: true}}}}});
+        if (request.operation === 'read_operation_outcome') {
+          assert.equal(request.parameters.target_request_id, `browser-${original.id}`);
+          assert.equal(request.parameters.instance_id, 'owner');
+          const status = scenario === 'pending' || recover && ['recovered', 'mismatched'].includes(scenario) ? 'succeeded' : 'uncertain';
+          return reply(request, 'succeeded', {instance_id: 'owner', status,
+            result: {request_id: scenario === 'mismatched' && recover ? 'different-request' : `browser-${original.id}`,
+              operation: original.operation, session_id: original.session_id, status,
+              outcome: status === 'succeeded' ? {details: {collection_outcome: {archival_confirmed: true,
+                collection_evidence: {evidence_id: original.parameters.evidence_id}}}} : null}});
+        }
         throw new Error(`Unexpected operation ${request.operation}`);
       });
       route.send(JSON.stringify({type: 'connected', browser_id: 'storage-browser'}));
@@ -94,6 +103,21 @@ try {
           if (['success', 'pending', 'multiple'].includes(scenario)) {
             await page.locator('[data-storage-live-refresh]').click();
             await page.locator('.storage-session').filter({hasText: '1 verified'}).first().waitFor();
+          }
+          if (['uncertain', 'recovered', 'mismatched', 'history-only'].includes(scenario)) {
+            assert.equal(await page.locator('[data-storage-live-review]').isDisabled(), true);
+            const lookups = requests.filter(r => r.operation === 'read_operation_outcome').length;
+            recover = true; collected = true;
+            await page.locator('[data-storage-live-refresh]').click();
+            await page.locator('[data-storage-live-feedback]').filter({hasText: 'Discovery is not collection'}).waitFor();
+            assert.ok(requests.filter(r => r.operation === 'read_operation_outcome').length > lookups);
+            assert.equal(requests.filter(r => r.operation === 'collect_saved_session_artifacts_remote').length, 1);
+            assert.equal(await page.locator('[data-storage-live-review]').isDisabled(), scenario !== 'recovered');
+            assert.match(await page.locator('[data-storage-live-result="old"]').textContent(), scenario === 'recovered' ? /outcome confirmed/ : /unconfirmed/);
+            const entry = await page.evaluate(async () => (await import('/activity-history.mjs')).activities.find(e => e.operation === 'collect_saved_session_artifacts_remote'));
+            assert.equal(entry.evidence_id, original.parameters.evidence_id);
+            assert.equal(entry.request_id, `browser-${original.id}`);
+            assert.equal(entry.session_id, 'old');
           }
           if (scenario === 'disconnect') {
             await page.reload();

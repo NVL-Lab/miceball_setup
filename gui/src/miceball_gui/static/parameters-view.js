@@ -37,6 +37,15 @@ panel.addEventListener('focusout', event => {
 let message = '';
 let synchronizationSection, synchronizationDirty = false, administrativeSection;
 
+function renderDeviceValidationSettings() {
+  const section = document.createElement('section');
+  section.className = 'parameter-fields device-validation-settings';
+  section.innerHTML = `<h3>Device Validation</h3><div class="parameter-section-body"><label>Device Validation maximum (seconds)<input id="device-validation-maximum" type="number" min="0" step="any" required value="${escape(state.deviceValidationMaximumSeconds ?? '')}" aria-describedby="device-validation-maximum-help"></label><p id="device-validation-maximum-help">Applies to the next Device Validation.${state.connected ? ' Device Validation is unavailable in connected mode.' : ''}</p></div>`;
+  const input = section.querySelector('input');
+  input.setCustomValidity(parameterIssue({type: 'number', label: 'Device Validation maximum', exclusiveMin: 0}, state.deviceValidationMaximumSeconds));
+  panel.append(section);
+}
+
 function administrativeParameters(form) {
   const parameters = Object.create(null);
   for (const field of form.parameterDefinitions) {
@@ -213,6 +222,7 @@ export function renderParameters() {
   const context = resolveParameterContext(state);
   if (!context) {
     panel.innerHTML = '<div class="context-empty"><h2 class="visually-hidden" id="heading-parameters">Parameters</h2><p>No supported parameter configuration is available in this context. Select an Experiment operation in Setup or Session. Saved Steps without explicit settings must be copied in Protocol Editor before editing.</p><button type="button" data-return-session>Return</button></div>';
+    renderDeviceValidationSettings();
     renderSynchronizationSettings();
     renderAdministrativeSettings();
     return;
@@ -221,8 +231,8 @@ export function renderParameters() {
   const view = context;
   const { configuration, readOnly } = view;
   const participants = devices.filter(device => configuration.participants.includes(device.id));
-  panel.innerHTML = `<div class="view-heading"><div><p class="prototype-caption">${escape(context.source)}</p><h2 class="visually-hidden" id="heading-parameters">Parameters</h2><h3>${escape(step.name)}</h3><p>${readOnly ? 'Read-only configuration' : 'Working configuration · not Controller acceptance'}</p></div><button type="button" data-return-session>Return to ${escape(context.origin === 'protocol-editor' ? 'Protocol Editor' : context.origin)}</button></div>
-    <p class="view-notice">${state.connected ? 'Unsent working values; Controller confirms execution.' : 'Illustrative controls only — these are not authoritative SDK parameter definitions. Choose participating devices in Session; configure them here. No device communication or persistence. Template saving is optional.'}</p>
+  panel.innerHTML = `<div class="view-heading"><div><p class="prototype-caption">${readOnly ? ['session', 'experiment'].includes(context.kind) ? 'Executed parameters' : 'Saved template' : 'Experiment parameters'}</p><h2 class="visually-hidden" id="heading-parameters">Parameters</h2><h3>${escape(step.name)}</h3></div></div>
+    ${state.connected ? '' : '<p class="view-notice">Illustrative controls only — these are not authoritative SDK parameter definitions. Choose participating devices in Session; configure them here. No device communication or persistence. Template saving is optional.</p>'}
     <div class="parameter-toolbar"><button type="button" data-parameter-expand>Expand all</button><button type="button" data-parameter-collapse>Collapse all</button></div>
     ${!['session', 'experiment'].includes(context.kind) ? `<div class="parameter-toolbar">${[...new Set([...context.devices, ...configuration.participants])].map(id => ({id, name: devices.find(device => device.id === id)?.name || id})).map(device => `<label><input type="checkbox" data-parameter-participant="${escape(device.id)}" ${configuration.participants.includes(device.id) ? 'checked' : ''} ${readOnly ? 'disabled' : ''}>${escape(device.name)}${context.devices.includes(device.id) ? '' : ' · outside selected pool'}</label>`).join('') || '<p>Select Session devices in Setup to configure their supported parameters.</p>'}</div>` : ''}
     <fieldset class="parameter-fields" id="parameter-fields" ${readOnly ? 'disabled' : ''}>
@@ -240,6 +250,7 @@ export function renderParameters() {
     const field = Object.values(deviceExamples).flatMap(device => device.fields).find(item => item.id === control.dataset.exampleValue);
     if (field && Object.hasOwn(configuration.values, field.id)) control.setCustomValidity(parameterIssue(field, configuration.values[field.id]));
   }
+  renderDeviceValidationSettings();
   renderSynchronizationSettings();
   renderAdministrativeSettings();
   updateTemplateRemoval();
@@ -264,6 +275,17 @@ panel.addEventListener('click', event => {
 });
 function updateParameterWorking(event) {
   const control = event.target;
+  if (control.id === 'device-validation-maximum') {
+    try {
+      state.deviceValidationMaximumSeconds = control.value === '' ? null : configurationNumber(control.value);
+      if (control.validity.badInput) throw new Error('Invalid numeric input.');
+      control.setCustomValidity(parameterIssue({type: 'number', label: 'Device Validation maximum', exclusiveMin: 0}, state.deviceValidationMaximumSeconds));
+    } catch (error) {
+      state.deviceValidationMaximumSeconds = control.value || null;
+      control.setCustomValidity(error.message);
+    }
+    return;
+  }
   if (control.closest('[data-administrative-device]')) return;
   const view = resolveParameterContext(state);
   if (!view || view.readOnly) return;
@@ -324,7 +346,7 @@ function updateParameterWorking(event) {
         if (empty) empty.checked = Object.hasOwn(values, control.dataset.exampleValue) && values[control.dataset.exampleValue] === null;
       }
     }
-    message = inputError ? `Invalid configuration value: ${inputError.message}` : (state.connected ? 'Unsent working values updated. Controller validates the submitted configuration.' : 'Working values updated. Return to Session to inspect the summary or launch the simulation; no template save is required.');
+    message = inputError ? `Invalid configuration value: ${inputError.message}` : '';
     state.actions.syncControls?.();
   } catch (error) { message = error.message; state.actions.recordActivity?.('validate_parameters', error.message); }
   panel.querySelector('#parameter-feedback').textContent = message;

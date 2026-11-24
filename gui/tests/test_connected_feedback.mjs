@@ -1,3 +1,4 @@
+import {returnFromParameters} from './parameter_navigation.mjs';
 import {replyArtifactDestinations} from './artifact_destination_fixture.mjs';
 // Real shared presenters; transport responses are controlled, not live readiness.
 import assert from 'node:assert/strict';
@@ -176,7 +177,7 @@ async function verifyRenderingSafety() {
     const output = {source_node_id: node, source_device_id: device.device_id, data_product_id: product.data_product_id};
     assert.deepEqual(JSON.parse(await target.locator('[data-scientific-output]').getAttribute('data-scientific-output')), output);
     await target.locator('[data-scientific-output]').check();
-    await target.locator('[data-return-session]').click();
+    await returnFromParameters(target);
     const summary = `gain: 0 · gate: No · ${text}: ${JSON.stringify(text).replaceAll('\u03a9', '\\u03a9')}`;
     assert.equal(await target.locator('.experiment-parameter-summary').innerText(), summary);
     await target.locator('[data-launch-experiment]').click();
@@ -373,7 +374,11 @@ async function verifyMaintenanceBinding() {
   } finally { await target.close(); }
 }
 try {
-  if (process.env.LAB_SYNC_GUI_PACKAGE_C_ONLY === '1') {
+  if (process.env.LAB_SYNC_GUI_USABILITY_ONLY === '1') {
+    await verifyGuiUsability(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_INTEGRITY).session, section, directory);
+    await verifyExperimentReconnection(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_MONITORING), section);
+    await verifyConfigurationIntegrity(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_INTEGRITY), section);
+  } else if (process.env.LAB_SYNC_GUI_PACKAGE_C_ONLY === '1') {
     await verifyPackageC(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_ADMINISTRATIVE_INVENTORY), section, directory);
   } else if (process.env.LAB_SYNC_GUI_PACKAGE_B_ONLY === '1') {
     await verifyPackageB(browser, process.env.MICEBALL_BROWSER_ORIGIN, JSON.parse(process.env.MICEBALL_MONITORING), JSON.parse(process.env.MICEBALL_CONFIGURED_INVENTORIES), section, directory);
@@ -638,7 +643,7 @@ try {
   await page.locator('[data-framework-field="experimentId"]').fill('identity-regression');
   await page.locator('[data-framework-field="preservationBudget"]').fill('100000');
   await page.locator('[data-recording-budget]').fill('100000');
-  await page.locator('[data-return-session]').click();
+  await returnFromParameters(page);
   const populatedSummary = `gain: 3.5 · gate: No · label: ${JSON.stringify(labelValue)}`;
   assert.equal(await page.locator('.experiment-parameter-summary').innerText(), populatedSummary);
   assert.equal(await page.locator('.experiment-parameter-summary img').count(), 0);
@@ -661,7 +666,7 @@ try {
   await page.locator('[data-session-navigate="parameters"]').click();
   assert.equal(await page.locator('[data-example-value]').first().inputValue(), '3.5');
   assert.equal(await page.locator('[data-example-value]').first().isDisabled(), true);
-  await page.locator('[data-return-session]').click();
+  await returnFromParameters(page);
   await shot('connected-executed-summary');
   lifecycle = [{experiment_id: activeExperiment, event_type: 'experiment_stop', sequence: 1, session_time_s: 2}];
   activeExperiment = 'without-overrides';
@@ -762,7 +767,7 @@ try {
   await demo.locator('[data-prepare-experiment]').click();
   await demo.locator('[data-session-navigate="parameters"]').click();
   await demo.locator('[data-example-value]').first().fill('25');
-  await demo.locator('[data-return-session]').click();
+  await returnFromParameters(demo);
   assert.match(await demo.locator('.experiment-parameter-summary').innerText(), /Example exposure \(ms\): 25/);
   while (await demo.locator('.experiment-devices input[type="checkbox"]:checked').count()) {
     const id = await demo.locator('.experiment-devices input[type="checkbox"]:checked').first().getAttribute('data-session-experiment-device');

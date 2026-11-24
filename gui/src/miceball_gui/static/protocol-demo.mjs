@@ -78,13 +78,15 @@ export function assignCapability(step, kind, capability, selected) {
   }
 }
 export function createDemo() {
+  const deviceValidationMaximumSeconds = 5;
   if (connectedMode) return { connected: true, definitions: [], protocols: [], templates: [], experimentTemplates: [], protocolId: null,
-    templateId: '', included: [], selectedDevices: [], inventory: Object.create(null), actions: {}, controllerSnapshot: null };
+    templateId: '', included: [], selectedDevices: [], inventory: Object.create(null), actions: {}, controllerSnapshot: null, deviceValidationMaximumSeconds };
   const steps = operations.map((op, i) => ({ ...clone(op), id: `step-${i}`, operation: op.id, mandatory: op.id !== 'holo', configuration: '' }));
   const definitions = steps.map(step => freezeDefinition({ ...clone(step), id: `shared-${step.operation}`, owner: null }));
   steps.forEach(step => { step.definitionId = `shared-${step.operation}`; });
   return {
     actions: {},
+    deviceValidationMaximumSeconds,
     definitions,
     protocols: [
       { id: 'cabmi', name: 'CaBMI Closed-Loop Protocol', description: 'Initial imaging, ROI identification, baseline recording, neuron selection, cursor calibration, and closed-loop acquisition. Includes optional holographic stimulation.', protected: false, steps },

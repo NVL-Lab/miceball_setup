@@ -24,6 +24,42 @@ from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server
 
 
 class StorageBackendTests(unittest.IsolatedAsyncioTestCase):
+    async def test_saved_collection_distinguishes_missing_response_from_owner_failure_and_success(self):
+        from types import SimpleNamespace
+        from tests.nats_server_fixture import acquire_test_controller_authority
+        controller = Controller()
+        maintenance = ServiceMaintenanceInterface(controller, RuntimeParticipant("controller", "controller"),
+            ingestor=None, storage_manager=None, preservation_window_s=1,
+            close_resources=AsyncMock(return_value=True))
+        await acquire_test_controller_authority(self, maintenance)
+        owner = SimpleNamespace(success=True, payload={"session_id": "saved", "experimenter_name": "Alice"})
+        details = {"session_id": "saved", "collection_outcome": {
+            "session_id": "saved", "archival_confirmed": True,
+            "artifact_collection_result": {"succeeded": True},
+            "collection_evidence": {"evidence_id": "original-evidence"}}}
+        for response, expected in ((None, "unconfirmed"),
+                (SimpleNamespace(success=True, payload={"session_id": "other"}, reason=None), "unconfirmed"),
+                (SimpleNamespace(success=True, payload={"session_id": "saved", "collection_outcome": {
+                    **details["collection_outcome"], "collection_evidence": None}}, reason=None), "unconfirmed"),
+                (SimpleNamespace(success=False, payload={}, reason="Source offline"), "failed"),
+                (SimpleNamespace(success=True, payload=details, reason=None), "succeeded")):
+            with self.subTest(expected=expected):
+                communication = SimpleNamespace(request_persistence_command=AsyncMock(side_effect=[owner, response]))
+                result = await controller.collect_saved_session_artifacts_remote("saved",
+                    evidence_id="original-evidence", communication=communication,
+                    storage_participant=RuntimeParticipant("storage_manager", "storage"),
+                    result_window_s=.1, experimenter_name="Alice", administrator_mode=False)
+                self.assertEqual(result.succeeded, expected == "succeeded")
+                self.assertEqual(communication.request_persistence_command.await_count, 2)
+                call = communication.request_persistence_command.call_args
+                self.assertEqual(call.kwargs["command_id"], '["saved","original-evidence"]')
+                if expected == "unconfirmed":
+                    self.assertEqual(result.details, {"outcome": "unconfirmed", "session_id": "saved",
+                        "evidence_id": "original-evidence", "command_id": '["saved","original-evidence"]'})
+                elif expected == "failed":
+                    self.assertIn("Source offline", result.error)
+                    self.assertNotEqual((result.details or {}).get("outcome"), "unconfirmed")
+
     async def asyncSetUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

@@ -55,6 +55,13 @@ fieldset.parameter-section-body { border: 0; margin: 0; min-width: 0; }
 #panel-parameters .parameter-checkbox { display: flex; align-items: center; gap: 10px; }
 .parameter-checkbox input { width: 16px; height: 16px; accent-color: var(--blue-500); }
 .parameter-fields:disabled { opacity: .8; }
+#panel-parameters input[type="number"] { width: calc(10ch + 42px); max-width: 100%; justify-self: start; }
+#panel-parameters :is(input[data-recording-budget], input[data-framework-field="preservationBudget"]) { width: calc(20ch + 42px); }
+@supports (field-sizing: content) {
+  #panel-parameters input[type="number"] { field-sizing: content; width: auto; min-width: min(100%, calc(10ch + 42px)); }
+  #panel-parameters :is(input[data-recording-budget], input[data-framework-field="preservationBudget"]) { min-width: min(100%, calc(20ch + 42px)); }
+}
+#artifact-destination-info { margin: 6px 0; font-size: 12px; font-weight: 400; line-height: 1.6; color: var(--ink-600); overflow-wrap: anywhere; }
 .personal-template-area { margin-top: 20px; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .personal-template-area h3 { margin: 0 0 8px; font-size: 14px; }
 .personal-template-area small, .personal-template-area p, #parameter-feedback { font-size: 11px; color: var(--ink-600); line-height: 1.6; }

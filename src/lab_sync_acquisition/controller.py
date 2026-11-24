@@ -2930,17 +2930,29 @@ class Controller:
                 {"evidence_id": evidence_id}, result_window_s,
                 command_id=json.dumps([session_id, evidence_id], separators=(",", ":")))
             if result is None:
-                raise RuntimeError("StorageManager collection response is unavailable; outcome remains unconfirmed")
+                return self._record_failed_command(name,
+                    RuntimeError("StorageManager collection response is unavailable; outcome remains unconfirmed"),
+                    {"outcome": "unconfirmed", "session_id": session_id,
+                     "evidence_id": evidence_id,
+                     "command_id": json.dumps([session_id, evidence_id], separators=(",", ":"))})
             details = result.payload
+            if not result.success:
+                return self._record_failed_command(name,
+                    RuntimeError(result.reason or "StorageManager collection failed"), details)
             outcome = details.get("collection_outcome")
-            if (not result.success or details.get("session_id") != session_id
+            if (details.get("session_id") != session_id
                     or not isinstance(outcome, dict)
                     or outcome.get("session_id") != session_id
                     or outcome.get("archival_confirmed") is not True
+                    or not isinstance(outcome.get("artifact_collection_result"), dict)
                     or outcome.get("artifact_collection_result", {}).get("succeeded") is not True
+                    or not isinstance(outcome.get("collection_evidence"), dict)
                     or outcome.get("collection_evidence", {}).get("evidence_id") != evidence_id):
                 return self._record_failed_command(name,
-                    RuntimeError(result.reason or "Exact collection preservation is unconfirmed"), details)
+                    RuntimeError("Exact collection preservation is unconfirmed"),
+                    {"outcome": "unconfirmed", "session_id": session_id,
+                     "evidence_id": evidence_id,
+                     "command_id": json.dumps([session_id, evidence_id], separators=(",", ":"))})
             return self._record_successful_command(name, details)
         except Exception as error:
             return self._record_failed_command(name, error)

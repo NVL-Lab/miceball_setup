@@ -65,9 +65,6 @@
 .experiment-device-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
 .experiment-device-row .experiment-device-option { flex: 1; }
 .experiment-device-row button { flex-shrink: 0; }
-.validation-duration-field { display: grid; gap: 6px; margin: 12px 0; font-size: 11px; }
-.validation-duration-field small { color: var(--ink-600); line-height: 1.5; }
-.validation-duration-field input { width: 100%; min-height: 34px; background: var(--surface); color: var(--ink-900); border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
 #panel-experiment .stop-validation-demo { display: block; width: 100%; min-height: 52px; margin: 14px 0; background: #a64049; border-color: #a64049; color: #fff; font-size: 16px; font-weight: 700; }
 .device-validation-view .output-panel { max-width: 800px; margin-top: 16px; padding: 14px; }
 #panel-experiment > [hidden], .device-validation-view [hidden] { display: none !important; }

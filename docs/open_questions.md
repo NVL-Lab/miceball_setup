@@ -624,6 +624,15 @@ interfaces remain implementation work; large artifact transfer is not visualizat
 
 ## Q030: What GUI presentation and deployment design implements the accepted functional areas?
 
+Decision 425's accepted Device Validation maximum clarification (2026-11-23)
+settles Parameters placement, GUI-owned nonpersistent working value initialized
+to 5 seconds, authorized editing during Sessions, and per-Validation admission
+capture without changing a running limit or accepted scientific configuration.
+Bounded GUI/demonstration implementation is present; independent validation and
+audit remain pending and connected Device Validation remains deferred. No new
+architectural question or Q030 closure is
+implied. See [accepted contract](architecture_decisions.md#accepted-device-validation-maximum-clarification-2026-11-23).
+
 Decision 451's initial synchronization values and automatic initialization are
 now explicitly accepted; the former initial-values prerequisite is resolved.
 Functional implementation and independent verification retain separate status.

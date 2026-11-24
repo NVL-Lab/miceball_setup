@@ -65,7 +65,7 @@ const sessionName = configurationStringEditor($('.session-identity-grid input[ty
 const sessionDate = $('.session-identity-grid input[type="date"]');
 const sessionNumber = $('.session-identity-grid input[type="number"]');
 const sessionNotes = configurationStringEditor($('[aria-labelledby="notes-title"] textarea'));
-const errorLocation = configurationStringEditor($('#error-evidence-location'));
+const errorLocation = configurationStringEditor($('#error-evidence-location'), '', true);
 installArtifactDestinations({snapshot: current, canControl,
   command: (operation, parameters) => command(operation, parameters, null),
   read: async () => {
@@ -87,16 +87,16 @@ installConnectedStorage({snapshot: current, canControl,
   },
   collect: async (sid, parameters) => {
     const connection = socket;
-    const entry = await command('collect_saved_session_artifacts_remote', parameters, sid);
+    const entry = recordActivity('collect_saved_session_artifacts_remote');
+    Object.assign(entry, {session_id: sid, evidence_id: parameters.evidence_id});
+    await command('collect_saved_session_artifacts_remote', parameters, sid, entry);
     await waitForPendingOutcome(entry, connection);
     return entry;
-  }});
+  }, refreshOutcomes: refresh});
 ($('.device-card .setup-disclosure-body') || $('.device-card')).insertAdjacentHTML('afterbegin', '<div class="inventory-controls"><label>Configured AcquisitionNode<select id="inventory-node"></select></label><button id="load-inventory" type="button">Refresh inventory</button><span id="inventory-status" role="status">Inventory unconfirmed</span></div>');
 $('.readiness-card').insertAdjacentHTML('beforeend', '<details><summary>Accepted Session configuration</summary><pre id="accepted-configuration">No accepted configuration confirmed</pre></details>');
 $('#load-inventory').className = 'dialog-button';
 $('#inventory-status').className = 'prototype-caption';
-$('#device-validation-maximum').disabled = true;
-$('#device-validation-maximum').closest('label').title = 'Device Validation integration unavailable';
 
 function controlBlocker(except = null) {
   if (!confirmed) return 'Controller connection unconfirmed';
@@ -237,6 +237,15 @@ async function refresh() {
     let completedNavigation = null;
     for (const entry of outcomes.filter(o => o.controllerCommand && o.request_id && o.instance_id && ['pending', 'uncertain'].includes(o.status))) {
       const result = requireResult(await request('read_operation_outcome', {target_request_id: entry.request_id, instance_id: entry.instance_id}));
+      if (entry.operation === 'collect_saved_session_artifacts_remote') {
+        const recovered = result.result;
+        if (result.instance_id !== entry.instance_id || !recovered
+            || recovered.request_id !== entry.request_id || recovered.operation !== entry.operation
+            || recovered.session_id !== entry.session_id) continue;
+        if (result.status !== recovered.status) continue;
+        if (recovered.status === 'succeeded'
+            && recovered.outcome?.details?.collection_outcome?.collection_evidence?.evidence_id !== entry.evidence_id) continue;
+      }
       if (entry.operation === 'update_device_configuration' && entry.status === 'uncertain' && result.status === 'unknown') continue;
       updateActivity(entry, {status: result.status, result: result.result, error: result.result?.error || (result.status === 'unknown' ? 'No matching outcome is available from the current Controller.' : entry.error)});
       if (entry.status === 'succeeded' && ['launch_session', 'start_launched_experiment'].includes(entry.operation)) entry.navigationPending = true;

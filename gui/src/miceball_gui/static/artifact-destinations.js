@@ -44,7 +44,7 @@ function renderSelection() {
   select.disabled = Boolean(snapshot?.status?.session_id) || !current || loading;
   const entry = choices().find(item => item.destination_id === value);
   document.querySelector('#artifact-destination-info').textContent = accepted != null
-    ? `Controller-confirmed Session destination: ${entry?.name || 'name unavailable'}. Fixed for every Experiment.${loading ? ` ${feedback}` : current ? '' : ' Current availability unconfirmed.'}`
+    ? `Session destination: ${entry ? entry.destination_id === catalog.default_destination_id ? 'Installation default' : entry.name : 'name unavailable'}.${loading ? ` ${feedback}` : current ? '' : ' Current availability unconfirmed.'}`
     : loading || !current ? feedback : entry ? `${entry.enabled ? '' : 'Disabled. '}${observation(entry)}. StorageManager rechecks at launch.` : 'Choose an approved destination. No alternative will be selected automatically.';
 }
 
