@@ -81,7 +81,17 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
     await page.locator('[data-scientific-output]').first().check();
     await page.getByRole('spinbutton', {name: 'fps', exact: true}).fill('1');
     await page.getByRole('spinbutton', {name: 'fps', exact: true}).fill('');
-    await page.locator('[data-null-parameter]').last().check();
+    assert.equal(await page.locator('[data-null-parameter]').count(), 0);
+    // Load an existing explicit-null configuration through the working editor API;
+    // the ordinary experimenter no longer has a create-null checkbox.
+    await page.evaluate(async () => {
+      const {state} = await import(new URL('./protocol-setup.js', document.baseURI));
+      const {resolveParameterContext} = await import(new URL('./parameter-context.mjs', document.baseURI));
+      const {renderParameters} = await import(new URL('./parameters-view.js', document.baseURI));
+      const context = resolveParameterContext(state);
+      context.update({values: {...context.configuration.values, [JSON.stringify(['node', 'device', 'fps'])]: null}});
+      renderParameters();
+    });
     const acceptedBeforeCatalogSave = JSON.stringify(lastState.configuration);
     await page.locator('#personal-experiment-template [name="templateName"]').fill('My acquisition');
     await page.locator('#personal-experiment-template button[type="submit"]').click();

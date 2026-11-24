@@ -1078,7 +1078,7 @@ html[data-administrator="true"] .workspace__content { background: var(--administ
 
 .readiness-card li {
   display: grid;
-  grid-template-columns: 18px 1fr auto;
+  grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1.4fr);
   gap: 8px;
   align-items: center;
   padding: 7px 0;
@@ -1105,6 +1105,8 @@ html[data-administrator="true"] .workspace__content { background: var(--administ
 .readiness-card li strong {
   color: #67788d;
   font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .launch-session-demo {

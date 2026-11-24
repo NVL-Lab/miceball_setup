@@ -6,7 +6,8 @@ export function configuredParameterValue(state, device, field, sessionId = null)
       || configured.session_id !== sessionId) return {available: false};
   if (!configured.values || !Object.hasOwn(configured.values, device.deviceId)) return {available: false};
   const values = configured.values[device.deviceId];
-  if (!values || typeof values !== 'object' || Array.isArray(values) || !Object.hasOwn(values, field.name)) return {available: false};
+  if (!values || typeof values !== 'object' || Array.isArray(values)) return {available: false};
+  if (!Object.hasOwn(values, field.name)) return {available: false, reason: 'Not specified in confirmed configuration; no explicit override'};
   try {
     if (parameterIssue(field, values[field.name])) return {available: false};
   } catch (_) { return {available: false}; }

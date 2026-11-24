@@ -191,11 +191,20 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     for (const row of fixture.rows) {
       const coordinates = [row.node, row.device, row.name];
       const input = await control('data-example-value', coordinates);
-      if (row.value === null) await (await control('data-null-parameter', coordinates)).click();
+      if (row.value === null) continue; // Loaded below, without a create-null UI control.
       else if (typeof row.value === 'boolean') {await input.check(); if (!row.value) await input.uncheck();}
       else if (typeof row.value === 'string') await fillString(input, row.value);
       else await input.fill(String(row.value));
     }
+    await page.evaluate(async rows => {
+      const {state} = await import(new URL('./protocol-setup.js', document.baseURI));
+      const {resolveParameterContext} = await import(new URL('./parameter-context.mjs', document.baseURI));
+      const {renderParameters} = await import(new URL('./parameters-view.js', document.baseURI));
+      const context = resolveParameterContext(state);
+      context.update({values: {...context.configuration.values, ...Object.fromEntries(rows.filter(row => row.value === null).map(row => [JSON.stringify([row.node, row.device, row.name]), null]))}});
+      renderParameters();
+    }, fixture.rows);
+    assert.equal(await page.locator('[data-null-parameter]').count(), 0);
     const unset = ['constructor', 'ordinary', 'unset'];
     const nullableString = ['__proto__', '__proto__', 'nullable_string'];
     // Representation changes alone retain the explicit null in the working model.
@@ -205,7 +214,14 @@ export async function verifyConfigurationIntegrity(browser, origin, fixture, sec
     assert.match(await nullRow.innerText(), /empty value requested/);
     await fillString(await control('data-example-value', nullableString), 'null');
     assert.equal(await readString(await control('data-example-value', nullableString)), 'null');
-    await (await control('data-null-parameter', nullableString)).click();
+    await page.evaluate(async coordinates => {
+      const {state} = await import(new URL('./protocol-setup.js', document.baseURI));
+      const {resolveParameterContext} = await import(new URL('./parameter-context.mjs', document.baseURI));
+      const {renderParameters} = await import(new URL('./parameters-view.js', document.baseURI));
+      const context = resolveParameterContext(state);
+      context.update({values: {...context.configuration.values, [JSON.stringify(coordinates)]: null}});
+      renderParameters();
+    }, nullableString);
     assert.equal(await (await control('data-example-value', nullableString)).inputValue(), '');
     const emptyString = ['__proto__', '__proto__', 'empty'];
     await (await control('data-unset-parameter', emptyString)).click();

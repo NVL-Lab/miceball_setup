@@ -42,7 +42,10 @@ test('configured readback distinguishes scope, null, absent, invalid and unavail
   assert.deepEqual(configuredParameterValue(state, device, field, 'session'), {available: true, value: 30});
   assert.deepEqual(configuredParameterValue(state, device, field, 'other'), {available: false});
   assert.deepEqual(configuredParameterValue(state, {...device, available: false}, field, 'session'), {available: false});
-  for (const values of [{}, {fps: -1}, {fps: true}, {fps: Infinity}]) {
+  state.inventory.node.configured_parameters.values.camera = {};
+  assert.deepEqual(configuredParameterValue(state, device, field, 'session'),
+    {available: false, reason: 'Not specified in confirmed configuration; no explicit override'});
+  for (const values of [{fps: -1}, {fps: true}, {fps: Infinity}]) {
     state.inventory.node.configured_parameters.values.camera = values;
     assert.deepEqual(configuredParameterValue(state, device, field, 'session'), {available: false});
   }

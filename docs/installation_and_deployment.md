@@ -1136,6 +1136,34 @@ or NATS state. If a process was forcibly ended, assess its preserved obligations
 before explicit return under Decision 329; do not label the old exit graceful.
 See [restart and retained-result guidance](#independent-role-startup-w063-closed).
 
+### Validated Ubuntu GUI Launch
+
+After starting the deployment services above using their platform-appropriate
+commands, launch the separately installed GUI from an Ubuntu terminal. The
+following exact command was successfully used during deployment on November 24,
+2026; it records successful GUI launch, not broader GUI or deployment validation:
+
+```bash
+cd ~/Documents/Github/miceball_setup
+.venv/bin/miceball-gui \
+  --deployment-config "$HOME/.config/lab-sync-acquisition/controller.json" \
+  --controller controller-1 \
+  --client miceball-gui-1 \
+  --origin http://localhost:8043 \
+  --host 127.0.0.1 \
+  --port 8043 \
+  --timeout 10 \
+  --catalog-path "$HOME/.config/lab-sync-acquisition/gui-catalog.sqlite3"
+```
+
+Open <http://localhost:8043> in the browser. The checkout path (including `Github`
+capitalization), virtual environment, configuration path, Controller/client
+identities, origin, bind address, port and timeout are installation-specific
+values, not generic defaults; retain the option syntax when adapting them.
+Preserve the existing catalog at the explicit `--catalog-path` above. This Ubuntu
+installation uses `controller.json` directly and has no `gui-connection.json`;
+no additional connection file is required. G2 and Phase 16 remain CLOSED.
+
 <a id="remote-service-maintenance-w062-closed"></a>
 ### Maintenance Stop, Cancel And Kill
 

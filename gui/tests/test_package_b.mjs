@@ -119,7 +119,8 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
       assert.equal(await page.locator('[data-start-session]').isDisabled(), true);
       await page.locator('[data-prepare-free-operation]').click();
       assert.match(await page.locator('.session-selected-heading').innerText(), /Configuration incomplete/);
-      await page.locator('.experiment-additional-devices > summary').click();
+      assert.equal(await page.locator('.experiment-additional-devices').evaluate(element => element.open), true,
+        'Required device selection expands automatically');
       await page.locator('[data-session-experiment-device]').first().check();
       await page.locator('[data-session-navigate="parameters"]').click();
       const field = name => page.getByRole('spinbutton', {name, exact: true});
@@ -154,7 +155,15 @@ export async function verifyPackageB(browser, origin, fixture, inventories, sect
       await page.locator('[data-launch-experiment]:enabled').waitFor();
       await page.locator('[data-session-navigate="parameters"]').click();
       assert.equal(await field('frame_width').inputValue(), '900', 'Rejected command retains preparation');
-      await page.locator('[data-null-parameter]').last().check();
+      assert.equal(await page.locator('[data-null-parameter]').count(), 0);
+      await page.evaluate(async () => {
+        const {state} = await import(new URL('./protocol-setup.js', document.baseURI));
+        const {resolveParameterContext} = await import(new URL('./parameter-context.mjs', document.baseURI));
+        const {renderParameters} = await import(new URL('./parameters-view.js', document.baseURI));
+        const context = resolveParameterContext(state);
+        context.update({values: {...context.configuration.values, [JSON.stringify(['node', 'camera', 'fps'])]: null}});
+        renderParameters();
+      });
       await returnFromParameters(page); await page.locator('[data-launch-experiment]').click();
       await wait(page, () => requests.filter(request => request.operation === 'start_launched_experiment').length === 2);
       assert.deepEqual(requests.filter(request => request.operation === 'start_launched_experiment').at(-1).parameters.configuration.device_configurations,

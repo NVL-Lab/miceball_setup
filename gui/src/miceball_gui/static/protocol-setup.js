@@ -171,7 +171,7 @@ export function renderSetup() {
   const missing = result.required.filter(r => !r.providers.length).length;
   readiness.innerHTML = `<li><span class="${missing ? 'missing-dot' : ''}">${missing ? '!' : '✓'}</span> Capability coverage <strong>${missing ? `${missing} missing` : 'All covered'}</strong></li><li><span class="${result.unavailable.length ? 'missing-dot' : ''}">·</span> Selected device availability <strong>${result.unavailable.length ? `${result.unavailable.length} unavailable` : 'Available (demo)'}</strong></li><li><span>·</span> Optional steps intentionally skipped <strong>${result.skipped}</strong></li><li><span>·</span> Runtime readiness <strong>Not checked — visual demo</strong></li>`;
   if (state.connected) {
-    readiness.innerHTML = `<li>Capability coverage <strong>${missing ? `${missing} missing` : 'Declared coverage only'}</strong></li><li>Runtime readiness <strong>Controller validates on admission</strong></li><li>Accepted Session <strong>${escape(state.controllerSnapshot?.status?.session_state || 'None / unconfirmed')}</strong></li>`;
+    state.actions.renderSetupReadiness?.();
     deviceCard.querySelector('p.prototype-caption').textContent = 'Installed declarations from configured AcquisitionNodes. Availability and readiness are separate.';
     $('#protocol-select').disabled = Boolean(state.activeSession);
     if (state.activeSession) {

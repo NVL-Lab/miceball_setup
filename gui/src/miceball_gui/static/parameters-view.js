@@ -38,9 +38,10 @@ let message = '';
 let synchronizationSection, synchronizationDirty = false, administrativeSection;
 
 function renderDeviceValidationSettings() {
-  const section = document.createElement('section');
-  section.className = 'parameter-fields device-validation-settings';
-  section.innerHTML = `<h3>Device Validation</h3><div class="parameter-section-body"><label>Device Validation maximum (seconds)<input id="device-validation-maximum" type="number" min="0" step="any" required value="${escape(state.deviceValidationMaximumSeconds ?? '')}" aria-describedby="device-validation-maximum-help"></label><p id="device-validation-maximum-help">Applies to the next Device Validation.${state.connected ? ' Device Validation is unavailable in connected mode.' : ''}</p></div>`;
+  const section = document.createElement('details');
+  section.className = 'parameter-section device-validation-settings';
+  section.open = true;
+  section.innerHTML = `<summary>Device Validation</summary><div class="parameter-section-body"><label>Device Validation maximum (seconds)<input id="device-validation-maximum" type="number" min="0" step="any" required value="${escape(state.deviceValidationMaximumSeconds ?? '')}" aria-describedby="device-validation-maximum-help"></label><p id="device-validation-maximum-help">Applies to the next Device Validation.${state.connected ? ' Device Validation is unavailable in connected mode.' : ''}</p></div>`;
   const input = section.querySelector('input');
   input.setCustomValidity(parameterIssue({type: 'number', label: 'Device Validation maximum', exclusiveMin: 0}, state.deviceValidationMaximumSeconds));
   panel.append(section);
@@ -215,7 +216,7 @@ function parameterField(field, value, present, inherited = {available: false}, a
   else control = `<label>${escape(field.label)}<input type="${escape(field.type)}" ${attributes} value="${escape(value ?? '')}" ${field.min !== undefined ? `min="${escape(field.min)}"` : ''} ${field.max !== undefined ? `max="${escape(field.max)}"` : ''} step="${field.integer ? '1' : 'any'}" ${state.connected || field.nullable ? '' : 'required'}></label>`;
   if (administrative) return `${control}${field.nullable ? `<label class="parameter-checkbox"><input type="checkbox" data-administrative-null="${escape(field.id)}" ${value === null ? 'checked' : ''}>${escape(field.nullDescription)}</label>` : ''}`;
   if (!state.connected) return control;
-  return `<div class="parameter-override">${control}<div class="parameter-toolbar"><small>${present ? value === null ? 'Adapter-defined empty value requested' : 'Explicit override' : inherited.available ? value === null ? 'Inherited configuration: no value requested' : 'Inherited requested configuration' : 'Configured value unavailable; no explicit override'}</small>${field.type !== 'number' ? `<button type="button" data-unset-parameter="${escape(field.id)}" title="Remove draft override" aria-label="Remove draft override" ${present ? '' : 'hidden'}>×</button>` : ''}${field.nullable ? `<label class="parameter-checkbox"><input type="checkbox" data-null-parameter="${escape(field.id)}" ${present && value === null ? 'checked' : ''}>${escape(field.nullDescription)}</label>` : ''}</div></div>`;
+  return `<div class="parameter-override">${control}<div class="parameter-toolbar"><small>${present ? value === null ? 'Adapter-defined empty value requested' : 'Explicit override' : inherited.available ? value === null ? 'Inherited configuration: no value requested' : 'Inherited requested configuration' : escape(inherited.reason || 'Configured value unavailable; no explicit override')}</small>${field.type !== 'number' ? `<button type="button" data-unset-parameter="${escape(field.id)}" title="Remove draft override" aria-label="Remove draft override" ${present ? '' : 'hidden'}>×</button>` : ''}</div></div>`;
 }
 
 export function renderParameters() {
@@ -280,9 +281,12 @@ export function renderStorageEstimate(configuration) {
     const minimum = input.dataset.recordingBudget
       ? result?.recording?.find(r => r.node_id === input.dataset.recordingBudget)?.estimated_bytes
       : result?.preservation?.available ? Math.max(0, ...result.preservation.destinations.map(d => d.required_bytes)) : null;
-    const explicit = input.value !== '' || input.validity.badInput;
+    const value = input.dataset.recordingBudget ? configuration.recordingBudgets?.[input.dataset.recordingBudget] : configuration.preservationBudget;
+    const explicit = value != null || input.validity.badInput;
     const label = input.closest('label'); label.dataset.storageBudget = '';
-    label.hidden = !explicit && minimum != null && !state.adjustStorageBudgets;
+    label.hidden = false;
+    // Calculated display values remain inherited, never working overrides.
+    if (!explicit) input.value = minimum == null ? '' : String(minimum);
     input.placeholder = minimum == null ? 'Explicit budget required' : String(minimum);
     if (minimum != null) input.min = String(minimum);
     const note = document.createElement('small');
@@ -292,7 +296,8 @@ export function renderStorageEstimate(configuration) {
     if (explicit) {
       const automatic = document.createElement('button');
       automatic.dataset.storageAutomatic = '';
-      automatic.type = 'button'; automatic.textContent = 'Use automatic';
+      automatic.type = 'button'; automatic.textContent = 'Calculate value';
+      automatic.disabled = minimum == null;
       automatic.onclick = () => {
         const context = resolveParameterContext(state);
         if (!context || context.readOnly || document.documentElement.dataset.controlMode !== 'controlling') return;
@@ -305,24 +310,15 @@ export function renderStorageEstimate(configuration) {
       input.after(automatic);
     }
   }
-  if (target) {
-    const adjust = panel.querySelector('[data-storage-adjust]') || document.createElement('button'); adjust.type = 'button';
-    adjust.dataset.storageAdjust = '';
-    adjust.textContent = state.adjustStorageBudgets ? 'Hide automatic budgets' : 'Adjust budgets';
-    adjust.onclick = () => { state.adjustStorageBudgets = !state.adjustStorageBudgets; renderParameters(); };
-    target.after(adjust);
-  }
 }
 
 panel.addEventListener('click', event => {
-  const override = event.target.closest('[data-unset-parameter], [data-null-parameter]');
+  const override = event.target.closest('[data-unset-parameter]');
   if (override) {
     const context = resolveParameterContext(state);
     if (!context || context.readOnly) return;
     const values = {...context.configuration.values};
-    if (override.hasAttribute('data-unset-parameter')) delete values[override.dataset.unsetParameter];
-    else if (override.checked) values[override.dataset.nullParameter] = null;
-    else delete values[override.dataset.nullParameter];
+    delete values[override.dataset.unsetParameter];
     context.update({values}); message = ''; renderParameters(); return;
   }
   if (event.target.closest('[data-return-session]')) navigate(resolveParameterContext(state)?.origin || state.parameterContext?.origin || 'setup');
@@ -400,8 +396,6 @@ function updateParameterWorking(event) {
         toolbar.querySelector('small').textContent = Object.hasOwn(values, control.dataset.exampleValue) ? values[control.dataset.exampleValue] === null ? 'Adapter-defined empty value requested' : 'Explicit override' : 'No explicit override';
         const unset = toolbar.querySelector('[data-unset-parameter]');
         if (unset) unset.hidden = !Object.hasOwn(values, control.dataset.exampleValue);
-        const empty = toolbar.querySelector('[data-null-parameter]');
-        if (empty) empty.checked = Object.hasOwn(values, control.dataset.exampleValue) && values[control.dataset.exampleValue] === null;
       }
     }
     message = inputError ? `Invalid configuration value: ${inputError.message}` : '';

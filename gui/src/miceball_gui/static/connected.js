@@ -1,6 +1,6 @@
 // Shared presenters own markup; this entry binds them to the existing backend.
 import { state, renderSetup } from './protocol-setup.js';
-import { devices, clone, preparedProtocol, preparedFreeOperation } from './protocol-demo.mjs';
+import { devices, clone, preparedProtocol, preparedFreeOperation, coverage } from './protocol-demo.mjs';
 import { syncOwnershipPresentation } from './ownership-presentation.js';
 import { deviceExamples, experimentView, experimentIssues, experimentEstimateKey, experimentStorageEstimate } from './experiment-demo.mjs';
 import { resolveParameterContext } from './parameter-context.mjs';
@@ -14,7 +14,7 @@ import { catalogClient } from './catalog-client.mjs';
 import { localCalendarDate } from './calendar-date.mjs';
 import { confirmStop } from './stop-confirmation.mjs';
 import { serviceActions, updateServices, startServicesRefresh, showBlockedServiceStop } from './services-view.js';
-import { configurationIdentity, configurationNumber, parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
+import { configurationIdentity, configurationNumber, configurationEqual, parseConfigurationJSON, stringifyConfiguration } from './configuration-values.mjs';
 import { activityPresentation } from './activity-presentation.mjs';
 import { activities as outcomes, recordActivity, updateActivity, recordLocalActivity, recordActivityTransition } from './activity-history.mjs';
 import { deviceParameterFields } from './parameter-constraints.mjs';
@@ -160,7 +160,35 @@ function controls() {
   syncArtifactDestinations();
   syncConnectedStorage();
   syncOwnershipPresentation();
+  state.actions.renderSetupReadiness();
 }
+state.actions.renderSetupReadiness = () => {
+  const rows = [];
+  // Text nodes below keep configuration identities and errors out of markup.
+  const details = [];
+  const row = (label, detail, missing = false) => {
+    rows.push(`<li><span class="${missing ? 'missing-dot' : ''}">${missing ? '!' : '·'}</span><div>${label}</div><strong></strong></li>`);
+    details.push(detail);
+  };
+  if (current()?.status?.session_id) {
+    row(confirmed ? 'Accepted Session' : 'Last confirmed Session', confirmed ? current().status.session_state || 'State unconfirmed' : 'Current state unconfirmed; reconnect to check.', !confirmed);
+    row('Next action', confirmed ? 'Continue in Session; its device pool is fixed.' : 'Restore the Controller connection before submitting operations.', !confirmed);
+  } else {
+    row('Control', controlBlocker() || 'Ready to submit preparation', Boolean(controlBlocker()));
+    const selected = state.selectedDevices.map(id => devices.find(device => device.id === id));
+    row('Session devices', !selected.length ? 'Select the devices needed for this Session.'
+      : selected.some(device => !device?.available) ? 'Refresh inventory for unavailable selected devices.'
+      : `${selected.length} selected · inventory confirmed`, selected.some(device => !device?.available));
+    const missing = coverage(state).required.filter(item => !item.providers.length).map(item => item.capability);
+    row('Required capabilities', missing.length ? `Select devices providing: ${missing.join(', ')}` : 'Selected devices cover the included steps', Boolean(missing.length));
+    row('Session settings', catalogClient.snapshot?.synchronization_configuration ? 'Saved synchronization settings available' : 'Backend synchronization settings unavailable', !catalogClient.snapshot?.synchronization_configuration);
+    try { selectedArtifactDestination(); row('Storage destination', 'Selected; capacity is checked for each Experiment'); }
+    catch (error) { row('Storage destination', error.message, true); }
+    row('Admission', 'Session is not accepted yet. Submit preparation for Controller checks.');
+  }
+  const list = $('.readiness-card ul'); list.innerHTML = rows.join('');
+  [...list.querySelectorAll('strong')].forEach((element, index) => { element.textContent = details[index]; });
+};
 state.actions.syncControls = controls;
 state.actions.canControl = canControl;
 function request(operation, parameters = {}, session_id = null, entry = null) {
@@ -272,7 +300,7 @@ async function refresh() {
     const signature = JSON.stringify([snapshot.instance_id, snapshot.control, snapshot.status, snapshot.configuration, snapshot.experiments]);
     if (signature !== lastRender) { lastRender = signature; renderSetup(); renderSession(); renderExperiment(); if (!$('#panel-parameters').hidden) renderParameters(); }
     if (completedNavigation) navigate(completedNavigation);
-    if (previous?.status?.session_id !== snapshot.status.session_id && snapshot.status.session_id) {
+    if (previous?.status?.session_id !== snapshot.status.session_id || changedOwner || !wasConfirmed) {
       for (const node of Object.keys(state.inventory)) await refreshInventory(node);
     }
   } catch (error) { noteConnectionLoss(error.message); confirmed = false; invalidateServiceConfirmation(); $('#connection-state').textContent = `Unconfirmed · ${error.message}`; }
@@ -486,8 +514,8 @@ state.actions.refreshExpectedSize = async () => {
     if (connection !== socket || !confirmed || instance !== current()?.instance_id
         || session !== (current()?.status?.session_id || null) || state.expectedSize !== attempt
         || key !== experimentEstimateKey(configuration) || resolveParameterContext(state)?.configuration !== configuration) return;
-    if (reply.instance_id !== instance || result.session_id !== session || stringifyConfiguration(result.configuration) !== stringifyConfiguration(config)
-        || stringifyConfiguration(result.scientific_outputs) !== stringifyConfiguration(parameters.scientific_outputs)
+    if (reply.instance_id !== instance || result.session_id !== session || !configurationEqual(result.configuration, config)
+        || !configurationEqual(result.scientific_outputs, parameters.scientific_outputs)
         || result.storage_location !== location) throw new Error('Estimation confirmation does not match preparation.');
     attempt.result = result;
   } catch (error) { attempt.error = error.message; }
@@ -522,14 +550,15 @@ $('#view-only').onclick = () => command('view_only', {}, null);
 async function refreshInventory(node) {
   const entry = recordActivity('get_node_inventory');
   if (inventoryRequest || !confirmed || busy || !node) { actionRefusal(entry, 'Inventory refresh is unavailable or already pending. No request was sent.'); return; }
-  const connection = socket, instance = current()?.instance_id;
+  const connection = socket, instance = current()?.instance_id, session = current()?.status?.session_id || null;
   inventoryRequest = node;
   $('#inventory-status').textContent = `${node}: Refreshing inventory; confirmation pending`;
   $('#inventory-status').setAttribute('aria-busy', 'true');
   controls();
   try {
     const inventory = requireResult(await request('get_node_inventory', {node_id: node}));
-    if (connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id) throw new Error('Inventory belongs to an unconfirmed connection or Controller instance');
+    if (connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id
+        || session !== (current()?.status?.session_id || null)) throw new Error('Inventory belongs to an unconfirmed connection, Controller or Session');
     state.inventory[node] = clone(inventory);
     state.expectedSize = null;
     if (inventory.administrative_configuration?.available) {
@@ -549,6 +578,10 @@ async function refreshInventory(node) {
     renderSetup(); renderSession(); controls();
     if (!$('#panel-parameters').hidden) renderParameters();
   }
+  // A Session transition can occur while this read is pending. Its refresh was
+  // serialized out above; now read the new scope rather than retaining the old one.
+  if (confirmed && connection === socket && instance === current()?.instance_id
+      && session !== (current()?.status?.session_id || null)) await refreshInventory(node);
 }
 $('#load-inventory').onclick = () => refreshInventory($('#inventory-node').value);
 state.actions.refreshInventory = refreshInventory;

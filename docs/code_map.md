@@ -563,7 +563,9 @@ documents are preserved and updated, together with `gui/README.md`.
 - `experiment-demo.experimentEstimateKey(configuration)/experimentStorageEstimate(state, configuration)`: Match transient readback to the current working object and relevant scientific settings.
 - `connected.frameworkExperimentConfiguration(configuration)`: Shares exact device/configuration translation between estimation and execution submission.
 - `state.actions.refreshExpectedSize()`: Serializes preparation queries, coalesces changed working values and rejects obsolete connection/Session/Controller/configuration results.
-- `parameters-view.renderStorageEstimate(configuration)`: Updates only scientific-size/budget feedback and controls, preserving focused inputs and native invalid drafts.
+- `state.actions.renderSetupReadiness()`: Presents existing control, inventory, capability, settings and destination checks separately from confirmed Session acceptance.
+- `connected.refreshInventory(node)`: Refreshes scoped configured values, rejects reads superseded by a Session transition and obtains the new scope after an interrupted refresh.
+- `parameters-view.renderStorageEstimate(configuration)`: Displays calculated budget values without creating overrides, preserves explicit edits and invalid drafts, and restores current calculated requirements beside each field.
 - `tests/test_expected_size.py`: Exercises finalized writer measurements, read-only owners, recording/preservation minima and isolated broker workflows.
 - `gui/tests/test_expected_size.py/.mjs`: Exercises production Parameters with software owner readback, overrides, stale responses, authority and reconnect.
 - `gui/tests/test_backend.py`: Also exercises preparation readback through the real GUI WebSocket/backend and an isolated authenticated NATS broker before and after Session admission.
@@ -3648,7 +3650,7 @@ integration is introduced; the existing shell's 720px minimum width is unchanged
 
 - deviceParameterFields(node, device, definitions): Projects the adapter's supported primitive definitions, exact identities, typed allowed values and inclusive/exclusive constraints into existing controls without manufacturing defaults.
 - parameterIssue(field, value): Reuses typed numeric validation and declared adapter constraints for working-field feedback and Experiment submission checks.
-- configuredParameterValue(state, device, field, sessionId=null): Projects only available matching-scope configured values, distinguishing inherited null from absent or unavailable readback without creating overrides.
+- configuredParameterValue(state, device, field, sessionId=null): Projects matching-scope configured values and explains omitted fields, distinguishing inherited null from absent or unavailable readback without creating overrides.
 
 ### Package B deployment corrections (developer implementation)
 

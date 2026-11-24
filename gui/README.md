@@ -359,7 +359,9 @@ Controller-reported executed configuration, not later working edits.
 Developer implementation (independent validation/audit and physical verification
 pending): Parameters shows automatic Expected size beside timing through bounded
 Controller/NATS owner readback. It counts the scientific dataset once, not its
-preservation copies. Budget inputs appear for adjustments or unavailable estimates;
+preservation copies. Budget fields display available calculated values without
+storing them as explicit overrides. Manual edits remain distinguishable, and
+**Calculate value** restores an available current calculation beside each override;
 explicit overrides survive recalculation, cannot lower known automatic requirements
 and can return to automatic mode. Unrelated new preparations do not inherit these
 overrides. Configuration, Session, connection and Controller changes invalidate

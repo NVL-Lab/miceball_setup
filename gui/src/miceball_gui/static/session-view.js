@@ -191,7 +191,7 @@ function experimentConfigurationMarkup(step, view) {
     </div>
     <section class="experiment-devices"><h4>Experiment devices</h4><p>Choose participants from this Session device pool${state.activeSession ? ', fixed at Session launch' : ', prepared in Setup'}.</p>
       ${groups.map(group => `<section class="experiment-device-group" data-capability="${escape(group.capability)}"><h5>${escape(group.capability.replaceAll('_', ' '))} — ${group.required ? 'Required' : 'Optional'}</h5><div>${group.options.map(device => experimentDeviceOption(device, configuration, readOnly)).join('') || '<p>No Session devices provide this capability.</p>'}</div></section>`).join('')}
-      ${additional.length ? `<details class="experiment-additional-devices" ${additional.some(device => configuration.participants.includes(device.id)) ? 'open' : ''}><summary>Additional Session devices (optional)</summary>${additional.map(device => experimentDeviceOption(device, configuration, readOnly)).join('')}</details>` : ''}
+      ${additional.length ? `<details class="experiment-additional-devices" ${additional.some(device => configuration.participants.includes(device.id)) || !configuration.participants.some(id => deviceExamples[id]?.acquisition) ? 'open' : ''}><summary>Additional Session devices (optional)</summary>${additional.map(device => experimentDeviceOption(device, configuration, readOnly)).join('')}</details>` : ''}
       ${outside.length ? `<div class="experiment-device-warning"><p>Template refers to devices outside this Session: ${outside.map(device => escape(device.name)).join(', ')}. They are not eligible for selection.</p><button type="button" data-remove-outside-devices ${readOnly ? 'disabled' : ''}>Remove out-of-Session references</button></div>` : ''}
       <div class="experiment-coverage ${missing.length ? 'coverage-missing' : 'coverage-good'}" role="status">${missing.length ? 'Missing required capability: ' + missing.map(escape).join(', ') : step.required.length ? '✓ All required capabilities covered' : 'No required hardware capabilities declared'} ${state.connected ? '' : '<small>(demo)</small>'}</div>
       ${otherIssues.length ? `<p class="experiment-device-warning">${otherIssues.map(escape).join(' ')}</p>` : ''}
@@ -352,6 +352,14 @@ panel.addEventListener('change', event => {
   panel.querySelector(`[data-session-experiment-device="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
 });
 document.addEventListener('gui-section-changed', event => {
-  if (event.detail === 'session') { feedback = ''; renderSession(); }
+  if (event.detail === 'session') {
+    feedback = ''; renderSession();
+    const {step} = selectedStepContext(state);
+    const configuration = step && sessionStepView(state, step).experiment?.configuration;
+    if (configuration && !configuration.participants.some(id => deviceExamples[id]?.acquisition)) {
+      const additional = panel.querySelector('.experiment-additional-devices');
+      if (additional) additional.open = true;
+    }
+  }
 });
 renderSession();

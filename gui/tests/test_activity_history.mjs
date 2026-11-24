@@ -94,7 +94,8 @@ export async function verifyActivityHistory(browser, origin, fixture, section, d
     await page.locator('[data-start-session]:disabled').waitFor();
     assert.equal(requests.filter(entry => entry.operation === 'start_launched_session').length, 1);
     await page.locator('[data-prepare-free-operation]').click();
-    await page.locator('.experiment-additional-devices > summary').click();
+    assert.equal(await page.locator('.experiment-additional-devices').evaluate(element => element.open), true,
+      'Required device selection expands automatically');
     await page.locator('[data-session-experiment-device]').first().check();
     await page.locator('[data-session-navigate="parameters"]').click();
     await page.locator('#experiment-duration').fill('2');
