@@ -1701,7 +1701,8 @@ class Controller:
                 if not isinstance(storage_participant, RuntimeParticipant) or storage_participant.component_type != "storage_manager":
                     raise ValueError("An explicitly configured preservation StorageManager is required")
                 capacity = await self._request_launched_runtime(storage_participant, "check_experiment_capacity",
-                    {"required_bytes": configuration.preservation_budget_bytes})
+                    {"required_bytes": configuration.preservation_budget_bytes,
+                     "recording_estimates": [r.get("estimate", {"valid": False}) for r in capacity_reports]})
                 capacity_reports.append(capacity.payload["capacity"])
                 validate_storage_capacity(capacity_reports)
                 session.record_service_readiness((ServiceReadiness(self._component_id,
@@ -2534,9 +2535,11 @@ class Controller:
                     raise ValueError("Scientific output references an unknown AcquisitionNode")
                 if self._storage_manager is None:
                     raise RuntimeError("Authoritative preservation StorageManager is required")
-                validate_storage_capacity((self._acquisition_node.check_experiment_capacity(outputs, accepted_configuration),
+                recording_capacity = self._acquisition_node.check_experiment_capacity(outputs, accepted_configuration)
+                validate_storage_capacity((recording_capacity,
                     self._storage_manager.check_experiment_capacity(accepted_configuration.preservation_budget_bytes,
-                        session_id=self._session.session_id)))
+                        session_id=self._session.session_id, recording_estimates=[
+                            recording_capacity.get("estimate", {"valid": False})])))
                 preparation = self._acquisition_node.prepare_experiment_scientific_outputs(
                     experiment_id, outputs, configuration=accepted_configuration)
                 records.append(preparation)
@@ -2965,6 +2968,72 @@ class Controller:
         if not administrator_mode and (not experimenter_name or owner != experimenter_name):
             raise PermissionError("Session ownership is missing, ambiguous or does not match the experimenter")
 
+    @service_operation()
+    async def estimate_experiment_storage(self, configuration, scientific_outputs, storage_location, *,
+            communication, participants, storage_participant, result_window_s, expected_session_id=None):
+        """Coordinate bounded read-only owner estimates for one exact preparation."""
+        try:
+            session = self._session
+            if (session.session_id if session else None) != expected_session_id:
+                raise ValueError("Preparation does not target the current Session")
+            config = ExperimentConfiguration.from_dict(configuration)
+            outputs = tuple(ScientificOutputSelection.from_dict(o) for o in scientific_outputs)
+            nodes = {p.component_id: p for p in participants if p.component_type == "acquisition_node"}
+            if set(config.participating_devices or {}) - nodes.keys():
+                raise ValueError("Preparation references an unconfigured AcquisitionNode")
+            if any(o.source_node_id not in (config.participating_devices or {}) for o in outputs):
+                raise ValueError("Scientific output is outside Experiment participation")
+            async def read(target, payload):
+                result = await communication.request_runtime_command(target, "estimate_experiment_storage",
+                    expected_session_id, payload, result_window_s)
+                if self._session is not session:
+                    raise RuntimeError("Session changed during estimation")
+                if (result is None or result.success is not True or result.status != "succeeded"
+                        or result.source_id != target.component_id or result.target_id != self._component_id
+                        or result.session_id != expected_session_id or not isinstance(result.payload.get("estimate"), dict)):
+                    raise RuntimeError("Owner estimation is unconfirmed")
+                return result.payload["estimate"]
+            async def node_read(node):
+                try:
+                    report = await read(nodes[node], {"configuration": config.to_dict(), "scientific_outputs":
+                        [o.to_dict() for o in outputs if o.source_node_id == node]})
+                    size = report.get("estimated_bytes")
+                    if (report.get("node_id") != node or type(report.get("valid")) is not bool
+                            or size is not None and (type(size) is not int or size < 0)
+                            or report.get("valid") is False and size is not None
+                            or not isinstance(report.get("unavailable"), list)
+                            or any(not isinstance(reason, str) for reason in report["unavailable"])):
+                        raise ValueError("Invalid owner estimate")
+                    return report
+                except (RuntimeError, ValueError) as error:
+                    return {"node_id": node, "valid": False, "estimated_bytes": None,
+                            "products": [], "unavailable": [str(error)]}
+            reports = await asyncio.gather(*(node_read(node) for node in config.participating_devices or {}))
+            if storage_participant.component_type != "storage_manager":
+                raise ValueError("Preservation requires StorageManager")
+            try:
+                preservation = await read(storage_participant, {"recording_estimates": reports,
+                                                               "storage_location": storage_location})
+                if (type(preservation.get("available")) is not bool
+                        or not isinstance(preservation.get("destinations"), list)
+                        or any(not isinstance(d, dict) or not isinstance(d.get("destination"), str)
+                               or type(d.get("required_bytes")) is not int or d["required_bytes"] < 0
+                               for d in preservation["destinations"])
+                        or preservation["available"] and not preservation["destinations"]):
+                    raise RuntimeError("Invalid preservation estimate")
+            except RuntimeError as error:
+                preservation = {"available": False, "destinations": [], "reason": str(error)}
+            if self._session is not session:
+                raise RuntimeError("Session changed during estimation")
+            complete = all(r.get("valid") is True and type(r.get("estimated_bytes")) is int for r in reports)
+            return ControllerCommandResult("estimate_experiment_storage", True, {
+                "session_id": expected_session_id, "configuration": config.to_dict(),
+                "scientific_outputs": [o.to_dict() for o in outputs], "storage_location": storage_location,
+                "recording": reports, "preservation": preservation,
+                "expected_bytes": sum(r["estimated_bytes"] for r in reports) if complete else None})
+        except (ValueError, RuntimeError, TypeError, KeyError) as error:
+            return ControllerCommandResult("estimate_experiment_storage", False, error=str(error))
+
     async def _artifact_destination_request(self, operation, parameters, *, communication,
                                             storage_participant, result_window_s):
         if storage_participant.component_type != "storage_manager":
@@ -3255,7 +3324,7 @@ class Controller:
                 self._browser_holder = None
                 self._browser_generation = 0
             identity = (client_id, context["browser_id"])
-            read_only = operation in {"read_controller_state", "read_operation_outcome",
+            read_only = operation in {"estimate_experiment_storage", "read_controller_state", "read_operation_outcome",
                 "read_session_configuration", "get_node_inventory", "read_storage_sessions", "read_storage_session", "read_service_status", "read_synchronization_status", "list_artifact_destinations"}
             if operation in {"take_browser_control", "view_only"}:
                 if context["instance_id"] != instance_id:

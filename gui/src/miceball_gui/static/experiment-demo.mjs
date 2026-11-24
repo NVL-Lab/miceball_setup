@@ -41,6 +41,7 @@ export function experimentView(state, step, record) {
     const working = step.parameters ? clone(step.parameters) : state.connected ? { durationSeconds: null, participants: [], values: {}, experimentId: '', recordingBudgets: {}, preservationBudget: null, outputs: [] } : exampleConfiguration(step.operation);
     if (!step.parameters) working.participants = working.participants.filter(id => state.selectedDevices.includes(id));
     const historical = ['completed', 'needs-review'].includes(record.status);
+    if (state.connected && !historical) { working.recordingBudgets = {}; working.preservationBudget = null; }
     record.experiment = { working, startingConfiguration: clone(working), templateId: '', editing: !historical, attempts: historical ? [freezeConfiguration(working)] : [] };
   }
   const bundle = record.experiment;
@@ -65,6 +66,7 @@ export function loadExperimentTemplate(state, step, record, id, owner, replaceMo
   if (view.readOnly) throw new Error('Executed configuration is read-only. Prepare a new demonstration attempt first.');
   if (view.workingModified && !replaceModified) throw new Error('Confirm replacing modified working values before loading a template.');
   updateExperiment(state, step, record, clone(template.configuration));
+  if (state.connected) updateExperiment(state, step, record, {recordingBudgets: {}, preservationBudget: null});
   record.experiment.startingConfiguration = clone(template.configuration);
   record.experiment.templateId = template.id;
   if (state.connected) record.experiment.catalogRevision = catalogClient.snapshot?.revision;
@@ -91,7 +93,16 @@ export function prepareExperimentRepeat(state, step, record) {
   view.bundle.editing = true;
   if (state.connected) view.bundle.catalogRevision = catalogClient.snapshot?.revision;
 }
+export function experimentEstimateKey(configuration) {
+  return JSON.stringify([configuration.durationSeconds, configuration.participants,
+    configuration.values, configuration.outputs]);
+}
+export function experimentStorageEstimate(state, configuration) {
+  const estimate = state.expectedSize;
+  return estimate?.configuration === configuration && estimate.key === experimentEstimateKey(configuration) ? estimate : null;
+}
 export function experimentIssues(state, step, configuration) {
+  const estimate = experimentStorageEstimate(state, configuration)?.result;
   state = executionContext(state);
   const issues = [];
   if (!Number.isFinite(configuration.durationSeconds) || configuration.durationSeconds <= 0) issues.push('Set a positive planned duration.');
@@ -101,9 +112,19 @@ export function experimentIssues(state, step, configuration) {
   if (participants.some(device => !device.available)) issues.push(state.connected ? 'Participating inventory is unconfirmed.' : 'A participating demonstration device is unavailable.');
   if (state.connected) {
     if (typeof configuration.experimentId !== 'string' || !configuration.experimentId.trim()) issues.push('Set a nonblank Experiment ID.');
-    if (!Number.isSafeInteger(configuration.preservationBudget) || configuration.preservationBudget <= 0) issues.push('Set an explicit preservation budget.');
+    const preservation = estimate?.preservation?.available
+      ? Math.max(0, ...estimate.preservation.destinations.map(d => d.required_bytes)) : null;
+    if (configuration.preservationBudget != null) {
+      if (!Number.isSafeInteger(configuration.preservationBudget) || configuration.preservationBudget < 0) issues.push('Set a valid preservation budget.');
+      else if (preservation != null && configuration.preservationBudget < preservation) issues.push('Preservation budget is below the automatic requirement.');
+    } else if (preservation == null) issues.push('Set an explicit preservation budget or obtain an automatic estimate.');
     for (const node of new Set(participants.map(device => device.nodeId))) {
-      if (!Number.isSafeInteger(configuration.recordingBudgets?.[node]) || configuration.recordingBudgets[node] <= 0) issues.push(`Set an explicit recording budget for ${node}.`);
+      const budget = Object.hasOwn(configuration.recordingBudgets || {}, node) ? configuration.recordingBudgets[node] : null;
+      const automatic = estimate?.recording?.find(r => r.node_id === node)?.estimated_bytes;
+      if (budget != null) {
+        if (!Number.isSafeInteger(budget) || budget < 0) issues.push(`Set a valid recording budget for ${node}.`);
+        else if (automatic != null && budget < automatic) issues.push(`${node} recording budget is below the automatic requirement.`);
+      } else if (automatic == null) issues.push(`Set an explicit recording budget for ${node} or obtain an automatic estimate.`);
     }
     for (const field of participants.flatMap(device => deviceExamples[device.id]?.fields || [])) {
       if (!Object.hasOwn(configuration.values, field.id)) continue;

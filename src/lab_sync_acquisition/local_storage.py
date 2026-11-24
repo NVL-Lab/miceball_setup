@@ -30,6 +30,22 @@ REQUIRED_SCIENTIFIC_ROW_FIELDS = frozenset(
 )
 
 
+def camera_storage_estimate(schema):
+    """Return the measured uncompressed HDF5 camera planning profile, if supported."""
+    import numpy as np
+    shape = schema.get("frame_shape")
+    if (not isinstance(shape, list) or len(shape) not in (2, 3)
+            or any(type(n) is not int or n <= 0 for n in shape)):
+        raise ValueError("Stored camera dimensions are unavailable")
+    dtype = np.dtype(schema.get("frame_dtype"))
+    if "frame_dtype" not in schema or dtype.kind not in "biuf":
+        raise ValueError("Stored camera dtype is unavailable")
+    # Finalized production-writer measurements: 91-209 KB overhead for 1-256
+    # frames. This is a conservative planning allowance, not an encoded-byte bound.
+    return {"profile": "hdf5_camera_v1", "fixed_bytes": 128 * 1024,
+            "bytes_per_observation": math.prod(shape) * dtype.itemsize + 4096}
+
+
 def validate_frame_index(index):
     """Require the canonical scientific frame index without lossy coercion."""
     if isinstance(index, bool) or not isinstance(index, Integral):

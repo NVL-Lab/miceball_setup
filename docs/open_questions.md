@@ -3032,6 +3032,14 @@ shared filesystems; insufficient or indeterminate capacity blocks readiness for
 GUI and headless operation alike. The accepted future GUI warning is recorded in
 gui_design_notes.md, not implemented here.
 
+Decision 394's [accepted Expected size clarification](architecture_decisions.md#accepted-expected-size-and-adjustable-budget-clarification-2026-11-23)
+adds conservative empirically justified estimation, automatic installation metadata,
+read-only preparation estimates, StorageManager-owned preservation requirements,
+and working-Experiment budget overrides that cannot reduce automatic requirements.
+This new scope has developer implementation present, with independent
+validation/audit and physical deployment verification pending; it is not a
+reopening of G2 or Phase 16 or Q022 closure.
+
 The initial inspection found no existing automatic duration expiry mechanism.
 Accepted Decision 395 resolves execution/delegation: nodes translate the common
 Experiment deadline through authorized synchronization mappings and enforce it

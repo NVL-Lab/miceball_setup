@@ -208,7 +208,7 @@ class PersistentStorageManager:
                     else:
                         fcntl.flock(lock, fcntl.LOCK_UN)
 
-    def _destination_registry(self) -> dict:
+    def _destination_registry(self, *, initialize=True) -> dict:
         """Read strict owner configuration; a retained empty directory is not first use."""
         directory = self._storage_root / "artifact_destinations"
         path = directory / "registry.json"
@@ -217,10 +217,12 @@ class PersistentStorageManager:
         if not directory.exists():
             if any(self._storage_root.glob("session_*/artifact_destination.json")):
                 raise RuntimeError("Destination registry is missing despite retained Session bindings")
-            directory.mkdir(parents=True)
             entries = [] if self._global_artifact_root is None else [{
                 "destination_id": "default", "name": "Installation default",
                 "root": str(self._global_artifact_root.absolute()), "enabled": True}]
+            if not initialize:
+                return {"version": 1, "destinations": entries}
+            directory.mkdir(parents=True)
             self._write_destination_record(path, {"version": 1, "destinations": entries}, replace=False)
         if path.resolve() != path.absolute():
             raise ValueError("Destination registry aliases are not permitted")
@@ -1686,7 +1688,41 @@ class PersistentStorageManager:
 
 
     @service_operation()
-    def check_experiment_capacity(self, required_bytes: int, *, session_id: str | None = None) -> dict[str, Any]:
+    def estimate_experiment_storage(self, recording_estimates, *, session_id=None, storage_location=None):
+        """Plan distinct scientific-copy and evidence writes without filesystem probes."""
+        roots = {str(self._storage_root): 0}
+        try:
+            if session_id is not None:
+                science = self.resolve_session_artifact_root(session_id)
+            elif storage_location is not None:
+                with self._preservation_lock:
+                    entry = next((e for e in self._destination_registry(initialize=False)["destinations"]
+                                  if e["destination_id"] == storage_location and e["enabled"]), None)
+                    if entry is None:
+                        raise ValueError("Scientific destination is not approved")
+                    science = Path(entry["root"])
+            else:
+                science = self._global_artifact_root
+            if science is None:
+                raise ValueError("Scientific preservation destination is unavailable")
+            if not isinstance(recording_estimates, (list, tuple)) or any(not isinstance(r, dict) for r in recording_estimates):
+                raise ValueError("Invalid scientific-copy estimates")
+            if any(r.get("valid") is not True or type(r.get("estimated_bytes")) is not int
+                   or r["estimated_bytes"] < 0 for r in recording_estimates):
+                raise ValueError("Scientific-copy estimate is unavailable; explicit preservation budget required")
+            total = sum(r["estimated_bytes"] for r in recording_estimates)
+            # Ordinary operational metadata uses the same measured fixed-product
+            # allowance; scientific copies already include their own sidecars.
+            roots[str(self._storage_root)] += 128 * 1024
+            roots[str(science)] = roots.get(str(science), 0) + total
+            return {"available": True, "destinations": [
+                {"destination": root, "required_bytes": size} for root, size in sorted(roots.items())]}
+        except (ValueError, TypeError, RuntimeError, OSError) as error:
+            return {"available": False, "destinations": [], "reason": str(error)}
+
+    @service_operation()
+    def check_experiment_capacity(self, required_bytes: int | None, *, session_id: str | None = None,
+                                  recording_estimates=None) -> dict[str, Any]:
         """Check each configured preservation destination, not archival success."""
         readiness = self.check_ready()
         if not readiness.ready:
@@ -1699,9 +1735,16 @@ class PersistentStorageManager:
                 roots.add(self._global_artifact_root)
         except (ValueError, RuntimeError, OSError) as error:
             return {"ready": False, "reason": str(error)}
-        destinations = [inspect_storage_capacity(root, required_bytes) for root in sorted(roots)]
+        estimate = (self.estimate_experiment_storage(recording_estimates, session_id=session_id)
+                    if recording_estimates is not None else None)
+        automatic = {d["destination"]: d["required_bytes"] for d in estimate["destinations"]} if estimate else {}
+        if estimate and estimate["available"]:
+            if required_bytes is not None and any(required_bytes < n for n in automatic.values()):
+                return {"ready": False, "reason": "Preservation budget is below the automatic estimate"}
+        destinations = [inspect_storage_capacity(root, required_bytes if required_bytes is not None
+                                                 else automatic.get(str(root))) for root in sorted(roots)]
         return {"ready": all(report["ready"] for report in destinations),
-                "destinations": destinations}
+                "destinations": destinations, "estimate": estimate}
 
     @service_operation()
     def write_session_record(

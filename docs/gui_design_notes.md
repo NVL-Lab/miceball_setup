@@ -657,6 +657,16 @@ GUI cannot bypass failed capacity readiness or substitute its own readiness
 authority. Headless Controller operation is subject to the same framework gate.
 No GUI functionality is implemented or validated by this documentation.
 
+Decision 394's [accepted Expected size clarification](architecture_decisions.md#accepted-expected-size-and-adjustable-budget-clarification-2026-11-23)
+adds automatic aggregate Expected size alongside Experiment timing, with individual
+budget controls exposed for adjustments or missing material estimates. Empty
+estimates, explicit fallback, retained working overrides, return-to-automatic and
+stale-result refusal must use authoritative framework readback; estimates are not
+capacity confirmation or runtime recording limits. Developer implementation is
+present; independent validation/audit and physical deployment verification remain
+pending. Preserve the existing Parameters
+usability corrections and immutable executed records.
+
 ## Storage Tab
 
 ### Accepted Session destination selection (Decision 450; independent verification pending)

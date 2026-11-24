@@ -250,7 +250,7 @@ class RuntimeCommandMessage:
     receiver_instance_id: str | None = None
 
     def __post_init__(self) -> None:
-        if self.session_id is None and self.command_type not in ({"register_controller", "read_controller_admission", "check_readiness", "get_inventory", "update_device_configuration", "list_storage_sessions", "list_artifact_destinations", "register_artifact_destination", "update_artifact_destination", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
+        if self.session_id is None and self.command_type not in ({"estimate_experiment_storage", "register_controller", "read_controller_admission", "check_readiness", "get_inventory", "update_device_configuration", "list_storage_sessions", "list_artifact_destinations", "register_artifact_destination", "update_artifact_destination", "stop", "kill", "cancel", "check_stop_readiness", "prepare_stop", "preserve_service_evidence"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS):
             raise ValueError("Session-specific command requires session_id")
         if self.session_id is not None:
             _validate_subject_token("session_id", self.session_id)
@@ -611,6 +611,7 @@ def _validate_browser_context(context):
 
 
 EXTERNAL_CONTROLLER_OPERATIONS = {
+    "estimate_experiment_storage": "estimate_experiment_storage",
     **{operation: operation for operation in SERVICE_RECOVERY_COMMAND_TYPES},
     "read_controller_state": "read_controller_state",
     "read_operation_outcome": "read_operation_outcome",
@@ -666,7 +667,9 @@ class ExternalControllerRequest:
         _validate_browser_context(self.browser_context)
         for name in ("controller_id", "client_id", "request_id"):
             _validate_subject_token(name, getattr(self, name))
-        if self.operation in EXTERNAL_CONTROLLER_SESSIONLESS_OPERATIONS:
+        if self.operation == "estimate_experiment_storage" and self.session_id is None:
+            pass
+        elif self.operation in EXTERNAL_CONTROLLER_SESSIONLESS_OPERATIONS:
             if self.session_id is not None:
                 raise ValueError("Storage enumeration has no selected Session")
         else:
@@ -674,6 +677,7 @@ class ExternalControllerRequest:
         if self.operation not in EXTERNAL_CONTROLLER_OPERATIONS:
             raise ValueError("Unsupported external Controller operation")
         schemas = {
+            "estimate_experiment_storage": ({"configuration", "scientific_outputs", "storage_location"}, set()),
             **{operation: ({"participant", "administrator_id", "authorized", "recovery_command_id",
                             "authorization_evidence_id", "obligation"}, set())
                for operation in SERVICE_RECOVERY_COMMAND_TYPES},
@@ -810,7 +814,9 @@ class ExternalControllerResult:
     def __post_init__(self):
         for name in ("controller_id", "client_id", "request_id"):
             _validate_subject_token(name, getattr(self, name))
-        if self.operation in EXTERNAL_CONTROLLER_SESSIONLESS_OPERATIONS:
+        if self.operation == "estimate_experiment_storage" and self.session_id is None:
+            pass
+        elif self.operation in EXTERNAL_CONTROLLER_SESSIONLESS_OPERATIONS:
             if self.session_id is not None:
                 raise ValueError("Storage enumeration result has no selected Session")
         else:

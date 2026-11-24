@@ -602,7 +602,9 @@ class AcquisitionNode:
             capacity = self.check_experiment_capacity(outputs, configuration)
             if capacity["ready"] is not True:
                 raise RuntimeError(str(capacity))
-            for adapter, parameters in self._experiment_device_parameters(configuration):
+            resolved = self._experiment_device_parameters(configuration)
+            parameters_by_device = {a.device_id: asdict(p) if is_dataclass(p) else p for a, p in resolved}
+            for adapter, parameters in resolved:
                 if (parameters != adapter.initialization_config or adapter.state not in {
                         DeviceAdapterState.INITIALIZED, DeviceAdapterState.READY, DeviceAdapterState.RUNNING}):
                     if adapter.state == DeviceAdapterState.RUNNING:
@@ -652,7 +654,7 @@ class AcquisitionNode:
                     acquisition_node_id=self._node_id,
                     source_component_id=output.source_device_id,
                     data_product_id=product.data_product_id, artifact_type=product.product_type,
-                    schema=product.schema, storage_format=product.storage_format,
+                    schema=product.stored_schema(parameters_by_device[output.source_device_id] or {}), storage_format=product.storage_format,
                     details={"storage_requirements": product.storage_requirements,
                              "expected_data_size_bytes": product.expected_data_size_bytes,
                              "expected_acquisition_rate_hz": product.expected_acquisition_rate_hz},
@@ -702,34 +704,75 @@ class AcquisitionNode:
                                                         overrides.get(a.device_id))) for a in adapters)
 
     @service_operation()
+    def estimate_experiment_storage(self, scientific_outputs: Iterable[ScientificOutputSelection],
+                                    configuration: ExperimentConfiguration) -> dict[str, Any]:
+        """Read automatic scientific sizes without initialization, reservation or disk probes."""
+        with self._reservation_lock:
+            try:
+                if not isinstance(configuration, ExperimentConfiguration):
+                    raise ValueError("An Experiment configuration is required")
+                baseline = (self._session_device_configurations if self._session_device_configurations is not None
+                            else self._deployment_device_configurations)
+                manager = self._runtime_device_manager if self._session_prepared else self._device_manager
+                ids = (configuration.participating_devices or {}).get(self._node_id, [])
+                adapters = {a.device_id: a for a in manager.adapters if a.device_id in ids}
+                if set(ids) != set(adapters):
+                    raise ValueError("Experiment participation references unavailable devices")
+                overrides = (configuration.device_configurations or {}).get(self._node_id, {})
+                if set(overrides) - set(adapters):
+                    raise ValueError("Experiment overrides reference nonparticipating devices")
+                parameters = {}
+                for identity, adapter in adapters.items():
+                    value = adapter.resolve_session_configuration(baseline[identity], overrides.get(identity))
+                    parameters[identity] = asdict(value) if is_dataclass(value) else value
+                outputs = tuple(scientific_outputs)
+                if len(set(outputs)) != len(outputs):
+                    raise ValueError("Duplicate scientific outputs")
+                total, products, unavailable = 0, [], []
+                for output in outputs:
+                    if output.source_node_id != self._node_id or output.source_device_id not in adapters:
+                        raise ValueError("Scientific output references a nonparticipating device")
+                    product = next(p for d in self.declared_devices if d.device_id == output.source_device_id
+                                   for p in d.scientific_products if p.data_product_id == output.data_product_id)
+                    selected = parameters[output.source_device_id] or {}
+                    schema = product.stored_schema(selected)
+                    if product.storage_format == "hdf5" and product.product_type == "camera_frames":
+                        shape = schema.get("frame_shape")
+                        if (not isinstance(shape, list) or len(shape) not in (2, 3)
+                                or selected.get("frame_width") not in (None, shape[1])
+                                or selected.get("frame_height") not in (None, shape[0])):
+                            raise ValueError("Selected camera resolution differs from the stored representation")
+                    try:
+                        size = product.estimate_storage_bytes(configuration.duration_s, selected)
+                        total += size
+                        products.append({**output.to_dict(), "estimated_bytes": size})
+                    except (ValueError, TypeError, KeyError, OverflowError) as error:
+                        unavailable.append(str(error))
+                return {"node_id": self._node_id, "valid": True,
+                        "estimated_bytes": None if unavailable else total,
+                        "products": products, "unavailable": unavailable}
+            except (ValueError, TypeError, KeyError, StopIteration) as error:
+                return {"node_id": self._node_id, "valid": False, "estimated_bytes": None,
+                        "products": [], "unavailable": [str(error) or "Unknown scientific product"]}
+
+    @service_operation()
     def check_experiment_capacity(self, scientific_outputs: Iterable[ScientificOutputSelection],
                                   configuration: ExperimentConfiguration) -> dict[str, Any]:
         """Check this node's selected representation or explicit all-inclusive recording budget."""
         try:
             if not isinstance(configuration, ExperimentConfiguration) or self._local_storage_manager is None:
                 raise ValueError("Prepared local storage and Experiment configuration are required")
-            outputs = tuple(scientific_outputs)
-            parameters = {a.device_id: asdict(value) if is_dataclass(value) else value
-                          for a, value in self._experiment_device_parameters(configuration)}
+            self._experiment_device_parameters(configuration)
+            estimate = self.estimate_experiment_storage(scientific_outputs, configuration)
+            if not estimate["valid"]:
+                raise ValueError("; ".join(estimate["unavailable"]))
             required = (configuration.recording_budgets or {}).get(self._node_id)
-            total = 0
-            for output in outputs:
-                if output.source_node_id != self._node_id:
-                    raise ValueError("Capacity output references another node")
-                product = next(p for d in self._device_declarations if d.device_id == output.source_device_id
-                               for p in d.scientific_products if p.data_product_id == output.data_product_id)
-                if product.storage_format == "hdf5" and product.product_type == "camera_frames":
-                    shape = product.schema.get("frame_shape")
-                    selected = parameters[output.source_device_id]
-                    if (not isinstance(shape, list) or len(shape) not in (2, 3)
-                            or selected.get("frame_width") not in (None, shape[1])
-                            or selected.get("frame_height") not in (None, shape[0])):
-                        raise ValueError("Selected camera resolution differs from the declared stored representation")
-                if required is None:
-                    total += product.estimate_storage_bytes(configuration.duration_s, parameters[output.source_device_id])
+            automatic = estimate["estimated_bytes"]
+            if required is not None and automatic is not None and required < automatic:
+                raise ValueError("Recording budget is below the automatic estimate")
             if required is None:
-                required = total
-            return self._local_storage_manager.check_capacity(required)
+                required = automatic
+            return {**self._local_storage_manager.check_capacity(required), "estimate": estimate}
         except Exception as error:
             return {"ready": False, "reason": f"Recording capacity unconfirmed: {error}"}
 

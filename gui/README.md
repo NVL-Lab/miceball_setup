@@ -356,6 +356,16 @@ duration, node recording budgets, preservation budget, participating devices,
 explicit scientific outputs and adapter-declared overrides. Missing values are not
 filled from the former camera/stimulation examples. The read-only Parameters view uses
 Controller-reported executed configuration, not later working edits.
+Developer implementation (independent validation/audit and physical verification
+pending): Parameters shows automatic Expected size beside timing through bounded
+Controller/NATS owner readback. It counts the scientific dataset once, not its
+preservation copies. Budget inputs appear for adjustments or unavailable estimates;
+explicit overrides survive recalculation, cannot lower known automatic requirements
+and can return to automatic mode. Unrelated new preparations do not inherit these
+overrides. Configuration, Session, connection and Controller changes invalidate
+obsolete readback; reconnect requires current inventory confirmation. Estimates
+neither establish readiness nor impose runtime quotas. See the
+[representation measurements and owner contracts](../docs/installation_and_deployment.md#experiment-capacity-and-duration-g2-closed).
 Start/Stop Experiment, explicit expiry reconciliation, Normal Session Stop and
 release delegate to existing Controller operations. Released Sessions permit another
 launch without restarting the GUI.

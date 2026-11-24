@@ -1,6 +1,6 @@
 import { state } from './protocol-setup.js';
 import { devices, operations } from './protocol-demo.mjs';
-import { deviceExamples, saveExperimentTemplate } from './experiment-demo.mjs';
+import { deviceExamples, saveExperimentTemplate, experimentStorageEstimate } from './experiment-demo.mjs';
 import { escapeText as escape, executionIdentity, navigate, configurationStringEditor, readConfigurationString } from './gui-presentation.js';
 import { configurationNumber, scientificOutputIdentity, configurationStringText, parseConfigurationString } from './configuration-values.mjs';
 import { clone } from './protocol-demo.mjs';
@@ -236,7 +236,7 @@ export function renderParameters() {
     <div class="parameter-toolbar"><button type="button" data-parameter-expand>Expand all</button><button type="button" data-parameter-collapse>Collapse all</button></div>
     ${!['session', 'experiment'].includes(context.kind) ? `<div class="parameter-toolbar">${[...new Set([...context.devices, ...configuration.participants])].map(id => ({id, name: devices.find(device => device.id === id)?.name || id})).map(device => `<label><input type="checkbox" data-parameter-participant="${escape(device.id)}" ${configuration.participants.includes(device.id) ? 'checked' : ''} ${readOnly ? 'disabled' : ''}>${escape(device.name)}${context.devices.includes(device.id) ? '' : ' · outside selected pool'}</label>`).join('') || '<p>Select Session devices in Setup to configure their supported parameters.</p>'}</div>` : ''}
     <fieldset class="parameter-fields" id="parameter-fields" ${readOnly ? 'disabled' : ''}>
-      <details class="parameter-section" open><summary>Experiment timing</summary><div class="parameter-section-body"><label>Planned duration (seconds)<input type="number" id="experiment-duration" value="${escape(configuration.durationSeconds ?? '')}" min="1" step="any" required></label><p>${state.connected ? 'Requested autonomous acquisition duration.' : 'Explicit demonstration duration, not a real acquisition deadline.'}</p></div></details>
+      <details class="parameter-section" open><summary>Experiment timing</summary><div class="parameter-section-body"><label>Planned duration (seconds)<input type="number" id="experiment-duration" value="${escape(configuration.durationSeconds ?? '')}" min="1" step="any" required></label><p>${state.connected ? 'Requested autonomous acquisition duration.' : 'Explicit demonstration duration, not a real acquisition deadline.'}</p>${state.connected && !readOnly ? '<div data-expected-size role="status"></div>' : ''}</div></details>
       ${devices.filter(device => context.devices.includes(device.id) || configuration.participants.includes(device.id)).map(device => `<details class="parameter-section" ${configuration.participants.includes(device.id) ? 'open' : ''}><summary>${escape(device.name)} <small>${state.connected ? 'Declared settings' : 'Illustrative settings'}</small></summary><fieldset class="parameter-section-body" ${configuration.participants.includes(device.id) ? '' : 'disabled'}>${(deviceExamples[device.id]?.fields || []).map(field => parameterField(field, configuration.values[field.id], Object.hasOwn(configuration.values, field.id), configuredParameterValue(state, device, field, ['session', 'experiment'].includes(context.kind) ? state.activeSession?.sessionId : null))).join('') || '<p>No supported parameter definitions supplied for this device.</p>'}</fieldset></details>`).join('')}
       ${state.connected ? `<details class="parameter-section" open><summary>Framework recording configuration</summary><div class="parameter-section-body"><label>Experiment ID${stringField('data-framework-field="experimentId"', configuration.experimentId)}</label><label>Preservation budget (bytes)<input type="number" min="1" step="1" data-framework-field="preservationBudget" value="${escape(configuration.preservationBudget ?? '')}" required></label>${[...new Set(participants.map(device => device.nodeId))].map(node => `<label>${escape(node)} recording budget (bytes)<input type="number" min="1" step="1" data-recording-budget="${escape(node)}" value="${escape(configuration.recordingBudgets?.[node] ?? '')}" required></label>`).join('')}<section class="parameter-section scientific-outputs"><h4>Scientific Outputs</h4><div class="parameter-section-body">${participants.flatMap(device => (device.declaration?.scientific_products || []).map(product => { const output = {source_node_id: device.nodeId, source_device_id: device.deviceId, data_product_id: product.data_product_id}; return `<label class="parameter-checkbox"><input type="checkbox" data-scientific-output="${escape(JSON.stringify(output))}" ${configuration.outputs?.some(item => scientificOutputIdentity(item) === scientificOutputIdentity(output)) ? 'checked' : ''}>${escape(device.name)} / ${escape(product.data_product_id)}</label>`; })).join('') || '<p>No declared scientific products available.</p>'}</div></section></div></details>` : ''}
     </fieldset>
@@ -254,6 +254,64 @@ export function renderParameters() {
   renderSynchronizationSettings();
   renderAdministrativeSettings();
   updateTemplateRemoval();
+  if (state.connected && !readOnly) {
+    renderStorageEstimate(configuration);
+    queueMicrotask(() => state.actions.refreshExpectedSize?.());
+  }
+}
+
+export function renderStorageEstimate(configuration) {
+  panel.querySelectorAll('[data-storage-estimate-note], [data-storage-automatic]').forEach(e => e.remove());
+  const estimate = experimentStorageEstimate(state, configuration), result = estimate?.result;
+  const bytes = value => {
+    if (!Number.isSafeInteger(value) || value < 0) return 'Unavailable';
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    let amount = value, unit = 0;
+    while (amount >= 1024 && unit < units.length - 1) { amount /= 1024; unit++; }
+    return `${amount.toLocaleString(undefined, {maximumFractionDigits: 2})} ${units[unit]}`;
+  };
+  const target = panel.querySelector('[data-expected-size]');
+  const unavailable = result?.expected_bytes == null
+    ? result?.recording?.flatMap(r => r.unavailable || []).join('; ') : '';
+  if (target) target.textContent = `Expected size: ${estimate?.pending ? 'Calculating…' : bytes(result?.expected_bytes)}${estimate?.error || unavailable ? ` · ${estimate?.error || unavailable}` : ''}`;
+  const inputs = [...panel.querySelectorAll('[data-recording-budget], [data-framework-field="preservationBudget"]')];
+  for (const input of inputs) {
+    input.required = false; input.min = '0';
+    const minimum = input.dataset.recordingBudget
+      ? result?.recording?.find(r => r.node_id === input.dataset.recordingBudget)?.estimated_bytes
+      : result?.preservation?.available ? Math.max(0, ...result.preservation.destinations.map(d => d.required_bytes)) : null;
+    const explicit = input.value !== '' || input.validity.badInput;
+    const label = input.closest('label'); label.dataset.storageBudget = '';
+    label.hidden = !explicit && minimum != null && !state.adjustStorageBudgets;
+    input.placeholder = minimum == null ? 'Explicit budget required' : String(minimum);
+    if (minimum != null) input.min = String(minimum);
+    const note = document.createElement('small');
+    note.dataset.storageEstimateNote = '';
+    note.textContent = explicit ? 'Explicit override' : minimum == null ? 'Automatic estimate unavailable' : `Automatic: ${bytes(minimum)}`;
+    input.after(note);
+    if (explicit) {
+      const automatic = document.createElement('button');
+      automatic.dataset.storageAutomatic = '';
+      automatic.type = 'button'; automatic.textContent = 'Use automatic';
+      automatic.onclick = () => {
+        const context = resolveParameterContext(state);
+        if (!context || context.readOnly || document.documentElement.dataset.controlMode !== 'controlling') return;
+        if (input.dataset.recordingBudget) {
+          const recordingBudgets = {...configuration.recordingBudgets}; delete recordingBudgets[input.dataset.recordingBudget];
+          context.update({recordingBudgets});
+        } else context.update({preservationBudget: null});
+        renderParameters(); state.actions.syncControls?.();
+      };
+      input.after(automatic);
+    }
+  }
+  if (target) {
+    const adjust = panel.querySelector('[data-storage-adjust]') || document.createElement('button'); adjust.type = 'button';
+    adjust.dataset.storageAdjust = '';
+    adjust.textContent = state.adjustStorageBudgets ? 'Hide automatic budgets' : 'Adjust budgets';
+    adjust.onclick = () => { state.adjustStorageBudgets = !state.adjustStorageBudgets; renderParameters(); };
+    target.after(adjust);
+  }
 }
 
 panel.addEventListener('click', event => {
@@ -348,6 +406,8 @@ function updateParameterWorking(event) {
     }
     message = inputError ? `Invalid configuration value: ${inputError.message}` : '';
     state.actions.syncControls?.();
+    state.actions.refreshExpectedSize?.();
+    if (control.matches('[data-recording-budget], [data-framework-field="preservationBudget"]')) renderStorageEstimate(view.configuration);
   } catch (error) { message = error.message; state.actions.recordActivity?.('validate_parameters', error.message); }
   panel.querySelector('#parameter-feedback').textContent = message;
 }

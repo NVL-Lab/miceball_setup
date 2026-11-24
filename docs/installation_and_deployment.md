@@ -1476,6 +1476,12 @@ Synchronous device calls are not preemptible hardware deadline guarantees.
 <a id="experiment-capacity-and-duration-g2-closed"></a>
 ### Experiment Capacity And Duration (G2 Closed)
 
+**Developer implementation; independent validation/audit pending:**
+Decision 394's [accepted Expected size clarification](architecture_decisions.md#accepted-expected-size-and-adjustable-budget-clarification-2026-11-23)
+adds automatic available installation metadata, read-only preparation estimates,
+preservation proposals and owner-enforced minimum budgets. Historical G2 closure
+does not validate these additions; physical deployment verification remains pending.
+
 Every Experiment requires `ExperimentConfiguration` with positive finite
 `duration_s`, applicable node-keyed `recording_budgets`,
 `preservation_budget_bytes` and optional node/device `device_configurations`.
@@ -1491,8 +1497,86 @@ fields `fixed_bytes`, `bytes_per_observation`, selected FPS/batch, consistent
 shape/dtype and a per-observation bound at least as large as the raw frame.
 It includes an in-flight batch:
 `fixed_bytes + (ceil(duration_s * fps) + frames_per_collect) * bytes_per_observation`.
-Preservation has no general estimator; supply its authoritative budget.
-There are no invented compression ratios, rates or safety margins.
+Existing explicit declarations remain supported. The installer initializes missing
+HDF5 camera `capacity_estimate` metadata from the storage-owned `hdf5_camera_v1`
+profile when shape/dtype are available; it does not invent FPS or probe hardware.
+When preflight dependencies are unavailable, metadata initialization is deferred
+until package installation, without another Advanced prompt; source-byte checks
+and existing conditional publication still protect concurrent configuration edits.
+The profile uses uncompressed raw frame bytes plus 4 KiB per frame and 128 KiB
+fixed overhead, including an in-flight batch. Selected dimensions resolve the
+same schema for estimation and stream creation. Missing rate or representation
+information leaves estimation unavailable and requires an explicit budget.
+
+Production-writer software measurements (Python 3.12.14, NumPy 2.3.5, h5py 3.16.0,
+HDF5 2.0.0; finalized HDF5 plus metadata/manifest sidecars):
+
+| Shape / dtype | Frames / collection | Raw bytes | Stored bytes | Estimate bytes |
+| --- | --- | --- | --- | --- |
+| 2x4x3 uint8 | 1 / 1 | 24 | 93,289 | 139,312 |
+| 48x64 uint16 | 32 / 8 | 196,608 | 299,672 | 540,672 |
+| 480x640x3 uint8 | 4 / 1 | 3,686,400 | 3,777,645 | 4,759,552 |
+| 480x640x3 uint8 | 60 / 8 | 55,296,000 | 55,411,883 | 63,078,400 |
+| 720x1280x3 uint8 | 8 / 4 | 22,118,400 | 22,209,707 | 33,357,824 |
+| 24x32 float32 | 256 / 16 | 786,432 | 995,235 | 2,080,768 |
+
+These support a conservative planning allowance, not an exhaustive encoded-byte
+bound or physical camera validation. StorageManager reuses estimated scientific
+copies, adds a 128 KiB ordinary operational-metadata allowance at its evidence
+root, and retains distinct roots/shared-filesystem checks. Unestimable scientific
+copies require explicit preservation fallback. A scalar explicit preservation
+budget covers each required root; it is never divided among destinations.
+
+Controller-mediated `estimate_experiment_storage` is read-only and separate from
+start-time capacity admission. GUI Expected size counts the scientific dataset
+once; it does not add preservation copies. Budget controls appear for adjustments
+or missing estimates. Explicit overrides survive recalculation, cannot reduce an
+available automatic minimum, and can return to automatic mode. Accepted/running
+configurations remain immutable. Estimates impose no runtime quota or new Stop.
+
+Developer verification uses `tests/test_expected_size.py`, five focused installer
+methods, production Parameters/configuration browser checks, and
+`GUIIntegrationTests.test_storage_estimation_is_read_only_before_and_after_session_admission`
+against an isolated authenticated broker. Independent validation/audit and physical
+camera/Jetson/Ubuntu storage checks remain pending. The complete changed owner/API
+inventory is in [the code map](code_map.md#expected-size-integration-decision-394-clarification-independent-verification-pending).
+
+Focused Windows CMD verification (activated development environment; Node,
+Playwright and the selected browser must already be available):
+
+```bat
+set PYTHONPATH=src;gui\src
+set LAB_SYNC_BROWSER_CHANNEL=msedge
+python -B -m unittest tests.test_expected_size gui.tests.test_expected_size gui.tests.test_parameters_browser ^
+ gui.tests.test_backend.GUIIntegrationTests.test_storage_estimation_is_read_only_before_and_after_session_admission ^
+ gui.tests.test_connected_feedback.ConnectedFeedbackTests.test_parameter_usability_and_string_fidelity_in_browser ^
+ tests.test_install_framework.FrameworkInstallerTests.test_camera_estimation_metadata_initialized_without_changing_settings ^
+ tests.test_install_framework.FrameworkInstallerTests.test_camera_metadata_initialized_after_dependencies_become_available ^
+ tests.test_install_framework.FrameworkInstallerTests.test_explicit_camera_estimation_metadata_is_preserved ^
+ tests.test_install_framework.FrameworkInstallerTests.test_device_advanced_settings_preserve_independent_values_and_existing_role_bytes ^
+ tests.test_install_framework.FrameworkInstallerTests.test_invalid_or_cancelled_device_advanced_settings_preserve_hardware -v
+python -B -m unittest tests.test_experiment_capacity -v
+node --test gui/tests/test_connected_state.mjs gui/tests/test_parameter_context.mjs gui/tests/test_recording_selection.mjs
+```
+
+Latest developer outcomes across focused runs: 8/8 owner/API methods, 5/5
+installer methods and 3/3 production-browser methods PASS, with no skips. The
+browser regression exposed estimate-completion rerendering of a native invalid
+numeric draft; completion now updates feedback without rebuilding inputs, and
+the three browser methods passed after correction. The connected-state,
+parameter-context and recording-selection Node selection passed 17/17. Python
+syntax and changed JavaScript syntax checks passed, as did `git diff --check`.
+The G2 selection ran 31 methods: 25 passed and the six fixture errors below
+remained; all six reproduced against a disposable archive of committed HEAD.
+
+The capacity regression selection has six independently reproduced committed-HEAD
+fixture errors: five omit required Controller authority and one contradicts its
+retained destination configuration. These prevent their target local paths from
+being exercised; they were not corrected in this feature. A passing idle-expiry
+fixture also emits an unconfirmed-publication diagnostic; its pass does not certify
+delivery of that expiry evidence. The separate `test_configuration_values.mjs`
+selection has one committed-HEAD control-double error (`hasAttribute` absent).
+These limitations do not constitute new validation or closure of historical G2.
 
 <a id="timing-and-synchronization"></a>
 ### Timing And Synchronization

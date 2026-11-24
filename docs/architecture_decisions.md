@@ -11716,6 +11716,64 @@ separately packaged GUI project in this Git repository under top-level `gui/`.
 That later placement decision does not change this capacity-readiness requirement,
 its ownership, or its implementation/validation status.
 
+### Accepted Expected size and adjustable budget clarification (2026-11-23)
+
+The project owner explicitly accepted this supplement to Decision 394. Expected
+size is practical conservative storage planning, not an exact file-size prediction
+or runtime recording limit. Reasonable, empirically justified estimates suffice;
+exhaustive encoded-byte bounds are not mandatory. This qualifies the earlier
+encoded-size-bound interpretation without changing legacy expected-size/rate
+fields, scientific storage representations or the historical G2 validation.
+
+- Automatically initialize available estimation metadata during installation and
+  calculate Expected size during Experiment preparation. Reuse scientific-product
+  estimation, selected dimensions/channels, stored dtype, acquisition rate,
+  duration and applicable collection characteristics. Account for dominant writes;
+  reasonable justified allowances may cover small metadata, timestamps, indices,
+  HDF5 structures and operational evidence. Representative recordings may support
+  allowances; arbitrary percentages/compression assumptions and mandatory
+  calibration recordings at every installation are not authorized.
+- Device Adapter supplies supported acquisition characteristics/product
+  declarations; scientific storage supplies representation characteristics;
+  installer initializes available metadata; AcquisitionNode resolves selected
+  settings and estimates; Controller coordinates readback; StorageManager owns
+  preservation estimation/capacity; GUI displays results and working budgets.
+  Do not duplicate format knowledge or create a new estimator service.
+- Provide bounded read-only preparation estimation through Controller-mediated
+  NATS, independently of explicit overrides and actual capacity admission. Return
+  per-node estimates or unavailable reasons for the exact working configuration,
+  Session and Controller instance. Reject stale results. Do not reserve resources,
+  initialize acquisition, capture execution baselines or mutate accepted settings.
+- Reuse estimated scientific sizes for copies preserved without transformation.
+  StorageManager accounts for other significant preservation products, applicable
+  roots and actual writes under Decision 450 and existing shared-filesystem
+  accounting; negligible evidence/metadata may use a justified general allowance.
+  Recording and preservation are not assumed identical. Retain per-node and
+  destination requirements, never arbitrarily distribute an aggregate override,
+  and expose explicit fallback for materially unestimable requirements.
+- Normally show one aggregate Expected size alongside timing. Show individual
+  recording/preservation budget controls only for requested adjustments or missing
+  material estimates. Unavailable estimates remain empty, not fabricated zero;
+  valid explicit authoritative budgets are required where estimation is unavailable.
+- Experimenters may increase automatic budgets or supply unavailable requirements.
+  An explicit budget below an available authoritative estimate must not reduce
+  capacity requirements; enforcement is framework-owned, including headless use.
+  Recalculate on relevant edits without overwriting distinguishable explicit
+  overrides. Return-to-automatic uses current preparation. Overrides belong to the
+  working Experiment and do not silently propagate to unrelated Experiments;
+  accepted and running configurations remain immutable.
+- Preserve separate recording/preservation admission and existing insufficient or
+  indeterminate-capacity refusal. A valid explicit fallback can establish capacity
+  without an automatic estimate. Exceeding Expected size triggers no new Stop/Kill,
+  runtime monitoring, quota, disk reservation or safety subsystem. Existing duration,
+  recording failures, preservation, lifecycle and owner responsibilities remain.
+
+**Status:** Accepted architecture; developer implementation present under ICC
+authorization. Independent validation, separate audit and physical deployment
+verification remain pending. G2 and Phase 16 remain CLOSED; this supplement does
+not extend their historical validation evidence. Implementation details and
+software-writer measurements are recorded in installation_and_deployment.md.
+
 **Implementation history:** Initial inspection found no configured-duration
 automatic Experiment termination mechanism to reuse; implementation waited for
 the expiry execution/delegation clarification accepted in Decision 395.

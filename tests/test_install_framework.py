@@ -19,6 +19,58 @@ from tests.nats_server_fixture import NATS_SERVER, restartable_jetstream_server
 
 
 class FrameworkInstallerTests(unittest.TestCase):
+    def test_camera_estimation_metadata_initialized_without_changing_settings(self):
+        from lab_sync_acquisition.local_storage import camera_storage_estimate
+        self.answers['Local roles'] = 'acquisition-node'
+        path = self.hardware()
+        data = json.loads(path.read_bytes())
+        schema = {'frame_shape': [480, 640, 3], 'frame_dtype': 'uint8'}
+        product = {'data_product_id': 'frames', 'product_type': 'camera_frames',
+                   'schema': schema, 'storage_format': 'hdf5', 'storage_requirements': {'retained': 'setting'}}
+        data['devices'][0]['declaration']['scientific_products'] = [product]
+        path.write_text(json.dumps(data))
+        original_settings = data['devices'][0]['configuration'].copy()
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        saved = json.loads(path.read_bytes())['devices'][0]
+        self.assertEqual(saved['configuration'], original_settings)
+        self.assertEqual(saved['declaration']['scientific_products'][0]['storage_requirements'],
+                         {'retained': 'setting', 'capacity_estimate': camera_storage_estimate(schema)})
+        before = path.read_bytes()
+        self.assertEqual(self.run_setup()[0], 0)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_explicit_camera_estimation_metadata_is_preserved(self):
+        self.answers['Local roles'] = 'acquisition-node'
+        path = self.hardware()
+        data = json.loads(path.read_bytes())
+        data['devices'][0]['declaration']['scientific_products'] = [{
+            'data_product_id': 'frames', 'product_type': 'camera_frames', 'storage_format': 'hdf5',
+            'schema': {'frame_shape': [2, 4, 3], 'frame_dtype': 'uint16'},
+            'storage_requirements': {'capacity_estimate': {'fixed_bytes': 100, 'bytes_per_observation': 80}}}]
+        path.write_text(json.dumps(data))
+        before = path.read_bytes()
+        code, _, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_camera_metadata_initialized_after_dependencies_become_available(self):
+        self.preflight_dependencies_missing = True
+        self.answers['Local roles'] = 'acquisition-node'
+        path = self.hardware()
+        data = json.loads(path.read_bytes())
+        data['devices'][0]['declaration']['scientific_products'] = [{
+            'data_product_id': 'frames', 'product_type': 'camera_frames', 'storage_format': 'hdf5',
+            'schema': {'frame_shape': [2, 4, 3], 'frame_dtype': 'uint16'}}]
+        path.write_text(json.dumps(data))
+        code, output, errors = self.run_setup()
+        self.assertEqual(code, 0, errors)
+        saved = json.loads(path.read_bytes())['devices'][0]
+        self.assertEqual(saved['configuration'], data['devices'][0]['configuration'])
+        self.assertEqual(saved['declaration']['scientific_products'][0]['storage_requirements']
+                         ['capacity_estimate']['profile'], 'hdf5_camera_v1')
+        self.assertIn('unavailable until framework dependencies', output)
+
     def test_new_device_uses_adapter_initial_value_without_changing_unrelated_fields(self):
         self.answers['Local roles'] = 'acquisition-node'
         path = self.hardware()
@@ -1236,6 +1288,8 @@ class FrameworkInstallerTests(unittest.TestCase):
                         result = INITIAL_SYNCHRONIZATION_CONFIGURATION.to_dict()
                     return json.dumps(result)
             elif installer.NODE_PARAMETERS in args:
+                if self.preflight_dependencies_missing and not any('pip' in c for c in self.calls):
+                    return 'DEPENDENCIES_UNAVAILABLE'
                 source = Path(__file__).resolve().parents[1] / 'src'
                 return installer_run([sys.executable, '-I', '-B', '-c', installer.NODE_PARAMETERS, source],
                     timeout=timeout, input=input)

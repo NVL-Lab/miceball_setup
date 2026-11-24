@@ -36,7 +36,7 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
         self.adapter = SeeedIMX219OpenCVCameraAdapter(
             "camera", "opencv", ("camera_frames",), True, cv2_module=self.camera)
         self.declaration = DeviceDeclaration("camera", "opencv", True, True, ("camera_frames",), (
-            ScientificProductDeclaration("frames", "camera_frames",
+            getattr(self, "scientific_product", None) or ScientificProductDeclaration("frames", "camera_frames",
                 {"frame_shape": [2, 4, 3], "frame_dtype": "uint16"}, "hdf5"),))
         self.broker = _Broker()
         self.storage = PersistentStorageManager(self.root / "storage", global_artifact_root=self.root / "artifacts")
@@ -74,6 +74,8 @@ class SustainedAcquisitionTests(unittest.IsolatedAsyncioTestCase):
                 close_resources=AsyncMock(return_value=True))
         self.communication = NatsControllerCommunication(self.pc)
         self.target = RuntimeParticipant("acquisition_node", "node")
+        if getattr(self, "before_launch", None) is not None:
+            await self.before_launch(self)
         result = await self.controller.launch_session({"node": (self.declaration,)},
             communication=self.communication, participants=(RuntimeParticipant("ingestor", "ingestor"),
                 RuntimeParticipant("storage_manager", "storage"),

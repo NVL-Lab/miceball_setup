@@ -5576,6 +5576,13 @@ and previous workflow validation history are unchanged.
 
 # G2 - Experiment Capacity Preflight and Autonomous Duration Expiry
 
+**Later accepted scope:** Decision 394's [Expected size clarification](architecture_decisions.md#accepted-expected-size-and-adjustable-budget-clarification-2026-11-23)
+has developer implementation present, with independent validation/audit and
+physical deployment verification pending. The
+closure and results below cover existing G2 only; no automatic-installation,
+preparation-readback or new budget-minimum verification is claimed by this update.
+G2 and Phase 16 remain CLOSED.
+
 **Status:** CLOSED - bounded software implementation under Decisions 394-395,
 independent ICC IPython/adversarial validation and separate independent Codex
 read-only audit PASS; ICC authorized documentation-only closure.

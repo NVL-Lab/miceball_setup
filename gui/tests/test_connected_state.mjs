@@ -6,7 +6,7 @@ globalThis.document = {documentElement: {dataset: {runtime: 'connected'}}};
 const {createDemo, devices, operations} = await import('../src/miceball_gui/static/protocol-demo.mjs');
 const {applyControllerSnapshot, launchSessionDemo} = await import('../src/miceball_gui/static/session-context.mjs');
 const {prepareFreeOperation, selectedStepContext, actOnSessionStep, requestExperimentStop} = await import('../src/miceball_gui/static/session-demo.mjs');
-const {experimentView, updateExperiment} = await import('../src/miceball_gui/static/experiment-demo.mjs');
+const {experimentView, updateExperiment, experimentIssues, experimentEstimateKey, deviceExamples} = await import('../src/miceball_gui/static/experiment-demo.mjs');
 const {activeParameterSnapshot} = await import('../src/miceball_gui/static/experiment-parameters.mjs');
 const {createStorageDemo} = await import('../src/miceball_gui/static/storage-demo.mjs');
 const {createServicesDemo, beginShutdownPreview} = await import('../src/miceball_gui/static/services-demo.mjs');
@@ -16,6 +16,30 @@ function snapshot() {
     configuration: {selected_devices: [structuredClone(declaration)], expected_runtime_participants: [{component_type: 'acquisition_node', component_id: 'node'}],
       session_parameters: {experimenter: 'Accepted scientist', name: 'Accepted name'}, protocol_reference: null}, experiments: []};
 }
+
+test('automatic budgets preserve exact node identities and overrides belong to the working Experiment', () => {
+  const node = '__proto__', id = configurationIdentity(node, 'camera');
+  devices.push({id, nodeId: node, deviceId: 'camera', available: true});
+  deviceExamples[id] = {acquisition: true, fields: []};
+  try {
+    const state = createDemo(); state.selectedDevices = [id];
+    const step = {id: 'size', operation: 'acquisition', parameters: {durationSeconds: 2, participants: [id],
+      values: {}, experimentId: 'size', outputs: [{source_node_id: node, source_device_id: 'camera', data_product_id: 'frames'}]}};
+    const record = {status: 'ready'};
+    const {configuration} = experimentView(state, step, record);
+    state.expectedSize = {configuration, key: experimentEstimateKey(configuration), result: {
+      expected_bytes: 10, recording: [{node_id: node, estimated_bytes: 10}],
+      preservation: {available: true, destinations: [{destination: 'science', required_bytes: 10}]}}};
+    assert.deepEqual(experimentIssues(state, step, configuration), []);
+    updateExperiment(state, step, record, {recordingBudgets: {[node]: 9}});
+    assert.match(experimentIssues(state, step, configuration).join(' '), /below the automatic/);
+    updateExperiment(state, step, record, {recordingBudgets: {[node]: 10}});
+    assert.deepEqual(experimentIssues(state, step, configuration), []);
+    const fresh = experimentView(state, {...step, id: 'unrelated', parameters: structuredClone(configuration)}, {status: 'ready'});
+    assert.deepEqual(fresh.configuration.recordingBudgets, {});
+    assert.equal(configuration.recordingBudgets[node], 10);
+  } finally {devices.length = 0; delete deviceExamples[id];}
+});
 
 test('connected preparation begins without fictional devices, protocols, results or parameter defaults', () => {
   const state = createDemo();

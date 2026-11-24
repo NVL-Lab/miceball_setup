@@ -1747,6 +1747,14 @@ W062 does not complete Q022 or Q024.
 
 ## Storage Capacity Preflight (G2)
 
+**Later accepted scope, not part of G2 evidence:** Decision 394's
+[Expected size clarification](architecture_decisions.md#accepted-expected-size-and-adjustable-budget-clarification-2026-11-23)
+requires automatic conservative planning, authoritative preparation readback and
+adjustable recording/preservation budgets with framework-enforced minima.
+Developer implementation is present; independent validation/audit and physical
+deployment verification are pending.
+G2 and Phase 16 remain CLOSED; the historical evidence below is unchanged.
+
 **Status:** CLOSED - bounded software scope under Decisions 394-395 after ICC
 independent validation and final separate Codex audit PASS with no confirmed
 remaining P0-P3 findings. Per-Experiment configured duration, selected device

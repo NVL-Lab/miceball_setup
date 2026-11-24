@@ -337,6 +337,32 @@ class GUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(uncertain["status"], "uncertain", uncertain)
         self.assertIsNone(uncertain["outcome"])
 
+    async def test_storage_estimation_is_read_only_before_and_after_session_admission(self):
+        configuration = {"duration_s": 2, "recording_budgets": None,
+            "preservation_budget_bytes": None, "device_configurations": None,
+            "participating_devices": {"node": [self.declaration.device_id]}}
+        parameters = {"configuration": configuration, "scientific_outputs": [], "storage_location": "default"}
+        ws, _ = await self.browser()
+        before = self.controller.get_status()
+        result = await self.completed(ws, "estimate_experiment_storage", parameters)
+        self.assertEqual(result['status'], 'succeeded', result)
+        details = result['outcome']['details']
+        self.assertEqual(details['configuration'], configuration)
+        self.assertEqual(details['expected_bytes'], 0)
+        self.assertTrue(details['preservation']['available'])
+        self.assertEqual(self.controller.get_status(), before)
+        self.assertIsNone(self.node.local_storage_manager)
+        await self.take(ws)
+        launch = await self.completed(ws, "launch_session", self.launch_parameters())
+        sid = launch['outcome']['details']['session_id']
+        result = await self.completed(ws, "estimate_experiment_storage", parameters, sid=sid)
+        self.assertEqual(result['status'], 'succeeded', result)
+        self.assertEqual(result['outcome']['details']['session_id'], sid)
+        self.assertEqual(result['outcome']['details']['expected_bytes'], 0)
+        self.assertEqual(self.node.local_storage_manager.manifests, ())
+        wrong = await self.completed(ws, 'estimate_experiment_storage', parameters, sid='other')
+        self.assertEqual(wrong['status'], 'failed', wrong)
+
     async def test_live_timing_readback_is_session_scoped_and_does_not_assess(self):
         ws, _ = await self.browser()
         await self.take(ws)

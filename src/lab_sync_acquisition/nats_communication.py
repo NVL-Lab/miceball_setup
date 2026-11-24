@@ -1001,7 +1001,7 @@ class NatsExternalSessionLaunchReceiver:
             if self._browser_control_required and request.browser_context is None:
                 raise ValueError("This external client requires browser connection context")
             record = self._requests.get(request.request_id)
-            if operation in {"read_controller_state", "read_operation_outcome", "get_node_inventory", "read_service_status", "read_synchronization_status", "list_artifact_destinations"}:
+            if operation in {"estimate_experiment_storage", "read_controller_state", "read_operation_outcome", "get_node_inventory", "read_service_status", "read_synchronization_status", "list_artifact_destinations"}:
                 if record is not None:
                     raise ValueError("Read request identity conflicts with a retained operation")
                 if request.browser_context is not None:
@@ -1180,6 +1180,11 @@ class NatsExternalSessionLaunchReceiver:
                     tuple(dict.fromkeys((*self._participants, self._maintenance.participant))),
                     communication=self._communication, stop_attempt_id=request.request_id,
                     administrator_id=request.parameters["administrator_id"], result_window_s=self._window)
+            if request.operation == "estimate_experiment_storage":
+                return await self._controller.estimate_experiment_storage(
+                    communication=self._communication, participants=self._participants,
+                    storage_participant=self._storage_participant(), result_window_s=self._window,
+                    expected_session_id=request.session_id, **deepcopy(request.parameters))
             if request.operation in {"list_artifact_destinations", "register_artifact_destination", "update_artifact_destination"}:
                 return await getattr(self._controller, request.operation)(
                     communication=self._communication, storage_participant=self._storage_participant(),
@@ -1535,7 +1540,7 @@ class NatsControllerCommunication:
                                       *, command_id: str | None = None) -> RuntimeCommandResultMessage | None:
         """Issue scoped runtime work with fresh per-attempt reply correlation."""
         if (((not isinstance(session_id, str) or not session_id)
-                and not (session_id is None and command_type in ({"check_readiness", "get_inventory", "update_device_configuration", "stop", "kill", "cancel"} | SERVICE_RECOVERY_COMMAND_TYPES)))
+                and not (session_id is None and command_type in ({"estimate_experiment_storage", "check_readiness", "get_inventory", "update_device_configuration", "stop", "kill", "cancel"} | SERVICE_RECOVERY_COMMAND_TYPES)))
                 or "request_nonce" in payload
                 or not isinstance(participant, RuntimeParticipant)):
             raise ValueError("An explicit Session, participant and caller payload are required")
@@ -2015,7 +2020,7 @@ class NatsAcquisitionNodeCommunication:
             "prepare_experiment_scientific_outputs",
             "read_local_time", "accept_synchronization_quality", "activate_experiment_runtime",
             "finalize_experiment_scientific_outputs",
-            "check_experiment_capacity", "read_experiment_expiry",
+            "estimate_experiment_storage", "check_experiment_capacity", "read_experiment_expiry",
         }
     )
 
@@ -2282,7 +2287,7 @@ class NatsAcquisitionNodeCommunication:
         try:
             if command.target_id != self._boundary.component_id:
                 raise ValueError("Command target does not match participant")
-            if command.command_type not in {"check_readiness", "get_inventory", "update_device_configuration", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"}:
+            if command.command_type not in {"estimate_experiment_storage", "check_readiness", "get_inventory", "update_device_configuration", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"}:
                 AcquisitionNode._validate_session_id(command.session_id)
             if command.command_type not in {"check_readiness", "get_inventory", "update_device_configuration", "reserve", "release_reservation", "initialize_session", "abort_session_initialization"} and command.session_id != self._acquisition_node.status()["session_id"]:
                 raise RuntimeError("Command session_id does not match AcquisitionNode")
@@ -2356,6 +2361,10 @@ class NatsAcquisitionNodeCommunication:
                     self._results_by_command_id[command.command_id] = result
                     self._commands_by_id[command.command_id] = deepcopy(identity)
                     return result
+            elif command.command_type == "estimate_experiment_storage":
+                payload = {"estimate": self._acquisition_node.estimate_experiment_storage(
+                    tuple(ScientificOutputSelection.from_dict(item) for item in command.payload["scientific_outputs"]),
+                    ExperimentConfiguration.from_dict(command.payload["configuration"]))}
             elif command.command_type == "check_experiment_capacity":
                 payload = {"capacity": self._acquisition_node.check_experiment_capacity(
                     tuple(ScientificOutputSelection.from_dict(item) for item in command.payload["scientific_outputs"]),
@@ -3277,6 +3286,16 @@ class NatsStorageManagerCommunication:
             command = _logical_command(command)
             if command.command_type == "check_readiness":
                 return _execute_service_command(self._boundary, self._storage_manager, command, {})
+            if command.command_type == "estimate_experiment_storage":
+                if (command.target_id != self._boundary.component_id or not isinstance(nonce, str) or not nonce
+                        or set(command.payload) != {"request_nonce", "recording_estimates", "storage_location"}
+                        or not self._boundary.check_ready().ready):
+                    raise ValueError("Estimation requires exact owner correlation")
+                estimate = self._storage_manager.estimate_experiment_storage(
+                    command.payload["recording_estimates"], session_id=command.session_id,
+                    storage_location=command.payload["storage_location"])
+                return _participant_result(self._boundary, command, True, None,
+                                           {"estimate": estimate, "request_nonce": nonce})
             if command.command_type in {"list_artifact_destinations", "register_artifact_destination", "update_artifact_destination"}:
                 if (command.session_id is not None or command.target_id != self._boundary.component_id
                         or not command.command_id or not command.source_id or not isinstance(nonce, str)
@@ -3318,7 +3337,8 @@ class NatsStorageManagerCommunication:
                 payload = self._storage_manager.confirm_collected_originals(command.session_id, command.payload["manifests"])
             elif command.command_type == "check_experiment_capacity":
                 payload = {"capacity": self._storage_manager.check_experiment_capacity(
-                    command.payload.get("required_bytes"), session_id=command.session_id)}
+                    command.payload.get("required_bytes"), session_id=command.session_id,
+                    recording_estimates=command.payload.get("recording_estimates"))}
             elif command.command_type in {"get_saved_session_collection_status", "collect_saved_artifacts"}:
                 collecting = command.command_type == "collect_saved_artifacts"
                 expected = {"request_nonce", "evidence_id"} if collecting else {"request_nonce"}

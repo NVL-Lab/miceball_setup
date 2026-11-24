@@ -529,6 +529,46 @@ Runtime duration extension remains deferred; broader milestones stay open.
 - NatsAcquisitionNodeCommunication._publish_acquisition_evidence(): Reuses manifest/runtime publication and cursor ownership inside a deadline-bounded iteration.
 - NatsStorageManagerCommunication.execute_command(command): Also routes correlated capacity inspection to the preservation owner; constructor unchanged.
 
+### Expected size integration (Decision 394 clarification; independent verification pending)
+
+The accepted [2026-11-23 clarification](architecture_decisions.md#accepted-expected-size-and-adjustable-budget-clarification-2026-11-23)
+qualifies exhaustive encoded bounds with justified conservative planning. The
+implementation reuses product estimation, adapter resolution, installation staging,
+owner capacity checks and existing Controller/NATS/GUI boundaries. Independent
+validation, audit and physical deployment verification remain pending; G2 and
+Phase 16 remain CLOSED.
+
+Changed implementation files for this batch: `src/lab_sync_acquisition/device.py`,
+`local_storage.py`, `acquisition_node.py`, `storage.py`, `controller.py`,
+`communication.py`, `nats_communication.py` (all under that source directory);
+`scripts/install_framework.py`; `gui/src/miceball_gui/backend.py` and its
+`static/connected.js`, `experiment-demo.mjs`, `parameters-view.js`,
+`experiment-views.css`.
+Focused test files: `tests/test_expected_size.py`, `test_experiment_capacity.py`,
+`test_install_framework.py`, `test_sustained_acquisition.py`; `gui/tests/test_expected_size.py`,
+`test_expected_size.mjs`, `test_backend.py`, `test_connected_state.mjs`,
+`artifact_destination_fixture.mjs`. Existing seven synchronized architecture/status
+documents are preserved and updated, together with `gui/README.md`.
+
+- `local_storage.camera_storage_estimate(schema)`: Supplies the measured uncompressed HDF5 camera profile used by installation and estimation.
+- `ScientificProductDeclaration.stored_schema(parameters)`: Resolves selected camera dimensions for the installed profile, shared by estimation and actual stream creation.
+- `ScientificProductDeclaration.estimate_storage_bytes(duration_s, parameters)`: Applies existing explicit declarations or the installed profile without interpreting legacy size/rate fields.
+- `AcquisitionNode.estimate_experiment_storage(scientific_outputs, configuration)`: Returns per-product/node automatic sizes or unavailable reasons without execution baseline capture, initialization, reservation or write probes.
+- `AcquisitionNode.check_experiment_capacity(scientific_outputs, configuration)`: Enforces automatic recording minima and explicit fallback through existing local capacity checks.
+- `PersistentStorageManager.estimate_experiment_storage(recording_estimates, *, session_id=None, storage_location=None)`: Resolves scientific-copy and ordinary evidence requirements per applicable destination without capacity probes.
+- `PersistentStorageManager.check_experiment_capacity(required_bytes, *, session_id=None, recording_estimates=None)`: Enforces preservation minima/fallback and checks distinct writes through existing filesystem accounting.
+- `PersistentStorageManager._destination_registry(*, initialize=True)`: Reuses strict registry/history checks while permitting a nonpublishing first-use default projection for preparation reads.
+- `Controller.estimate_experiment_storage(configuration, scientific_outputs, storage_location, *, communication, participants, storage_participant, result_window_s, expected_session_id=None)`: Coordinates correlated owner readback and echoes the exact preparation; local/distributed start still rechecks capacity.
+- `install_framework._device_parameter_plan(..., ask_advanced=True)`: Also stages available HDF5 metadata, including after deferred dependency installation, without replacing explicit declarations or unrelated settings.
+- `experiment-demo.experimentEstimateKey(configuration)/experimentStorageEstimate(state, configuration)`: Match transient readback to the current working object and relevant scientific settings.
+- `connected.frameworkExperimentConfiguration(configuration)`: Shares exact device/configuration translation between estimation and execution submission.
+- `state.actions.refreshExpectedSize()`: Serializes preparation queries, coalesces changed working values and rejects obsolete connection/Session/Controller/configuration results.
+- `parameters-view.renderStorageEstimate(configuration)`: Updates only scientific-size/budget feedback and controls, preserving focused inputs and native invalid drafts.
+- `tests/test_expected_size.py`: Exercises finalized writer measurements, read-only owners, recording/preservation minima and isolated broker workflows.
+- `gui/tests/test_expected_size.py/.mjs`: Exercises production Parameters with software owner readback, overrides, stale responses, authority and reconnect.
+- `gui/tests/test_backend.py`: Also exercises preparation readback through the real GUI WebSocket/backend and an isolated authenticated NATS broker before and after Session admission.
+- `gui/tests/artifact_destination_fixture.mjs`: Supplies controlled destination and unavailable-estimation replies for existing presentation/configuration regressions.
+
 ## tests/test_experiment_capacity.py
 
 - LocalActivationFailureTests.setUp()/cleanup(): Compose and clean local service owners, a software camera and temporary HDF5 scientific storage.

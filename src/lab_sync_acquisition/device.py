@@ -62,11 +62,31 @@ class ScientificProductDeclaration:
         """Reconstruct a scientific product declaration from plain data."""
         return cls(**data)
 
+    def stored_schema(self, parameters: dict[str, Any]) -> dict[str, Any]:
+        """Resolve the stored camera shape using the installed representation profile."""
+        schema = deepcopy(self.schema)
+        bounds = (self.storage_requirements or {}).get("capacity_estimate") or {}
+        if isinstance(bounds, dict) and bounds.get("profile") == "hdf5_camera_v1":
+            from .local_storage import camera_storage_estimate
+            camera_storage_estimate(schema)
+            for field, axis in (("frame_height", 0), ("frame_width", 1)):
+                value = parameters.get(field)
+                if value is not None:
+                    if type(value) is not int or value <= 0:
+                        raise ValueError("Selected camera dimensions must be positive integers")
+                    schema["frame_shape"][axis] = value
+        return schema
+
     def estimate_storage_bytes(self, duration_s: float, parameters: dict[str, Any]) -> int:
-        """Use explicitly declared encoded-size bounds, never legacy expected-size guesses."""
+        """Estimate declared storage without interpreting legacy expected-size fields."""
+        if type(duration_s) not in (int, float) or not isfinite(duration_s) or duration_s <= 0:
+            raise ValueError("A positive finite duration is required")
         bounds = (self.storage_requirements or {}).get("capacity_estimate")
         if not isinstance(bounds, dict):
-            raise ValueError("An explicit recording budget or declared capacity_estimate is required")
+            raise ValueError("Automatic storage metadata is unavailable; supply a recording budget")
+        if bounds.get("profile") == "hdf5_camera_v1":
+            from .local_storage import camera_storage_estimate
+            bounds = camera_storage_estimate(self.stored_schema(parameters))
         fixed = bounds.get("fixed_bytes")
         per_observation = bounds.get("bytes_per_observation")
         rate = parameters.get("fps")
@@ -74,15 +94,16 @@ class ScientificProductDeclaration:
         if (type(fixed) is not int or fixed < 0 or type(per_observation) is not int or per_observation <= 0
                 or type(rate) not in (int, float) or not isfinite(rate) or rate <= 0
                 or type(batch) is not int or batch < 1):
-            raise ValueError("Complete encoded-size bounds and selected rate/batch are required")
+            raise ValueError("Automatic estimation requires storage metadata and a positive selected rate/collection size")
         if self.storage_format != "hdf5" or self.product_type != "camera_frames":
             raise ValueError("This product requires an explicit recording byte budget")
         import numpy as np
-        shape = self.schema.get("frame_shape")
+        schema = self.stored_schema(parameters)
+        shape = schema.get("frame_shape")
         if (not isinstance(shape, list) or len(shape) not in (2, 3)
                 or any(type(n) is not int or n <= 0 for n in shape)):
             raise ValueError("Explicit stored frame dimensions are required")
-        dtype = np.dtype(self.schema["frame_dtype"])
+        dtype = np.dtype(schema["frame_dtype"])
         raw = int(np.prod(shape)) * dtype.itemsize
         if dtype.hasobject or per_observation < raw:
             raise ValueError("Declared encoded-size bound cannot be smaller than the raw frame")

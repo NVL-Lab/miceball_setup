@@ -657,7 +657,7 @@ class ExperimentPreflightWorkflows(unittest.IsolatedAsyncioTestCase):
 
     async def test_idle_experiment_expires_without_camera_reads(self):
         f = self.fixture
-        result = await self.start(configuration=ExperimentConfiguration(0.02, {"node": 0}, 1000, participating_devices={"node": ["camera"]}), outputs=())
+        result = await self.start(configuration=ExperimentConfiguration(0.02, {"node": 0}, None, participating_devices={"node": ["camera"]}), outputs=())
         self.assertTrue(result.succeeded, result.error)
         await asyncio.wait_for(asyncio.shield(f.handler._acquisition_task), 2)
         self.assertEqual(f.camera.capture.read_count, 0)

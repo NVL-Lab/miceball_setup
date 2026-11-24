@@ -2,11 +2,12 @@
 import { state, renderSetup } from './protocol-setup.js';
 import { devices, clone, preparedProtocol, preparedFreeOperation } from './protocol-demo.mjs';
 import { syncOwnershipPresentation } from './ownership-presentation.js';
-import { deviceExamples, experimentView, experimentIssues } from './experiment-demo.mjs';
+import { deviceExamples, experimentView, experimentIssues, experimentEstimateKey, experimentStorageEstimate } from './experiment-demo.mjs';
+import { resolveParameterContext } from './parameter-context.mjs';
 import { applyControllerSnapshot } from './session-context.mjs';
 import { selectedStepContext } from './session-demo.mjs';
 import { renderSession } from './session-view.js';
-import { renderParameters } from './parameters-view.js';
+import { renderParameters, renderStorageEstimate } from './parameters-view.js';
 import { renderExperiment } from './scientific-views.js';
 import { navigate, configurationStringEditor, setConfigurationString, readConfigurationString, renderAcceptedCatalogIdentity } from './gui-presentation.js';
 import { catalogClient } from './catalog-client.mjs';
@@ -39,6 +40,7 @@ function noteConnectionLoss(reason) {
 state.actions.recordActivity = recordLocalActivity;
 serviceActions.recordActivity = state.actions.recordActivity;
 function invalidateServiceConfirmation() {
+  state.expectedSize = null;
   invalidateConnectedStorage();
   invalidateArtifactDestinations();
   for (const inventory of Object.values(state.inventory)) { delete inventory.configured_parameters; delete inventory.administrative_configuration; }
@@ -114,6 +116,7 @@ function canControl(except = null) {
   return !controlBlocker(except);
 }
 function controls() {
+  queueMicrotask(() => state.actions.refreshExpectedSize?.());
   const status = current()?.status;
   const launch = outcomes.findLast(entry => entry.operation === 'launch_session');
   if (!status?.session_id && launch) $('.setup-demo-note').textContent = 'Session launch not confirmed. See Activity History in Services.';
@@ -186,6 +189,7 @@ async function refresh() {
     const previous = current();
     const wasConfirmed = confirmed;
     applyControllerSnapshot(state, snapshot); confirmed = true;
+    if (previous?.status?.session_id !== snapshot.status?.session_id) state.expectedSize = null;
     recordActivityTransition('connection_status', 'succeeded');
     if (snapshot.control?.controlling && (!previous?.control?.controlling || previous.instance_id !== snapshot.instance_id))
       document.dispatchEvent(new Event('gui-control-acquired'));
@@ -439,10 +443,7 @@ state.actions.releaseSession = () => {
   }, 'Retry only Session release. Controller checks preservation and cleanup; Normal Stop will not be repeated.',
   {title: 'Retry Session Release?', confirm: 'Retry Release', cancel: 'Cancel'});
 };
-state.actions.startExperiment = localAction('start_launched_experiment', async entry => {
-  const {step, record} = selectedStepContext(state), configuration = experimentView(state, step, record).configuration;
-  const issues = experimentIssues(state, step, configuration);
-  if (issues.length) throw new Error(issues.join(' '));
+function frameworkExperimentConfiguration(configuration) {
   const participating_devices = Object.create(null), device_configurations = Object.create(null);
   for (const id of configuration.participants) {
     const device = devices.find(item => item.id === id);
@@ -452,9 +453,67 @@ state.actions.startExperiment = localAction('start_launched_experiment', async e
     for (const field of deviceExamples[id]?.fields || []) if (Object.hasOwn(configuration.values, field.id)) parameters[field.name] = configuration.values[field.id];
     if (Object.keys(parameters).length) (device_configurations[device.nodeId] ??= Object.create(null))[device.deviceId] = parameters;
   }
+  return {duration_s: configuration.durationSeconds, participating_devices, device_configurations,
+    recording_budgets: configuration.recordingBudgets || null, preservation_budget_bytes: configuration.preservationBudget ?? null};
+}
+let estimateRequest = null;
+state.actions.refreshExpectedSize = async () => {
+  const context = resolveParameterContext(state);
+  if (!context || context.readOnly || !confirmed) return;
+  const configuration = context.configuration, key = experimentEstimateKey(configuration);
+  const session = current()?.status?.session_id || null, instance = current()?.instance_id, connection = socket;
+  let location = null, locationError = null;
+  try { location = current()?.configuration?.storage_location || selectedArtifactDestination(); }
+  catch (error) { locationError = error.message; }
+  const prior = experimentStorageEstimate(state, configuration);
+  if (prior && prior.session === session && prior.instance === instance && prior.location === location) return;
+  state.expectedSize = null;
+  if (estimateRequest) return;
+  const attempt = {configuration, key, session, instance, location, pending: true, result: null};
+  state.expectedSize = estimateRequest = attempt;
+  const feedback = document.querySelector('[data-expected-size]');
+  if (feedback) feedback.textContent = 'Expected size: Calculating…';
+  controls();
+  try {
+    if (locationError) throw new Error(locationError);
+    if (!Number.isFinite(configuration.durationSeconds) || configuration.durationSeconds <= 0
+        || !configuration.participants.length) throw new Error('Set duration and participating devices to estimate storage.');
+    const config = frameworkExperimentConfiguration(configuration);
+    config.recording_budgets = null; config.preservation_budget_bytes = null;
+    const parameters = {configuration: config, scientific_outputs: configuration.outputs || [], storage_location: location};
+    const reply = await request('estimate_experiment_storage', parameters, session);
+    const result = requireResult(reply);
+    if (connection !== socket || !confirmed || instance !== current()?.instance_id
+        || session !== (current()?.status?.session_id || null) || state.expectedSize !== attempt
+        || key !== experimentEstimateKey(configuration) || resolveParameterContext(state)?.configuration !== configuration) return;
+    if (reply.instance_id !== instance || result.session_id !== session || stringifyConfiguration(result.configuration) !== stringifyConfiguration(config)
+        || stringifyConfiguration(result.scientific_outputs) !== stringifyConfiguration(parameters.scientific_outputs)
+        || result.storage_location !== location) throw new Error('Estimation confirmation does not match preparation.');
+    attempt.result = result;
+  } catch (error) { attempt.error = error.message; }
+  finally {
+    attempt.pending = false; estimateRequest = null;
+    if (state.expectedSize === attempt) {
+      const context = resolveParameterContext(state);
+      if (!$('#panel-parameters').hidden && !context?.readOnly && context?.configuration === configuration)
+        renderStorageEstimate(configuration);
+      controls();
+    }
+    else state.actions.refreshExpectedSize();
+  }
+};
+state.actions.startExperiment = localAction('start_launched_experiment', async entry => {
+  const {step, record} = selectedStepContext(state), configuration = experimentView(state, step, record).configuration;
+  const issues = experimentIssues(state, step, configuration);
+  if (issues.length) throw new Error(issues.join(' '));
   state.submittedExperiment = {stepId: step.id, experimentId: configuration.experimentId};
-  await command('start_launched_experiment', {experiment_id: configuration.experimentId, configuration: {duration_s: configuration.durationSeconds, participating_devices, device_configurations, recording_budgets: configuration.recordingBudgets, preservation_budget_bytes: configuration.preservationBudget}, scientific_outputs: configuration.outputs}, current()?.status?.session_id || null, entry);
+  await command('start_launched_experiment', {experiment_id: configuration.experimentId,
+    configuration: frameworkExperimentConfiguration(configuration), scientific_outputs: configuration.outputs}, current()?.status?.session_id || null, entry);
   if (current()?.status.active_experiment_id) navigate('experiment');
+});
+document.addEventListener('gui-destinations-changed', () => state.actions.refreshExpectedSize());
+document.addEventListener('change', event => {
+  if (event.target.id === 'artifact-destination') state.actions.refreshExpectedSize();
 });
 state.actions.stopExperiment = () => { const sid = current()?.status.session_id, id = current()?.status.active_experiment_id; confirmStop('Experiment', () => command('stop_launched_experiment', {experiment_id: id}, sid), 'Request early Stop and preservation; the Session remains active.'); };
 state.actions.reconcileExpiry = () => command('reconcile_launched_experiment_expiry', {experiment_id: current()?.status.active_experiment_id});
@@ -472,6 +531,7 @@ async function refreshInventory(node) {
     const inventory = requireResult(await request('get_node_inventory', {node_id: node}));
     if (connection !== socket || socket.readyState !== WebSocket.OPEN || instance !== current()?.instance_id) throw new Error('Inventory belongs to an unconfirmed connection or Controller instance');
     state.inventory[node] = clone(inventory);
+    state.expectedSize = null;
     if (inventory.administrative_configuration?.available) {
       for (const entry of outcomes.filter(entry => entry.operation === 'update_device_configuration'
           && entry.status === 'uncertain' && entry.configurationNode === node && entry.instance_id === instance))

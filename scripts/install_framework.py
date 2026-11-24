@@ -146,8 +146,10 @@ NODE_PARAMETERS = """
 import json,sys
 sys.path.insert(0, sys.argv[1])
 try:
+    import numpy
     from lab_sync_acquisition.deployment_configuration import create_installed_adapter, validate_acquisition_node_configuration
     from lab_sync_acquisition.device import DeviceDeclaration
+    from lab_sync_acquisition.local_storage import camera_storage_estimate
 except ModuleNotFoundError:
     print('DEPENDENCIES_UNAVAILABLE')
 else:
@@ -156,6 +158,15 @@ else:
     definitions = {}
     for item in data['devices']:
         declaration = DeviceDeclaration.from_dict(item['declaration'])
+        for product in item['declaration'].get('scientific_products', []):
+            requirements = product.get('storage_requirements') or {}
+            if (product.get('storage_format') == 'hdf5' and product.get('product_type') == 'camera_frames'
+                    and 'capacity_estimate' not in requirements):
+                try:
+                    estimate = camera_storage_estimate(product['schema'])
+                except (ValueError, TypeError, KeyError, ModuleNotFoundError):
+                    continue
+                product['storage_requirements'] = {**requirements, 'capacity_estimate': estimate}
         adapter = create_installed_adapter(item['adapter'], declaration)
         fields = {name: definition for name, definition in adapter.get_session_parameter_definitions().items()
                   if definition.get('adjustment_scope', 'experimenter') == 'administrator'}
@@ -169,7 +180,7 @@ else:
 """
 
 
-def _device_parameter_plan(python, checkout, directory, existing, configured):
+def _device_parameter_plan(python, checkout, directory, existing, configured, *, ask_advanced=True):
     """Stage optional adapter-owned initialization/Advanced values without modifying files."""
     if 'acquisition-node' not in configured:
         return []
@@ -185,9 +196,9 @@ def _device_parameter_plan(python, checkout, directory, existing, configured):
     proposal = validate(document, initialize='acquisition-node' not in existing)
     if proposal is None:
         print('Device Advanced settings unavailable until framework dependencies are installed; existing file preserved.')
-        return []
+        return None
     candidate = proposal['document']
-    if _confirm('Advanced administrative device settings'):
+    if ask_advanced and _confirm('Advanced administrative device settings'):
         for item in candidate['devices']:
             identity = item['declaration']['device_id']
             for name in proposal['definitions'][identity]:
@@ -927,7 +938,13 @@ def main(argv=None):
                 print("DEFERRED: " + message)
             print("DEFERRED: no complete selected role configuration; no installation changes made")
             return 2
+        hardware_source = None
+        if 'acquisition-node' in configured:
+            path = (directory / configured['acquisition-node']['node_config']).absolute()
+            hardware_source = (path, _PUBLICATION['read_configuration_bytes'](path))
         hardware_updates = _device_parameter_plan(preflight_python, checkout, directory, existing, configured)
+        hardware_deferred = hardware_updates is None
+        hardware_updates = hardware_updates or []
         gui, gui_pending = _gui_plan(checkout, directory, existing, configured, installed, preflight_python)
         deferred.extend(gui_pending)
         if gui is not None and gui['update'] is not None and 'controller' in generated:
@@ -1026,6 +1043,13 @@ def main(argv=None):
                 print('Installing separate GUI package and its declared dependencies; no GUI process will be started.')
                 _run([python, '-I', '-m', 'pip', 'install', gui['package']], timeout=900)
             _run([python, "-I", "-m", "pip", "check"])
+            if hardware_deferred:
+                if _PUBLICATION['read_configuration_bytes'](hardware_source[0]) != hardware_source[1]:
+                    raise RuntimeError('Device configuration changed during installation; rerun explicitly')
+                hardware_updates = _device_parameter_plan(python, checkout, directory, existing, configured,
+                                                          ask_advanced=False)
+                if hardware_updates is None:
+                    raise RuntimeError('Device metadata initialization unavailable after installation')
             if gui is not None:
                 _validate_gui(python, checkout, gui['settings'], source=False)
                 _initialize_gui_synchronization(python, directory / 'gui-catalog.sqlite3')
