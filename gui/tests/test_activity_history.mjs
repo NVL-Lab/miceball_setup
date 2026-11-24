@@ -73,12 +73,17 @@ export async function verifyActivityHistory(browser, origin, fixture, section, d
     await page.waitForTimeout(2200);
     assert.equal(await history.locator('[data-activity]').count(), count, 'Polling is not activity');
     await section(page, 'setup');
+    const number = page.locator('.session-identity-grid input[type="number"]');
+    await number.fill(''); await number.pressSequentially('1e999');
+    assert.equal(await number.evaluate(input => input.validity.badInput), true);
     await page.locator('.launch-session-demo').click(); await showHistory();
-    await latest().filter({hasText: /Session.*configuration/i}).waitFor();
+    await latest().filter({hasText: /Invalid Session number/}).waitFor();
+    assert.equal(await latest().getAttribute('data-status'), 'failed');
     assert.equal(requests.filter(entry => entry.operation === 'launch_session').length, 0);
     await section(page, 'session');
     assert.match(await page.locator('.session-information').innerText(), /Local preparation/);
     await section(page, 'setup'); await page.locator('[data-open-setup]').click();
+    await number.fill('1');
     await page.locator('#load-inventory').click();
     await page.locator('#inventory-status').filter({hasText: 'inventory confirmed'}).waitFor();
     await page.locator('#session-device-list input').first().check();

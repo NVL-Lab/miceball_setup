@@ -226,14 +226,32 @@ class GUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.completed(two, 'update_device_configuration', parameters))['status'], 'succeeded')
 
     async def test_browser_session_workflow_and_takeover(self):
+        import json
+        import nats
+
         one, first = await self.browser()
         two, second = await self.browser()
         self.assertNotEqual(first, second)
         denied = await self.completed(two, "launch_session", self.launch_parameters())
         self.assertEqual(denied["status"], "rejected")
         await self.take(one)
-        launched = await self.completed(one, "launch_session", self.launch_parameters())
+        observer = await nats.connect(list(self.service_boundary.servers))
+        self.addAsyncCleanup(observer.close)
+        launches = await observer.subscribe('controller_external.controller.tester.launch_session')
+        await observer.flush()
+        before = self.controller.get_status()
+        parameters = self.launch_parameters()
+        empty = await self.message(one, 'launch_session', {**parameters, 'selections': {}})
+        self.assertEqual(empty['status'], 'rejected', empty)
+        self.assertEqual(empty['error'], 'Launch requires explicit node selections')
+        with self.assertRaises(nats.errors.TimeoutError):
+            await launches.next_msg(timeout=.1)
+        self.assertEqual(self.controller.get_status(), before)
+        launched = await self.completed(one, "launch_session", parameters)
         self.assertEqual(launched["status"], "succeeded", launched)
+        submitted = json.loads((await launches.next_msg(timeout=1)).data)
+        self.assertEqual(submitted['selections'], parameters['selections'])
+        self.assertEqual(submitted['request_id'], launched['request_id'])
         sid = launched["outcome"]["details"]["session_id"]
         state = (await self.message(two, "read_controller_state"))["result"]["outcome"]["details"]
         self.assertEqual(state["status"]["session_id"], sid)

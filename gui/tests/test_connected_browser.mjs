@@ -165,11 +165,16 @@ if (!process.env.MICEBALL_BROWSER_ORIGIN) {
               await returnFromParameters(page);
             }
             if (name === 'storage') {
+              const workspaceAttribute = mode === 'connected' ? 'data-storage-live-workspace' : 'data-storage-workspace';
               for (const workspace of ['deletion', 'history']) {
-                await page.locator(`[data-storage-workspace="${workspace}"]`).click();
+                await page.locator(`[${workspaceAttribute}="${workspace}"]`).click();
+                if (mode === 'connected' && workspace === 'deletion') {
+                  assert.match(await page.locator('#panel-storage').innerText(), /Separate manual deletion is unavailable here/);
+                  assert.match(await page.locator('#panel-storage').innerText(), /deletion after verified collection/);
+                }
                 await shot(`${mode}-${size}-${theme}-storage-${workspace}`);
               }
-              await page.locator('[data-storage-workspace="collection"]').click();
+              await page.locator(`[${workspaceAttribute}="collection"]`).click();
             }
             if (name === 'services') {
               await page.locator('[data-mode="administrator"]').click();

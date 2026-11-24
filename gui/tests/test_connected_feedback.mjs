@@ -21,6 +21,7 @@ page.on('pageerror', error => errors.push(error.message));
 const directory = process.env.MICEBALL_BROWSER_EVIDENCE;
 await mkdir(directory, {recursive: true});
 let connection, instance = 'feedback-instance', acceptedConfiguration = null;
+let sessionState = 'running', controlling = true;
 let reportedExperiments = [], activeExperiment = null, lifecycle = [];
 const experimentRequests = [];
 let serviceResponse = 'unknown';
@@ -28,8 +29,8 @@ let serviceReason = 'Current readiness is unconfirmed';
 let controllerResponse = 'succeeded';
 const serviceRequests = [];
 const snapshot = () => ({controller_id: 'feedback', instance_id: instance,
-  control: {controlling: Boolean(acceptedConfiguration), generation: 0},
-  status: {session_id: acceptedConfiguration?.session_id || null, session_state: acceptedConfiguration ? 'running' : null,
+  control: {controlling: Boolean(acceptedConfiguration) && controlling, generation: 0},
+  status: {session_id: acceptedConfiguration?.session_id || null, session_state: acceptedConfiguration ? sessionState : null,
     active_experiment_id: activeExperiment, experiment_lifecycle_evidence: lifecycle},
   configuration: acceptedConfiguration, experiments: reportedExperiments, configured_nodes: ['node'], pending_operations: [],
   configured_services: ['controller', 'acquisition_node', 'ingestor', 'storage_manager', 'synchronization_manager'].map(component_type => ({component_type, component_id: component_type === 'acquisition_node' ? 'node' : component_type}))});
@@ -517,11 +518,29 @@ try {
   }
   assert.ok(requests.every(operation => ['read_controller_state', 'read_service_status'].includes(operation)));
   await section(page, 'session');
-  for (const selector of ['[data-start-session]', '[data-stop-session]', '[data-release-session]']) {
+  for (const selector of ['[data-start-session]', '[data-stop-session]']) {
     await disabledStyle(page.locator(selector));
     await page.locator(selector).evaluate(button => button.click());
   }
+  const release = page.locator('[data-release-session]');
+  assert.equal(await release.isHidden(), true, 'No accepted Session has a release action');
+  assert.equal(await release.isDisabled(), true);
+  await release.evaluate(button => button.click());
   assert.ok(requests.every(operation => ['read_controller_state', 'read_service_status'].includes(operation)));
+  // A terminal Session exposes release, while View Only still denies the action.
+  acceptedConfiguration = {session_id: 'release-style-session', protocol_reference: null,
+    selected_devices: [], expected_runtime_participants: [], session_parameters: {name: 'Terminal release fixture'}};
+  sessionState = 'completed'; controlling = false;
+  await release.waitFor({state: 'visible'});
+  await page.locator('html[data-control-mode="view-only"]').waitFor();
+  for (const theme of ['light', 'dark']) {
+    if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();
+    await disabledStyle(release);
+  }
+  await release.evaluate(button => button.click());
+  assert.ok(requests.every(operation => ['read_controller_state', 'read_service_status'].includes(operation)));
+  acceptedConfiguration = null; sessionState = 'running'; controlling = true;
+  await release.waitFor({state: 'hidden'});
   await section(page, 'setup');
   await page.locator('[data-open-setup]').click();
   const refresh = page.locator('#load-inventory'), status = page.locator('#inventory-status');
