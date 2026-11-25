@@ -1,5 +1,17 @@
 # Installation And Deployment
 
+**November 24, 2026 architecture update, not deployment instructions:**
+[Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
+separates broker delivery obligations, permanent scientific evidence and temporary
+operational recovery. Permanent Ingestor intake auditing is no longer required;
+obsolete recovery information must be eligible for retirement after applicable
+obligations resolve. Concrete implementation, evidence classification and treatment
+of existing data remain pending. Existing journal/audit/checkpoint descriptions
+below document current or historical behavior, not compliance with the amendment.
+Do not change JetStream, delete state or bypass preservation checks on this basis.
+The [destructive test-reset record](deployment_test_reset.md) remains historical
+evidence, not an implementation or migration procedure for Decision 456.
+
 ## Accepted graphical installer direction (Decision 453; implementation deferred)
 
 **Development priority:** Decision 453 remains accepted and unchanged. Technical

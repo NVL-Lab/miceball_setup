@@ -1,5 +1,18 @@
 # Code Map
 
+**Accepted architecture awaiting implementation assessment (November 24, 2026):**
+[Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
+removes permanent Ingestor intake-audit requirements, qualifies universal journaling
+and lifetime recovery reconstruction, and separates broker delivery retention from
+scientific archives. Recovery journals/checkpoints/working state must retain what
+is necessary for outstanding work and operational correctness, not completed
+history solely for recovery. Descriptions below of existing audit compilation,
+all-audit preservation checks, monthly-write verification and Decision 443
+checkpoints describe current/historical implementation, not compliance with the
+new amendment. No functions are changed. Message classification, replacement
+enforcement, JetStream consumer/ACK changes and retirement/consolidation assessment
+remain pending; do not bypass existing checks before an authorized correction.
+
 **Current-status qualification (November 23, 2026):** Phase 16 operational
 software scope is CLOSED as recorded in framework_milestones.md. M015, Q022,
 Q024 and broader G5 remain OPEN. Earlier open-status statements within historical

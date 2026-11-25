@@ -35,6 +35,12 @@ Resolved questions should be removed from this file and recorded in `architectur
 
 ## Q002: What is the Final Session Record Structure?
 
+**Subsequent architectural qualification (Decision 456):** Any archive layout or
+historical requirement below containing `ingest_audit.jsonl` no longer requires
+that permanent product or complete intake-audit coverage. Session Records remain
+separate from scientific Evidence Archives; replacement integrity/compilation
+enforcement is pending assessment, not implemented by this synchronization.
+
 Current Direction
 
 The architecture has accepted:
@@ -2793,6 +2799,17 @@ Distributed operation
 
 ## Q022: What is the deployment-local configuration and initialization model?
 
+**November 24, 2026 accepted retention amendment:**
+[Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
+separates reliable communication, scientific preservation and temporary recovery.
+NATS retains messages only for outstanding required delivery/ACK obligations, not
+historical archival. Permanent Ingestor intake auditing is eliminated; relevant
+acceptance, integrity and outstanding-work protections remain. Concrete transport,
+consumer and recovery changes await inventory/LLC review and implementation impact
+assessment. Earlier implementation and validation records are not evidence of
+compliance with this later amendment. Q022 remains OPEN; no deployment reset or
+migration is authorized. Decision 453 remains deferred and Q035 remains unresolved.
+
 **Status:** OPEN - Q022-A installation/deployment design is accepted and synchronized
 in Decisions 367-378; the bounded Ingestor-StorageManager NATS persistence slice is
 complete with independent validation and final re-audit PASS after correction
@@ -3721,6 +3738,25 @@ separate from a completed Session's lifecycle; Q019 is CLOSED following overall 
 * Future source-verification failure representation, without changing Slice 23
 
 ## Q024: What is the application restart and recovery-journal lifecycle?
+
+**November 24, 2026 accepted recovery amendment (Decision 456):** Recovery state
+must be proportional to outstanding scientific preservation, operational work and
+correctness needs, not lifetime operation count. Obsolete completed-operation
+detail must be eligible for retirement from journals, checkpoints and working
+state once applicable obligations are resolved. Permanent intake auditing and
+full historical intake-audit coverage are no longer required. Decision 443
+checkpoints represent necessary current recovery state; Decision 437 does not
+mandate indefinite temporary-state retention. Scientific records, applicable
+duplicate/resource protection, durable acceptance and unresolved obligations remain.
+
+Q024 remains OPEN. The next authorized stage must inventory existing messages,
+persistence intent and dependencies; detailed scientific classification remains
+pending LLC review. Replacement audit-dependent verification, concrete retirement,
+ACK/consumer lifecycle, consolidation and existing-data treatment remain pending.
+No mechanism or migration is selected here. Historical implementations, deferrals
+(including Decision 435) and validation records below retain their original scope;
+they do not establish compliance with Decision 456. G2 and Phase 16 remain CLOSED
+within their previously validated scope.
 
 **Status:** OPEN - narrow low-level contracts accepted in Decisions 332-338;
 narrow reporting/abandonment/producer-memory implementation slice complete with

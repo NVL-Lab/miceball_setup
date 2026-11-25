@@ -1,5 +1,14 @@
 # Framework Milestones
 
+**November 24, 2026 planning qualification:**
+[Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
+is accepted architecture only. Implementation assessment, message/evidence
+classification, replacement of permanent intake-audit-dependent guarantees and
+concrete transport/recovery retirement changes remain pending. Historical milestone
+evidence below is unchanged; no earlier PASS establishes compliance with the new
+retention contract. G2 and Phase 16 remain CLOSED within their validated historical
+scope; Q022 and Q024 remain OPEN. No new milestone or closure is created.
+
 **Current-status qualification (November 23, 2026):** Phase 16 operational
 software scope is CLOSED; M015 and broader G5 remain OPEN. See their current
 entries and the dated deployment record. Older open-status statements are retained

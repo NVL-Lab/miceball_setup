@@ -1,5 +1,12 @@
 # Architecture Decisions
 
+**Current retention qualification (November 24, 2026):**
+[Decision 456](#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
+supersedes conflicting permanent intake-audit, universal-journaling and
+completed-history retention requirements. Earlier entries and implementation
+records below remain historical; their retained guarantees and qualified scope
+are identified in Decision 456. No implementation compliance is claimed.
+
 This document records accepted architectural decisions for the laboratory synchronization and acquisition framework.
 
 This is a decision log, not the final architecture document.
@@ -6258,6 +6265,10 @@ The Evidence Archive does not replace the Session Record, and the Session Record
 
 **Status:** Accepted
 
+**Subsequent qualification (Decision 456):** The layout below is historical;
+`ingest_audit.jsonl` is no longer a required permanent archive product. Scientific
+runtime evidence, Session Records and necessary integrity guarantees remain.
+
 The accepted v1 conceptual Evidence Archive layout is:
 
 ```text
@@ -7314,6 +7325,11 @@ Q019 is CLOSED following overall software integration validation (W050). No new 
 ## Decision 276: Ingestor journals all accepted runtime evidence before broker acknowledgment
 
 **Status:** Accepted
+
+**Subsequent qualification (Decision 456):** Universal journaling solely because
+a message was received is superseded. Required durable acceptance before ACK,
+uncertain-write safety and applicable duplicate protection remain; concrete
+selective enforcement is pending assessment, not implemented by this amendment.
 
 Phase 14 / Slice 27 introduces a minimal append-only local JSONL recovery journal
 owned by Ingestor. Each accepted RuntimeEvidenceMessage is a complete journal entry,
@@ -9555,6 +9571,11 @@ Q019 is CLOSED in W050; Q024, Q022, Phase 16, and M015 remain OPEN.
 
 **Status:** Accepted
 
+**Subsequent qualification (Decision 456):** Permanent intake-audit preservation
+is no longer a retirement prerequisite. Retain recovery information only while
+required for scientific preservation, outstanding work or operational correctness;
+do not discard unresolved obligations. Concrete retirement mechanisms remain pending.
+
 Ingestor owns the lifecycle of its temporary recovery journals. Automatically
 retire/delete a journal only when all applicable conditions are confirmed:
 
@@ -9673,6 +9694,11 @@ must be documented.
 ## Decision 354: Permanent framework Evidence Archives use calendar-month partitions
 
 **Status:** Accepted
+
+**Subsequent qualification (Decision 456):** Calendar partitions remain the
+historical permanent-evidence organization, not a reason to preserve routine
+communication or obsolete recovery state. The `ingest_audit.jsonl` product and
+permanent intake-audit linkage requirements below are superseded.
 
 This decision explicitly supersedes the shared framework Evidence Archive layout
 in Decision 323, which is preserved historically. Its evidence ownership, durable
@@ -11471,6 +11497,12 @@ W001-W067 remain CLOSED. Q006/Q018, Q024, Phase 16 and M015 remain OPEN.
 
 **Status:** Accepted
 
+**Subsequent qualification (Decision 456):** Complete historical intake-audit
+coverage is no longer required. Necessary archival integrity, authoritative
+recovery and unresolved-dependency guarantees remain; replacement enforcement
+without permanent intake auditing awaits assessment. Ordinary recovery must not
+reconstruct completed operations solely to retain obsolete operational history.
+
 **Subsequent checkpoint supplement:** Decision 443 permits a valid verified
 checkpoint to establish covered historical-prefix verification for ordinary
 startup and archival continuation; the historical requirements below otherwise
@@ -11619,6 +11651,11 @@ and Decision 391 operational reconnection remains deferred.
 ## Decision 393: W070B closeout verification and journal retirement
 
 **Status:** Accepted
+
+**Subsequent qualification (Decision 456):** Permanent intake-audit coverage is
+removed from the requirements below, not from the historical W070B record.
+Authoritative finality, preservation, closed-Session protection and correct
+recovery/duplicate handling remain necessary without that permanent audit product.
 
 Post-release closeout verification must remain available independently of temporary
 Ingestor recovery journals. Reuse the permanent Session Evidence Archive,
@@ -14169,6 +14206,11 @@ Decision 435 remains deferred; this closure introduces no architectural decision
 
 **Status:** Accepted
 
+**Subsequent qualification (Decision 456):** Operator-managed historical-file
+retention does not require indefinite retention of obsolete temporary recovery
+information in journals, checkpoints or memory. It does not authorize automatic
+deletion of permanent scientific records or select a compaction mechanism.
+
 This records the separately explicitly user-accepted LLC historical-file policy.
 Retain existing monthly partitioning, including Decision 354's framework evidence
 partitions. Never automatically delete old historical journal files. Operators
@@ -14483,6 +14525,12 @@ existing open/pending scope; no deployment-readiness or closure claim is made.
 ## Decision 443: Verified Ingestor checkpoints accelerate operational recovery without replacing permanent history
 
 **Status:** Accepted
+
+**Subsequent qualification (Decision 456):** Checkpoints represent necessary
+current operational recovery state, not complete lifetime history. Permanent
+intake auditing is eliminated; completed-operation recovery detail must be eligible
+for retirement once applicable obligations are resolved. Checkpoint validity,
+safe recovery and necessary integrity checks remain; implementation is pending.
 
 This records the explicitly user-accepted LLC checkpoint clarification. It
 supplements Decisions 276-280 and 390, preserving Decisions 349, 354, 393, 437 and
@@ -15334,6 +15382,125 @@ Package C implements adapter classification, node-owned guarded publication,
 saved/loaded inventory, Controller/NATS transport, Administrator Parameters and
 CLI Advanced initialization. Developer checks are not independent validation or
 audit. Package A/B status and Decision 453's deferral are unchanged.
+
+---
+
+## Decision 456: Communication retention, scientific preservation and operational recovery have distinct lifetimes
+
+**Status:** Accepted; architecture synchronized November 24, 2026. Message
+classification, implementation assessment, implementation and validation are pending.
+
+This records the explicitly user-accepted LLC evidence-preservation and operational-
+recovery clarifications following the
+[November 24 deployment findings](deployment_test_reset.md#november-24-2026-deployment-evidence).
+Those observations motivate this decision but do not establish a precise
+implementation cause or validate a correction. Earlier decisions and validation
+records retain their historical meaning subject to the qualifications below.
+
+### Communication is not a historical archive
+
+NATS retains durable commands, command results and runtime evidence only while
+required delivery and acknowledgment obligations remain outstanding. Once all
+required recipients acknowledge a message, it must no longer be retained in NATS.
+One recipient's acknowledgment must not prevent delivery to another required
+recipient. Preserve reliable delivery, outstanding obligations, appropriate ACK
+boundaries and required durable acceptance before acknowledgment. Do not substitute
+arbitrary retention periods, periodic broker-history cleanup or permanent broker
+archival. Concrete JetStream policies and consumer lifecycle changes are pending.
+
+### No separate permanent Ingestor intake audit
+
+The separate permanent intake audit, `ingest_audit.jsonl` archive product and
+complete historical intake-audit coverage are no longer architectural requirements.
+Do not permanently record every received message, duplicate delivery, nonpersistent
+intake or routine communication merely because intake occurred. Do not replace
+that audit with another permanent logging/auditing mechanism.
+
+Preserve scientifically relevant runtime evidence, necessary temporary acceptance
+and duplicate-detection information, meaningful failures/inconsistencies through
+existing evidence/diagnostics, and scientific timing/synchronization audit evidence.
+This does not eliminate independent implementation audits or scientific integrity
+checks. Necessary compilation, preservation, recovery and closeout guarantees must
+be achieved without permanent intake-audit history; replacement enforcement is not
+selected here.
+
+### Recovery state is proportional to outstanding work
+
+Ingestor retains only information necessary for unconfirmed required scientific
+preservation; recovery, reconciliation and completion of genuinely outstanding
+work; or operational correctness, including relevant duplicate and resource
+protection. Receipt alone does not require durable journaling. Information with
+neither scientific preservation nor operational recovery relevance does not
+require durable Ingestor retention.
+
+After authoritative completion and resolution of applicable preservation/recovery
+obligations, information retained solely to recover that operation must be eligible
+for retirement from journals, checkpoints and temporary working state. Apply this
+at Experiment, Session and Session-independent framework-operation scope. Keep a
+completed Experiment's or Session's scientific record, not recovery history solely
+for that completed execution. If collection remains outstanding, retain what is
+needed for that collection, not the entire Session's operational history.
+
+Checkpoint state must establish sufficient current state for outstanding work
+without reconstructing completed historical operations or growing into a lifetime
+history. Operational recovery storage should grow primarily with outstanding work,
+not completed-operation count. Preserve minimum necessary recovery state,
+unresolved obligations, applicable duplicate protection and safe continuation.
+Do not discard genuinely outstanding obligations or weaken required durable
+acceptance. No new subsystem, registry, journal hierarchy, checkpoint mechanism or
+lifecycle authority is authorized; no concrete compaction/replacement scheme is
+selected.
+
+### Selective scientific evidence ownership remains unchanged
+
+Decisions 219-226 and 231 remain authoritative: producers set persistence intent
+through `RuntimeEvidenceMessage.is_persistent`; Ingestor validates/intakes/compiles
+without deciding scientific meaning; StorageManager owns permanent preservation.
+Session Records and Evidence Archives remain separate. Permanent preservation
+describes scientifically relevant identities, actual execution, configurations and
+parameters, participating devices, artifacts, timing, failures and outcomes, not
+automatically every intermediate communication. Detailed classification of existing
+persistent categories remains with LLC; no category is reclassified here.
+
+### Explicit qualifications and preserved guarantees
+
+This decision takes precedence only over conflicting retention/audit requirements:
+
+| Earlier decisions | Superseded or qualified requirement | Guarantee retained |
+| --- | --- | --- |
+| 117, 130-145 | Durable transport does not imply broker historical archival after all required ACKs | Delivery, correlation, recipient isolation and applicable durable acceptance |
+| 219-231, especially 223/224/227 | Permanent intake auditing and its required archive product | Producer persistence intent, ownership, compilation and scientific integrity |
+| 276-280 | Journal every received/accepted message and rebuild completed history regardless of relevance | Correct recovery of relevant accepted state, exact conflict/duplicate protection and fail-closed uncertainty |
+| 313, 322-326 | Complete permanent intake-audit coverage as binding-release or maintenance-preservation proof | Required scientific preservation, owner-confirmed cleanup, exact applicable confirmation and safe release |
+| 331-348, 353 | Permanent intake history or complete operational history solely for completed-work recovery | Authoritative outcomes, administrator authorization, unresolved-work reporting and resource safety |
+| 349-350 | Permanent intake-audit preservation as prerequisite for temporary-state retirement or loss handling | Confirmed preservation of required evidence, protected unresolved obligations and explicit terminal-loss authorization |
+| 354-355, 437 | Permanent audit products/linkage; historical retention interpreted as indefinite temporary-state retention | Scientific archive integrity, monthly organization and existing operator-managed historical-file policy |
+| 356-359, 364, 382 | Permanent all-intake audit as acquisition completeness, Stage A/B, handoff or finality proof | Required producer/consumption confirmation, preserved scientific evidence, immutable outcomes and recoverable outstanding collection |
+| 389-393, 442 | Full historical intake auditing or completed-operation reconstruction solely as authority/closeout proof | Actual dependency authority, verified release/finality, closed-Session protection and fail-closed unresolved evidence |
+| 438 | Permanent intake-audit boundaries/products in monthly-write recovery | Necessary durable intent/completion, exact applicable content and write integrity, safe interrupted-write recovery |
+| 435, 443 | Lifetime maintenance/recovery detail in memory, journals or checkpoints solely for completed work | Necessary authorization, deduplication, current recovery state, qualifying completion and checkpoint integrity |
+
+Historical Decision 322 mandatory ControllerActionDecision persistence and other
+producer-specific persistence requirements are not individually reclassified by
+this decision. Nor does it authorize discarding all commands/results, closed-Session
+protection or registration authority merely because an operation completed.
+Determine the minimum retained correctness information in the pending assessment.
+Decision 437 does not prevent eligible retirement of obsolete temporary recovery
+state and does not authorize deletion of permanent scientific evidence.
+
+### Pending architectural and implementation work
+
+The next separately authorized task is a read-only inventory of messages/evidence,
+persistence intent, scientific relevance and operational dependencies. LLC review
+remains necessary for detailed evidence classification. Subsequent assessment must
+establish required recipients, JetStream retention/consumer lifecycle, ACK/durable
+acceptance enforcement, replacement of permanent-audit-dependent guarantees,
+journal/checkpoint retirement and treatment of existing historical data. Do not
+infer a migration/deletion policy or implement a replacement during synchronization.
+
+No implementation or validation compliance with this decision is claimed. Q024
+and affected broader questions remain OPEN. G2 and Phase 16 remain CLOSED within
+their previously validated scope, not validated against this later amendment.
 
 ---
 
