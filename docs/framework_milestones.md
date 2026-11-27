@@ -1,10 +1,13 @@
 # Framework Milestones
 
-**November 24, 2026 planning qualification:**
+**November 24, 2026 planning qualification; final clarification November 27:**
 [Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
-is accepted architecture only. Implementation assessment, message/evidence
-classification, replacement of permanent intake-audit-dependent guarantees and
-concrete transport/recovery retirement changes remain pending. Historical milestone
+is accepted architecture only. Its final accepted clarification is
+[Decision 457](architecture_decisions.md#decision-457-native-delivery-interests-and-selective-evidence-retention-bound-operational-recovery):
+the 20 persistence assignments, native InterestPolicy/consumer responsibilities,
+recipient result routing, owner outcomes, removal of historical delivery/audit
+checks and checkpoint-boundary compaction are settled, not implemented or validated.
+Implementation planning is separately coordinated by ICC. Historical milestone
 evidence below is unchanged; no earlier PASS establishes compliance with the new
 retention contract. G2 and Phase 16 remain CLOSED within their validated historical
 scope; Q022 and Q024 remain OPEN. No new milestone or closure is created.

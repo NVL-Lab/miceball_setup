@@ -1,12 +1,20 @@
 # Installation And Deployment
 
-**November 24, 2026 architecture update, not deployment instructions:**
+**November 24, 2026 architecture update; November 27 final clarification, not deployment instructions:**
 [Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
 separates broker delivery obligations, permanent scientific evidence and temporary
 operational recovery. Permanent Ingestor intake auditing is no longer required;
 obsolete recovery information must be eligible for retirement after applicable
-obligations resolve. Concrete implementation, evidence classification and treatment
-of existing data remain pending. Existing journal/audit/checkpoint descriptions
+obligations resolve. The final accepted
+[Decision 457](architecture_decisions.md#decision-457-native-delivery-interests-and-selective-evidence-retention-bound-operational-recovery)
+specifies the exact 14 persistent/six nonpersistent assignments, InterestPolicy,
+durable required service consumers/non-durable GUI consumers, recipient-addressed
+results, history-independent delivery/owner outcomes and crash-safe compaction at
+existing checkpoint boundaries. Implementation, validation and safe treatment of
+existing data remain pending. Do not enable InterestPolicy before required
+interests exist and acknowledged-history dependencies are removed. In-place
+conversion is reported supported, not validated; no conversion or migration is
+authorized here. Existing journal/audit/checkpoint descriptions
 below document current or historical behavior, not compliance with the amendment.
 Do not change JetStream, delete state or bypass preservation checks on this basis.
 The [destructive test-reset record](deployment_test_reset.md) remains historical

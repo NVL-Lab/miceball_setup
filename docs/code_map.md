@@ -9,9 +9,16 @@ is necessary for outstanding work and operational correctness, not completed
 history solely for recovery. Descriptions below of existing audit compilation,
 all-audit preservation checks, monthly-write verification and Decision 443
 checkpoints describe current/historical implementation, not compliance with the
-new amendment. No functions are changed. Message classification, replacement
-enforcement, JetStream consumer/ACK changes and retirement/consolidation assessment
-remain pending; do not bypass existing checks before an authorized correction.
+new amendment. No functions are changed.
+[Decision 457](architecture_decisions.md#decision-457-native-delivery-interests-and-selective-evidence-retention-bound-operational-recovery)
+now settles the exact 14 persistent/six nonpersistent built-in assignments,
+InterestPolicy, durable responsibility-scoped service consumers/non-durable GUI
+consumers, recipient-addressed results, authoritative owner outcomes and removal
+of historical broker-delivery/audit checks. Current recovery state and crash-safe
+compaction use existing checkpoint boundaries; transient reads may use Core NATS.
+Implementation planning, concrete enforcement and validation remain pending.
+Do not enable new retention before required interests and history-independent
+operations exist; do not bypass current checks without an authorized correction.
 
 **Current-status qualification (November 23, 2026):** Phase 16 operational
 software scope is CLOSED as recorded in framework_milestones.md. M015, Q022,

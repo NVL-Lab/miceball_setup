@@ -7,6 +7,14 @@ completed-history retention requirements. Earlier entries and implementation
 records below remain historical; their retained guarantees and qualified scope
 are identified in Decision 456. No implementation compliance is claimed.
 
+**Final accepted clarification (synchronized November 27, 2026):**
+[Decision 457](#decision-457-native-delivery-interests-and-selective-evidence-retention-bound-operational-recovery)
+settles the 20 built-in persistence assignments, native InterestPolicy, required
+consumer responsibilities, result routing, removal of historical broker checks,
+owner-based outcomes, current recovery state and checkpoint-boundary compaction.
+It qualifies conflicting requirements below; implementation and validation remain
+pending. Historical PASS records do not certify these later requirements.
+
 This document records accepted architectural decisions for the laboratory synchronization and acquisition framework.
 
 This is a decision log, not the final architecture document.
@@ -7432,6 +7440,10 @@ evidence is not guaranteed when valid state cannot be established.
 
 **Status:** Accepted
 
+**Subsequent qualification (Decision 457):** `ingestor_recovery_evidence` is
+nonpersistent. Preserve necessary recovery information while responsibilities
+remain outstanding, not permanent recovery-event archival merely under this entry.
+
 Ingestor normally starts once per Session. Startup again for the same known
 Session with an existing recovery journal establishes recovery startup; no
 heartbeat file, crash flag, clean-shutdown marker protocol, or process monitor
@@ -8785,6 +8797,12 @@ or commit protocol is introduced.
 
 **Status:** Accepted
 
+**Subsequent qualification (Decisions 456-457):** Maintenance and recovery evidence
+use the exact accepted persistence assignments in Decision 457. Required delivery,
+owner-confirmed cleanup, temporary recovery information and unresolved obligations
+remain protected; nonpersistent maintenance evidence does not require permanent
+archival merely to satisfy the historical preservation wording below.
+
 This clarifies individual-service maintenance closeout ordering under Decisions
 312, 315, 317, 319, and 323 without changing their existing meaning or ownership:
 
@@ -9837,6 +9855,14 @@ must not be resolved by implementation assumptions.
 ## Decision 356: Acquisition evidence completeness requires producer confirmations and independent consumption proof
 
 **Status:** Accepted
+
+**Subsequent qualification (Decision 457):** Independent historical retrieval and
+comparison of acknowledged broker messages, and replacement delivery audits solely
+to recreate that proof, are superseded. Use native delivery guarantees, correctly
+registered consumers and safe ACK boundaries. Producers must still finish required
+publication; recipients must finish required acceptance/processing. The existing
+completion marker remains available and is nonpersistent; receipt alone does not
+prove all outstanding work or scientific preservation complete.
 
 Relevant acquisition-stage producers complete their evidence production and
 confirm successful durable publication. Controller waits for required producer
@@ -11223,6 +11249,12 @@ W001-W055 are unchanged.
 
 **Status:** Accepted
 
+**Subsequent qualification (Decisions 456-457):** Historical contiguous-broker
+retrieval/comparison and permanent intake-audit products are no longer required.
+Native delivery/ACK guarantees and existing completion coordination retain their
+meaningful responsibilities. Required scientific Stage A preservation, finality,
+cleanup and Controller authority remain distinct from marker receipt or PubAck.
+
 The existing acquisition-evidence completion marker is the last-call boundary
 for Normal Stop. Controller obtains the required producer-publication
 confirmations and publishes the Session-scoped marker. Ingestor independently
@@ -11424,6 +11456,12 @@ Unsupported role launch paths and full deployment remain outside these closures.
 ## Decision 389: External-dependent retirement confirmation
 
 **Status:** Accepted
+
+**Subsequent qualification (Decision 457):** Consumer responsibilities follow
+actual operational registration and unresolved obligations, not configuration
+alone. Preserve current dependency authority and exact confirmation, without
+requiring complete permanent historical registration reconstruction or historical
+broker results. Temporary unavailability does not authorize consumer deletion.
 
 **Subsequent clarification:** Decision 442 supplements dependency admission for
 configured AcquisitionNodes that never registered; it does not relax confirmation
@@ -14430,6 +14468,12 @@ Unit 2 or close Q031's remaining implementation work.
 
 **Status:** Accepted
 
+**Subsequent qualification (Decision 457):** Preserve necessary current registration
+authority and unresolved obligations; superseded/resolved registration history
+must not remain solely for completed-operation recovery. Use existing registration,
+readiness and release boundaries for delivery responsibilities. This does not
+permit inference from silence, unsafe release or a parallel activation registry.
+
 This records the explicitly user-accepted reliability clarifications. It narrowly
 supplements Decisions 316 and 389-390 and partially supersedes Decision 384 as
 specified below. Historical decisions, implementation reports and validation
@@ -14525,6 +14569,12 @@ existing open/pending scope; no deployment-readiness or closure claim is made.
 ## Decision 443: Verified Ingestor checkpoints accelerate operational recovery without replacing permanent history
 
 **Status:** Accepted
+
+**Final accepted supplement (Decision 457):** Reuse qualifying checkpoint creation
+boundaries for crash-safe retirement/compaction of obsolete journal information
+after successful checkpoint establishment. Checkpoints must support actual bounded
+current recovery state, not merely faster replay of indefinitely growing history.
+Precise file management remains an implementation choice; no migration is authorized.
 
 **Subsequent qualification (Decision 456):** Checkpoints represent necessary
 current operational recovery state, not complete lifetime history. Permanent
@@ -15390,6 +15440,12 @@ audit. Package A/B status and Decision 453's deferral are unchanged.
 **Status:** Accepted; architecture synchronized November 24, 2026. Message
 classification, implementation assessment, implementation and validation are pending.
 
+**Subsequent accepted resolution (Decision 457):** The pending classification and
+architectural selection statements in this initial synchronization are historical.
+Decision 457 records the final accepted assignments and delivery/recovery contracts.
+Implementation planning, implementation, validation and existing-data transition
+remain separate work; no implementation compliance is claimed.
+
 This records the explicitly user-accepted LLC evidence-preservation and operational-
 recovery clarifications following the
 [November 24 deployment findings](deployment_test_reset.md#november-24-2026-deployment-evidence).
@@ -15501,6 +15557,197 @@ infer a migration/deletion policy or implement a replacement during synchronizat
 No implementation or validation compliance with this decision is claimed. Q024
 and affected broader questions remain OPEN. G2 and Phase 16 remain CLOSED within
 their previously validated scope, not validated against this later amendment.
+
+---
+
+## Decision 457: Native delivery interests and selective evidence retention bound operational recovery
+
+**Status:** Accepted; final Decision 456 clarification synchronized November 27,
+2026. Implementation planning is separately coordinated by ICC. No implementation,
+deployment conversion, validation or milestone closure is established here.
+
+This records the explicitly user-accepted LLC handoff following Decision 456 and
+the source, InterestPolicy feasibility and command-result routing assessments.
+It supplements Decision 456 and supersedes only conflicting requirements identified
+below. Historical decisions, implementation reports and validation retain their
+original scopes. Do not reopen settled principles or add infrastructure to recreate
+requirements explicitly removed here.
+
+### 2. Exact built-in evidence persistence assignments
+
+Producers must use the existing `RuntimeEvidenceMessage.is_persistent` field:
+
+| Built-in evidence type | Accepted is_persistent |
+| --- | --- |
+| `event` | `True` |
+| `artifact_manifest` | `True` |
+| `scientific_original_deletion` | `True` |
+| `experiment_duration_expired` | `True` |
+| `mapping_activation` | `True` |
+| `timing_quality_observation` | `True` |
+| `timing_quality_interpretation` | `True` |
+| `health_interpretation` | `True` |
+| `controller_action_decision` | `True` |
+| `controller_reconciliation` | `True` |
+| `administrator_decision` | `True` |
+| `mapping_update_evidence` | `True` |
+| `synchronization_reconciliation` | `True` |
+| `global_artifact_collection_evidence` | `True` |
+| `acquisition_evidence_completion` | `False` |
+| `experiment_start_rejected` | `False` |
+| `ingestor_recovery_evidence` | `False` |
+| `service_maintenance_evidence` | `False` |
+| `service_readiness` | `False` |
+| `service_recovery_evidence` | `False` |
+
+These are exactly 14 permanently preserved and six nonpersistent built-in types.
+Nonpersistent information must still be retained temporarily wherever needed for
+outstanding operational correctness, recovery or preservation. Scientific relevance,
+not duplication elsewhere, determines permanent preservation; some scientifically
+relevant duplication is explicitly accepted instead of conditional preservation
+rules. Ingestor must not independently classify meaning. No additional persistence
+flags or conditional classification mechanisms for these categories are authorized.
+
+### 3. Native retention and registered consumer responsibilities
+
+Use native JetStream `InterestPolicy` on `LAB_COMMANDS`, `LAB_COMMAND_RESULTS` and
+`LAB_EVIDENCE`. After all required consumers acknowledge, the message must no
+longer require broker retention. One required recipient's ACK must not prevent
+another's delivery. Set delivery/retention limits consistently with reliability;
+do not substitute custom deletion, ACK tracking, periodic cleanup or arbitrary expiry.
+
+Required framework-service JetStream consumers must be durable, with stable
+identities and responsibility-appropriate filters. Required interests must exist
+before applicable publication and survive temporary disconnection/process restart.
+GUI consumers remain non-durable. Do not make transient Core NATS subscriptions
+durable or convert transient communication to JetStream just to apply this rule.
+
+Reuse registration/readiness/release under Decisions 442/444. Configured/installed
+AcquisitionNodes are not automatically operational participants: unused nodes must
+not create unrelated delivery obligations or message accumulation. Registered nodes
+remain responsible for unresolved obligations while unavailable. Preserve the
+communication required to establish registration itself. No activation state,
+registry, supervisor or periodic consumer-management process is introduced.
+
+Durable delivery grants no execution authority. Preserve existing Session/Experiment
+identities, reservations, command correlation, duplicate protection, lifecycle
+validation and Controller authority. Still-valid commands may execute; no-longer-
+valid commands receive an appropriate existing rejection result. Redelivery must
+not reexecute completed commands. Restart does not authorize automatic replay or
+resumption of interrupted scientific execution. Identify concrete validation gaps
+before proposing additions; no general command-expiration system is authorized.
+
+### 4. Recipient-addressed command results
+
+Command-result subjects must identify the existing intended recipient, retaining
+producer and operation identification so native filters establish recipient-specific
+interests. Exact subject format is an implementation choice in the shared NATS
+layer. Preserve requester/producer identities, payload structures, command/result
+IDs, request nonces, body correlation/validation, Controller authority and execution
+semantics. Do not maintain the old format as parallel routing.
+
+Avoid unnecessary overlapping result consumers for one service; reuse its durable
+result consumer and existing correlation where practical. Evidence routing is
+unchanged: one publication can have independent recipients, including Controller
+and Ingestor. Correct simple retention, not speculative optimization, motivates this.
+
+### 5. Remove redundant historical broker-delivery verification
+
+No longer require Ingestor to retrieve acknowledged NATS messages and compare them
+with its journal, Controller to scan historical health/timing deliveries, or retained
+broker messages as proof of completed delivery. Do not introduce permanent ID lists,
+counters, checksums or replacement delivery audits solely to reproduce those checks.
+Rely on native delivery, correct consumer registration and appropriate ACK boundaries.
+
+Preserve producer completion of required publication, recipient-safe acceptance and
+processing, Ingestor evidence/preservation obligations, StorageManager confirmation
+of actual scientific preservation and Controller Session authority. Reuse existing
+markers/closeout where needed; marker receipt alone is not outstanding-work completion.
+Normal Stop completeness and Kill partial-preservation semantics remain distinct.
+Removal of redundant historical proof never makes incomplete work successful.
+
+### 6. Consumer retirement follows existing lifecycle boundaries
+
+Reuse registration, release, maintenance and Session closeout. Framework durable
+consumers remain while operational delivery responsibilities exist. Retire Session
+consumers when obligations are resolved and no further messages require them.
+Temporary disconnection does not authorize deletion; permanent Session Records do
+not themselves justify retaining a consumer. No separate cleanup service, automatic
+expiration or periodic cleanup subsystem is authorized.
+
+### 7. Authoritative owner outcomes replace broker-result history
+
+Previously acknowledged results must not remain necessary as historical broker
+records. Use existing authoritative owner records for relevant actual outcomes;
+StorageManager uses its collection outcomes and preservation records, not retained
+NATS copies. Retain only what resolves outstanding/uncertain operations, prevents
+inappropriate reexecution, protects resources/scientific data and completes required
+preservation. Retire recovery-only information when responsibilities resolve.
+No general persistent command-result database is authorized. Return specific
+insufficiencies of existing owner records to LLC, not a universal replacement design.
+
+### 8. Intake auditing, current recovery state and journal compaction
+
+Remove permanent `ingest_audit.jsonl` and complete historical intake-audit coverage
+requirements without another permanent audit/log replacement. Preserve scientific
+evidence, meaningful failures/inconsistencies and necessary temporary duplicate/
+conflict protection. Scientific timing and independent implementation audits remain.
+
+Reuse existing journals and checkpoints, retaining sufficient current information
+for outstanding responsibilities, not completed-operation reconstruction. Retire
+obsolete detail at Experiment, Session and framework-operation scope: scientific
+evidence copies after confirmed permanent preservation when otherwise unneeded;
+completed recovery detail; obsolete commands/results; superseded/resolved registration
+information; unnecessary deduplication state; and completed archive-write/checkpoint
+history. Preserve minimum closed-Session protection, current dependency/Controller
+authority, unresolved obligations and applicable resource safety.
+
+After successful checkpoint establishment, reuse existing checkpoint creation
+boundaries to retire/compact obsolete journal information. Preserve crash-safe
+recovery through both checkpoint publication and compaction. Checkpoints must
+support actual retirement, not merely faster replay of unbounded history. Precise
+file management is left to implementation. No new journal hierarchy, checkpoint
+subsystem, periodic cleanup, arbitrary retention threshold or recovery authority.
+
+### 9. Apply existing reliable versus transient communication principles
+
+Decisions 117/146 remain the classification basis: loss that creates an unresolved
+scientific or operational obligation requires reliable JetStream delivery. Routine
+read-only communication replaceable by a current observation or another request
+may use Core NATS. Remove unnecessary durable traffic where no durable obligation
+exists; assess GUI Services refresh, readiness requests/responses, read-only
+inventory/configuration and current status/monitoring within these principles.
+
+An authoritative read-only Core request/response need not be telemetry. Missing
+responses remain unknown/unconfirmed, never readiness success or confirmed remote
+failure. Registration, maintenance, recovery and state-changing side effects remain
+distinct from genuinely read-only queries and retain necessary reliable delivery.
+No new communication subsystem or Controller bypass is authorized.
+
+### Supersession, implementation status and transition limits
+
+| Earlier requirements | Accepted qualification |
+| --- | --- |
+| 117, 130-146: durable communication and existing result addressing | Native InterestPolicy and required durable service interests; recipient-addressed results replace old routing; genuinely transient reads may use Core without losing authority |
+| 219-231, 239, 279, 322-324, 338 and other producer-specific persistence wording | The exact 20-type table governs built-in assignments; producer ownership remains; six nonpersistent categories still retain necessary temporary obligations |
+| 276-280, 349, 353, 390/393: universal journals and complete audit/history | No permanent intake audit or irrelevant universal journaling; preserve necessary current correctness, integrity and recovery, not lifetime history |
+| 356-357, 382, 393, 407 and historical health-action closeout proofs | Remove acknowledged-message retrieval/comparison and historical broker availability as proof; preserve publication, safe recipient processing, scientific preservation, finality and Normal Stop/Kill distinction |
+| 316, 389-390, 442/444: registration and release history | Delivery interests follow actual responsibilities; preserve current authority/unresolved work, not complete superseded registration reconstruction |
+| 339-355, 364, 435, 437-438, 443: recovery and historical outcomes | Authoritative owner outcomes replace broker result retrieval; obsolete recovery-only records become eligible for crash-safe checkpoint-boundary compaction; permanent scientific records remain independent |
+| Decision 456's pending classification and concrete policy selection | Settled by Sections 2-9 above; implementation details, planning, verification and existing-installation transition remain separate work |
+
+No accepted ownership, Controller exclusivity, Session/Experiment lifecycle,
+reservation, cleanup, scientific integrity or unresolved-obligation requirement is
+removed by these qualifications. Historical validation is not rewritten as proof of
+compliance. Q022/Q024 remain OPEN; G2 and Phase 16 remain CLOSED in historical scope.
+
+Do not enable InterestPolicy before required consumer interests exist or while
+operations still depend on acknowledged broker history. In-place retention conversion
+is reported supported by the deployed server, but safe conversion is not validated.
+No deletion, migration or conversion of existing broker history, journals,
+checkpoints, archives or scientific files is authorized by this synchronization.
+ICC will separately coordinate implementation planning; this entry specifies no
+slice design and performs no implementation impact review or implementation.
 
 ---
 

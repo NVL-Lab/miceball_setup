@@ -2251,6 +2251,16 @@ the other orchestration questions below remain deferred.
 
 ## Q016: How is distributed Health Interpretation Evidence consumption recovered and deduplicated?
 
+**Accepted qualification (Decision 457):** Required service delivery interests are
+durable and responsibility-scoped; temporary disconnection is not consumer
+retirement. Native delivery with safe ACK boundaries replaces historical Controller
+scans of acknowledged health/timing messages; no replacement permanent delivery
+audit is authorized. Preserve scoped action correlation, duplicate protection and
+Controller authority without restart-authorized replay of scientific execution.
+These principles are settled, not new open questions. Concrete implementation and
+any specific insufficiency of authoritative owner outcomes remain for separately
+coordinated assessment; Q016 is not closed by documentation synchronization.
+
 ### Why this matters
 
 Decisions 115-149 settle the communication boundary, and the implemented Controller consumer now independently receives Session-scoped `HealthInterpretationEvidence` through JetStream. Operational recovery and duplicate-presentation behavior remain unresolved.
@@ -2804,9 +2814,16 @@ Distributed operation
 separates reliable communication, scientific preservation and temporary recovery.
 NATS retains messages only for outstanding required delivery/ACK obligations, not
 historical archival. Permanent Ingestor intake auditing is eliminated; relevant
-acceptance, integrity and outstanding-work protections remain. Concrete transport,
-consumer and recovery changes await inventory/LLC review and implementation impact
-assessment. Earlier implementation and validation records are not evidence of
+acceptance, integrity and outstanding-work protections remain.
+[Decision 457](architecture_decisions.md#decision-457-native-delivery-interests-and-selective-evidence-retention-bound-operational-recovery)
+settles all 20 assignments (14 persistent/six nonpersistent), native InterestPolicy,
+required durable service interests, non-durable GUI consumers, recipient-addressed
+results, lifecycle-based retirement and transient Core reads. Historical delivery
+comparisons are removed; authoritative owner records replace broker result history.
+Implementation planning and safe existing-installation transition remain pending;
+do not enable InterestPolicy before required interests and history-independent
+operations are established. Earlier implementation and validation records are not
+evidence of
 compliance with this later amendment. Q022 remains OPEN; no deployment reset or
 migration is authorized. Decision 453 remains deferred and Q035 remains unresolved.
 
@@ -3749,11 +3766,17 @@ checkpoints represent necessary current recovery state; Decision 437 does not
 mandate indefinite temporary-state retention. Scientific records, applicable
 duplicate/resource protection, durable acceptance and unresolved obligations remain.
 
-Q024 remains OPEN. The next authorized stage must inventory existing messages,
-persistence intent and dependencies; detailed scientific classification remains
-pending LLC review. Replacement audit-dependent verification, concrete retirement,
-ACK/consumer lifecycle, consolidation and existing-data treatment remain pending.
-No mechanism or migration is selected here. Historical implementations, deferrals
+Q024 remains OPEN. The source inventory and subsequent LLC discussion now inform
+accepted Decision 457: the exact evidence classifications and native delivery
+policy are settled. Preserve current authority, minimum closed-Session protection,
+unresolved obligations and necessary duplicate/resource safety while retiring
+obsolete Experiment/Session/framework-operation recovery detail. Reuse authoritative
+owner outcomes instead of acknowledged broker-result history. Existing checkpoint
+creation boundaries support actual crash-safe journal compaction, not only faster
+historical replay. No permanent intake-audit replacement or universal result store
+is authorized. Detailed file management, implementation planning, consolidation,
+verification and existing-data transition remain pending; no migration is authorized.
+Historical implementations, deferrals
 (including Decision 435) and validation records below retain their original scope;
 they do not establish compliance with Decision 456. G2 and Phase 16 remain CLOSED
 within their previously validated scope.
