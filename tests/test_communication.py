@@ -215,12 +215,12 @@ class RuntimeCommunicationTests(unittest.TestCase):
             component_type="acquisition_node",
             component_id="node-001",
             message_type="start_runtime",
+            recipient_id="controller-001",
         )
 
         self.assertEqual(
             subject,
-            "messages.session-001.command_result."
-            "acquisition_node.node-001.start_runtime",
+            "command_results.controller-001.acquisition_node.node-001.start_runtime.session-001",
         )
         self.assertEqual(
             parse_runtime_subject(subject),
@@ -230,6 +230,7 @@ class RuntimeCommunicationTests(unittest.TestCase):
                 "component_type": "acquisition_node",
                 "component_id": "node-001",
                 "message_type": "start_runtime",
+                "recipient_id": "controller-001",
             },
         )
 
@@ -247,7 +248,7 @@ class RuntimeCommunicationTests(unittest.TestCase):
         self.assertEqual(LAB_COMMANDS, "messages.*.command.>")
         self.assertEqual(
             LAB_COMMAND_RESULTS,
-            "messages.*.command_result.>",
+            "command_results.>",
         )
         self.assertEqual(LAB_EVIDENCE, "messages.*.evidence.>")
         self.assertFalse(

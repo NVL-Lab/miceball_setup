@@ -1,6 +1,7 @@
 """JetStream state double for public evidence-receipt workflows."""
 
 from datetime import datetime, timezone
+from dataclasses import replace
 from types import SimpleNamespace
 from nats.js.api import ConsumerInfo, RetentionPolicy, SequenceInfo, StorageType, StreamConfig, StreamInfo, StreamState
 from nats.js.errors import NotFoundError
@@ -38,13 +39,23 @@ class EvidenceReceiptBroker:
     def register(self, subject, options):
         config, durable = options.get("config"), options.get("durable")
         if durable and durable not in self.consumers:
+            config = replace(config, durable_name=durable, filter_subject=subject)
             self.consumers[durable] = ConsumerInfo(
                 name=durable, stream_name=options["stream"], config=config,
                 created=self.created, delivered=SequenceInfo(0, 0),
-                ack_floor=SequenceInfo(0, 0), num_ack_pending=0,
+                ack_floor=SequenceInfo(0, 0), num_ack_pending=0, num_pending=0,
             )
             self.acknowledged[durable] = set()
             self.deliveries[durable] = {}
+
+    async def delete_consumer(self, stream, durable):
+        if durable not in self.consumers:
+            raise NotFoundError
+        del self.consumers[durable]
+        self.acknowledged.pop(durable, None)
+        self.deliveries.pop(durable, None)
+        self.callbacks.pop(durable, None)
+        return True
 
     async def subscribe(self, subject, cb, **options):
         self.register(subject, options)

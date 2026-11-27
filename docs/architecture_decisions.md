@@ -15686,6 +15686,22 @@ preservation. Retire recovery-only information when responsibilities resolve.
 No general persistent command-result database is authorized. Return specific
 insufficiencies of existing owner records to LLC, not a universal replacement design.
 
+**Accepted clarification: pre-admission collection rejection.** Historical
+rejections require no durable preservation when admission created no side effects
+or outstanding obligations. Reuse Decision 422's lifetime-scoped duplicate
+protection: same-lifetime resubmission retains existing duplicate protection;
+redelivery or resubmission addressed to a previous StorageManager instance is
+rejected as an invalid previous-instance attempt, without reconstructing its
+original rejection. An old attempt must not acquire a replacement owner's identity.
+A fresh explicitly authorized attempt is evaluated against current eligibility and
+collection availability. This qualifies earlier cross-restart rejection-history
+requirements, not Decision 363's durable actual collection outcomes or Decision
+364's current eligibility requirements. Admitted attempts, failed transfers and
+uncertain outcomes retain all applicable recovery, preservation and duplicate
+protection. No persistent rejection records, expiration mechanism or replacement
+historical result retrieval is authorized. Implementation and verification remain
+pending; historical validation records retain their original scope.
+
 ### 8. Intake auditing, current recovery state and journal compaction
 
 Remove permanent `ingest_audit.jsonl` and complete historical intake-audit coverage

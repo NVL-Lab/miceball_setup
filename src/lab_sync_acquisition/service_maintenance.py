@@ -306,12 +306,35 @@ class ServiceMaintenanceInterface:
         return self._remote_preserved_evidence.get((message.session_id, message.evidence_id)) == message.to_dict()
 
     def required_evidence(self):
-        """Snapshot this service's persistent evidence without admitting new obligations."""
+        """Snapshot evidence still requiring acceptance or preservation by its owner."""
         messages = (*self._evidence, *(self.service.maintenance_evidence()
                                       if self._framework_communication is not None else ()))
+        current = {}
+        if self.participant.component_type == "ingestor" and self.ingestor._framework_ingestor is not None:
+            for message in self.ingestor._framework_ingestor.accepted_runtime_evidence:
+                state = message.payload.get("dependent_maintenance")
+                if message.source_id == self.participant.component_id and state is not None:
+                    participant = RuntimeParticipant.from_dict(state["registration"]["participant"])
+                    if participant in self._dependent_instances:
+                        current[participant] = message
+            messages = (*messages, *current.values(), *self._dependent_state_messages.values())
+        current_ids = {m.evidence_id for m in current.values()}
+        pending_ids = {m.evidence_id for m in self._dependent_state_messages.values()}
+        # A coordinated Controller release carries the frozen proof boundary.
+        # Keep that boundary while its current authority record still needs it.
+        release_evidence = []
+        for message in current.values():
+            confirmation = message.payload["dependent_maintenance"]["confirmation"]
+            if confirmation is not None:
+                release = confirmation["confirmation"].get("controller_release")
+                if release is not None:
+                    release_evidence.extend(RuntimeEvidenceMessage.from_dict(m) for m in release["evidence"])
+        messages = (*messages, *release_evidence)
         unique = {}
         for message in messages:
-            if not message.is_persistent:
+            if (current and "dependent_maintenance" in message.payload
+                    and message.evidence_id not in current_ids | pending_ids
+                    and self.ingestor.has_durable_runtime_evidence(message)):
                 continue
             key = (message.session_id, message.evidence_id)
             if key in unique and unique[key].to_dict() != message.to_dict():
@@ -421,7 +444,8 @@ class ServiceMaintenanceInterface:
                     with self.ingestor.framework_journal_guard():
                         compiled = self.ingestor.compile_framework_runtime_evidence()
                         registered = any(m.source_id == self.participant.component_id
-                            and "dependent_maintenance" in m.payload for m in compiled["runtime_evidence"])
+                            and "dependent_maintenance" in m.payload
+                            for m in self.ingestor._framework_ingestor.accepted_runtime_evidence)
                         if registered or any(self._dependent_instances.values()):
                             self._verified_initial_dependent_history = False
                         elif not self.storage_manager._framework_evidence_write_safe():
@@ -454,13 +478,13 @@ class ServiceMaintenanceInterface:
         return histories
 
     def _dependent_history(self, compiled, archived):
-        """Derive dependent state and ordered history from exact preserved evidence."""
+        """Derive current authority from journal-backed operational state, not an audit archive."""
         instances = dict(self._dependent_instances)
         confirmations = dict.fromkeys(instances)
         conflicts, histories = set(), {p: [] for p in instances}
         seen_instances = {p: set() for p in instances}
         preserved = {m["evidence_id"]: json.dumps(m, sort_keys=True) for m in archived["runtime_evidence"]}
-        for message in compiled["runtime_evidence"]:
+        for message in self.ingestor._framework_ingestor.accepted_runtime_evidence:
             data = message.to_dict()
             if data["source_id"] != self.participant.component_id or "dependent_maintenance" not in data["payload"]:
                 continue
@@ -468,12 +492,11 @@ class ServiceMaintenanceInterface:
             participant = RuntimeParticipant.from_dict(state["registration"]["participant"])
             if participant not in self._dependent_instances:
                 continue
-            if (message.evidence_type != "service_maintenance_evidence" or message.session_id is not None
-                    or not message.is_persistent):
+            if message.evidence_type != "service_maintenance_evidence" or message.session_id is not None:
                 raise ValueError("Invalid dependent history envelope")
             prior = histories[participant][-1].payload["dependent_maintenance"]["registration"] if histories[participant] else None
             self._validate_dependent_state(state, prior_registration=prior)
-            if preserved.get(message.evidence_id) != json.dumps(data, sort_keys=True):
+            if message.is_persistent and preserved.get(message.evidence_id) != json.dumps(data, sort_keys=True):
                 raise RuntimeError("Dependent history is not exactly archived")
             message = RuntimeEvidenceMessage.from_dict(data)
             if not self.ingestor.has_durable_runtime_evidence(message):
@@ -482,7 +505,7 @@ class ServiceMaintenanceInterface:
             if instance in seen_instances[participant] and instance != instances[participant]:
                 raise RuntimeError("Superseded dependent instance reappears in preserved history")
             seen_instances[participant].add(instance)
-            histories[participant].append(message)
+            histories[participant] = [message]
             instances[participant] = instance
             confirmations[participant] = state["confirmation"]
             if state["conflicting"]:
@@ -501,8 +524,11 @@ class ServiceMaintenanceInterface:
                 instances, _, _, histories = self._dependent_history(
                     self.ingestor.compile_framework_runtime_evidence(), archive)
                 current = instances[participant]
-                if instance != current and any(m.payload["dependent_maintenance"]["registration"][
-                        "operational_instance_id"] == instance for m in histories[participant]):
+                if instance != current and any(
+                        m.source_id == self.participant.component_id
+                        and m.payload.get("dependent_maintenance", {}).get("registration", {}).get("participant") == participant.to_dict()
+                        and m.payload["dependent_maintenance"]["registration"]["operational_instance_id"] == instance
+                        for m in self.ingestor._framework_ingestor.accepted_runtime_evidence):
                     raise RuntimeError("Superseded dependent instance cannot regain authority")
                 return current
 
@@ -536,13 +562,13 @@ class ServiceMaintenanceInterface:
             if set(confirmation) != {"controller_release"}:
                 raise ValueError("Contradictory dependent release kinds")
             release = confirmation["controller_release"]
-            if json.dumps(registration, sort_keys=True) != json.dumps(prior_registration, sort_keys=True):
+            if prior_registration is not None and json.dumps(registration, sort_keys=True) != json.dumps(prior_registration, sort_keys=True):
                 raise ValueError("Controller release lacks its matching preserved registration")
             self._validate_controller_release(registration, release, self.participant)
             archived = self.storage_manager.get_framework_preservation_confirmation()
             preserved = {(m["session_id"], m["evidence_id"]): json.dumps(m, sort_keys=True)
                          for m in archived["runtime_evidence"]} if archived else {}
-            if (not archived or any(json.dumps(m, sort_keys=True) != preserved.get((m["session_id"], m["evidence_id"]))
+            if (not archived or any(m["is_persistent"] and json.dumps(m, sort_keys=True) != preserved.get((m["session_id"], m["evidence_id"]))
                     or not self.ingestor.has_durable_runtime_evidence(RuntimeEvidenceMessage.from_dict(m))
                     for m in release["evidence"])):
                 raise RuntimeError("Controller release evidence is not durably preserved")
@@ -563,7 +589,7 @@ class ServiceMaintenanceInterface:
         framework = release["framework_stop_attempt_id"]
         messages = tuple(RuntimeEvidenceMessage.from_dict(m) for m in release["evidence"])
         if (not messages or len({(m.session_id, m.evidence_id) for m in messages}) != len(messages)
-                or any(not m.is_persistent or m.source_id != participant.component_id
+                or any(m.source_id != participant.component_id
                        or not isinstance(m.payload, dict) for m in messages)):
             raise ValueError("Invalid Controller release evidence boundary")
         finals = [m.payload for m in messages if m.session_id is None and m.evidence_type == "service_maintenance_evidence"
@@ -843,7 +869,7 @@ class ServiceMaintenanceInterface:
         prior = None
         if confirmation is not None and "controller_release" in confirmation.get("confirmation", {}):
             prior = next((m.payload["dependent_maintenance"]["registration"] for m in reversed(
-                self.ingestor.compile_framework_runtime_evidence()["runtime_evidence"])
+                self.ingestor._framework_ingestor.accepted_runtime_evidence)
                 if m.source_id == self.participant.component_id and "dependent_maintenance" in m.payload
                 and m.payload["dependent_maintenance"]["registration"]["participant"] == registration["participant"]), None)
         self._validate_dependent_state(state, prior_registration=prior)
@@ -851,7 +877,7 @@ class ServiceMaintenanceInterface:
         message = self._dependent_state_messages.get(key)
         if message is None:
             message = RuntimeEvidenceMessage(uuid4().hex, None, "service_maintenance_evidence",
-                self.participant.component_id, {"dependent_maintenance": state}, True)
+                self.participant.component_id, {"dependent_maintenance": state}, False)
             self._dependent_state_messages[key] = message
         started = monotonic()
         _deployment_diagnostic("registration.preservation", source=self.participant.component_id,
@@ -1065,7 +1091,7 @@ class ServiceMaintenanceInterface:
             raise ValueError("External dependent is not explicitly configured")
         if command.command_type == "register_operational_dependent" and not any(
                 m.source_id == self.participant.component_id and "dependent_maintenance" in m.payload
-                for m in self.ingestor.compile_framework_runtime_evidence()["runtime_evidence"]):
+                for m in self.ingestor._framework_ingestor.accepted_runtime_evidence):
             # Bootstrap only a deployment without prior dependent history; the existing
             # writer still refuses missing/corrupt archives and unconfirmed preservation.
             await self._record_dependent_state(registration)
@@ -1275,7 +1301,7 @@ class ServiceMaintenanceInterface:
                 return deepcopy(self._last_readiness_status)
             self._readiness_signature = deepcopy(payload)
             message = RuntimeEvidenceMessage(uuid4().hex, None, "service_readiness",
-                self.participant.component_id, {**payload, "recorded_at": time()}, True)
+                self.participant.component_id, {**payload, "recorded_at": time()}, False)
             status = self._evidence_status(message)
             self._last_readiness_status = status
         return await self._record_framework_evidence(message, status, require_existing_archive=True)
@@ -1321,7 +1347,7 @@ class ServiceMaintenanceInterface:
 
     @service_operation()
     async def retire_dependent_maintenance_history(self):
-        """Retire only superseded, preserved Ingestor orderly-Stop producer copies."""
+        """Retire superseded dependent producer detail after current authority is verified."""
         release = {"released_evidence_count": 0, "confirmed": False, "remaining_obligations": []}
         try:
             if (self.participant.component_type != "ingestor" or self.service is not self.ingestor
@@ -1335,7 +1361,7 @@ class ServiceMaintenanceInterface:
                         raise RuntimeError("Dependent publication, delivery or conflict remains outstanding")
                     compiled = self.ingestor.compile_framework_runtime_evidence()
                     # Canonical equality also distinguishes contradictory boolean/numeric values.
-                    for name in ("runtime_evidence", "ingest_audit"):
+                    for name in ("runtime_evidence",):
                         if json.dumps(archive[name], sort_keys=True) != json.dumps(
                                 [m.to_dict() for m in compiled[name]], sort_keys=True):
                             raise RuntimeError("Framework preservation differs from accepted history")
@@ -1345,16 +1371,13 @@ class ServiceMaintenanceInterface:
                                 self._dependent_confirmations[p], sort_keys=True) for p in instances)):
                         raise RuntimeError("Current dependent state is not reconstructable")
                     candidates = {}
-                    for participant, history in histories.items():
-                        if not history:
-                            continue
-                        # Retain the latest record unconditionally; it must itself prove orderly Stop.
-                        latest = self._orderly_dependent_stop(history[-1], participant)
-                        if not latest:
-                            continue
-                        for message in history[:-1]:
-                            if self._orderly_dependent_stop(message, participant):
-                                candidates[message.evidence_id] = json.dumps(message.to_dict(), sort_keys=True)
+                    current_ids = {m.evidence_id for history in histories.values() for m in history}
+                    for message in self.ingestor._framework_ingestor.accepted_runtime_evidence:
+                        state = message.payload.get("dependent_maintenance")
+                        if (message.source_id == self.participant.component_id and state is not None
+                                and message.evidence_id not in current_ids
+                                and RuntimeParticipant.from_dict(state["registration"]["participant"]) in instances):
+                            candidates[message.evidence_id] = json.dumps(message.to_dict(), sort_keys=True)
                     ids = set()
                     for message in self._evidence:
                         if message.evidence_id in candidates:
@@ -1366,20 +1389,6 @@ class ServiceMaintenanceInterface:
         except Exception as error:
             release["remaining_obligations"] = [str(error)]
         return release
-
-    def _orderly_dependent_stop(self, message, participant):
-        """Recognize only exact fully confirmed orderly dependent Stop evidence."""
-        if (message.evidence_type != "service_maintenance_evidence" or message.session_id is not None
-                or message.source_id != self.participant.component_id or not message.is_persistent):
-            return False
-        state = message.payload.get("dependent_maintenance", {})
-        payload = state.get("confirmation")
-        if state.get("conflicting") is not False or not payload or "confirmation" not in payload:
-            return False
-        confirmation = payload["confirmation"]
-        if "controller_release" in confirmation:
-            return False
-        return confirmation["command"]["command_type"] == "stop"
 
     def _release_abandoned_evidence(self, decision):
         release = {"released_evidence_count": 0, "confirmed": False, "remaining_obligations": []}
@@ -1680,7 +1689,7 @@ class ServiceMaintenanceInterface:
             authorization = self._require_recovery_authorization(command)
             attempt["administrator_id"] = authorization.payload["administrator_id"]
             message = RuntimeEvidenceMessage(uuid4().hex, None, "service_recovery_evidence",
-                self.participant.component_id, {**deepcopy(attempt), "checkpoint": "attempt_recorded"}, True)
+                self.participant.component_id, {**deepcopy(attempt), "checkpoint": "attempt_recorded"}, False)
             unavailable_target = (self.participant.component_type == "storage_manager"
                 and command.command_type == "recover_archive_write"
                 and command.payload["obligation"].get("session_id") is None)
@@ -1727,7 +1736,7 @@ class ServiceMaintenanceInterface:
             attempt["actual_outcome"] = "failed"
             attempt["remaining_obligations"] = ["Recovery cancelled; no unconfirmed action is reported completed"]
             cancelled = RuntimeEvidenceMessage(uuid4().hex, None, "service_recovery_evidence",
-                self.participant.component_id, deepcopy(attempt), True)
+                self.participant.component_id, deepcopy(attempt), False)
             preservation = self._evidence_status(cancelled)
             try:
                 await self._record_framework_evidence(cancelled, preservation, archive=False)
@@ -1744,7 +1753,7 @@ class ServiceMaintenanceInterface:
         attempt["actual_outcome"] = outcome
         attempt["recorded_at"] = time()
         message = RuntimeEvidenceMessage(uuid4().hex, None, "service_recovery_evidence",
-            self.participant.component_id, deepcopy(attempt), True)
+            self.participant.component_id, deepcopy(attempt), False)
         preservation = self._evidence_status(message)
         with self._admission_lock:
             self._evidence.append(message)
@@ -1797,7 +1806,9 @@ class ServiceMaintenanceInterface:
             if confirmation is None:
                 raise RuntimeError("Prepared closeout archive preservation is unconfirmed")
             archived = {m["evidence_id"]: m for m in confirmation["runtime_evidence"]}
-            if any(m.is_persistent and archived.get(m.evidence_id) != m.to_dict() for m in self._evidence):
+            if any((m.is_persistent and archived.get(m.evidence_id) != m.to_dict())
+                   or (not m.is_persistent and not self.ingestor.has_durable_runtime_evidence(m))
+                   for m in self.required_evidence()):
                 raise RuntimeError("Prepared closeout evidence is no longer preserved")
             yield
 
@@ -1910,9 +1921,9 @@ class ServiceMaintenanceInterface:
         # Same intake -> storage -> admission order as the existing synchronous commit.
         with self.ingestor._intake_lock, self.ingestor.framework_preservation_guard(self.storage_manager) as confirmation, self._admission_lock:
             archived = {message["evidence_id"]: message for message in confirmation["runtime_evidence"]}
-            for message in self._evidence:
-                if message.is_persistent and (not self.ingestor.has_durable_runtime_evidence(message)
-                        or archived.get(message.evidence_id) != message.to_dict()):
+            for message in self.required_evidence():
+                if (not self.ingestor.has_durable_runtime_evidence(message)
+                        or message.is_persistent and archived.get(message.evidence_id) != message.to_dict()):
                     raise RuntimeError(f"Outstanding maintenance evidence: {message.evidence_id}")
             blockers = self._closeout_blockers()
             if blockers:
@@ -1926,7 +1937,7 @@ class ServiceMaintenanceInterface:
         if checkpoint is not None:
             payload["checkpoint"] = checkpoint
         message = RuntimeEvidenceMessage(uuid4().hex, None, "service_maintenance_evidence",
-                                         self.participant.component_id, payload, True)
+                                         self.participant.component_id, payload, False)
         await self._preserve_message(message)
 
     async def _preserve_message(self, message, status=None, *, archive=True, require_existing_archive=False):
@@ -1949,14 +1960,16 @@ class ServiceMaintenanceInterface:
                 {"evidence": [m.to_dict() for m in boundary], "acceptance_window_s": self.preservation_window_s},
                 self.preservation_window_s, command_id=uuid4().hex)
             if (result is None or not result.success or result.payload.get("acceptance_confirmed") is not True
-                    or result.payload.get("archival_confirmed") is not True
+                    or (any(m.is_persistent for m in boundary)
+                        and result.payload.get("archival_confirmed") is not True)
                     or result.payload.get("storage_participant") != self._framework_storage.to_dict()
                     or result.payload.get("evidence") != [m.to_dict() for m in boundary]):
                 raise RuntimeError("Authoritative producer evidence preservation is unconfirmed")
             with self._admission_lock:
                 self._remote_preserved_evidence = {(m.session_id, m.evidence_id): m.to_dict() for m in boundary}
             if status is not None:
-                status.update(acceptance_confirmed=True, archival_confirmed=True)
+                status.update(acceptance_confirmed=True,
+                              archival_confirmed=result.payload.get("archival_confirmed") is True)
             return
         if self.evidence_publisher is None:
             if self.ingestor is None:

@@ -138,34 +138,26 @@ class InMemoryIngestor:
         return self._framework_ingestor.compile_persistent_runtime_evidence()
 
     def continue_framework_evidence_archive(self):
-        """Reconcile recovered journal-backed compilation through paired StorageManager."""
-        intake = self._framework_ingestor
-        if intake is None or self._storage_manager is None:
+        """Reconcile pending framework archival with the paired StorageManager."""
+        if self._framework_ingestor is None or self._storage_manager is None:
             raise RuntimeError("Framework journal and paired StorageManager are required")
         with self.framework_journal_guard(checkpoint_prefix=True), self._storage_manager._preservation_lock:
             compiled = self.compile_framework_runtime_evidence()
             confirmation = self._storage_manager.continue_framework_evidence_archive(compiled)
-            if confirmation is not None and any(confirmation[name] != [m.to_dict() for m in compiled[name]]
-                    for name in ("runtime_evidence", "ingest_audit")):
-                raise RuntimeError("Current framework intake is not durably archived")
+            if compiled["runtime_evidence"] and (confirmation is None or any(
+                    m.to_dict() not in confirmation["runtime_evidence"] for m in compiled["runtime_evidence"])):
+                raise RuntimeError("Current framework evidence is not durably archived")
             return confirmation
 
     def _verify_framework_journal(self):
-        """Check the current physical journal against retained acceptance and audit."""
+        """Verify live framework state from the checkpoint and its suffix."""
         intake = self._framework_ingestor
-        if intake is None:
-            raise RuntimeError("Framework recovery journal is not configured")
+        if intake is None or intake._journal_failed:
+            raise RuntimeError("Framework journal integrity is unconfirmed")
         with intake._intake_lock:
-            scope = intake._framework_verification_scope
-            if scope is not None:
-                scope["valid"] = False
-            if intake._journal_failed or intake._recovery_journal_path is None:
-                raise RuntimeError("Framework journal integrity is unconfirmed")
-            checkpoint = intake._recovery_checkpoint if scope is not None and scope["checkpoint_prefix"] else None
+            checkpoint = intake._recovery_checkpoint
             evidence = dict(checkpoint["content"]) if checkpoint else {}
-            audits = deepcopy(checkpoint["audit"]) if checkpoint else []
             writes = deepcopy(checkpoint["writes"]) if checkpoint else []
-            validated = {}
             with intake._recovery_journal_path.open("rb") as journal:
                 before = os.fstat(journal.fileno())
                 if checkpoint:
@@ -174,39 +166,23 @@ class InMemoryIngestor:
                 for line in journal:
                     entry = json.loads(line)
                     if "framework_archive_write" in entry:
-                        if set(entry) != {"framework_archive_write"}:
-                            raise ValueError("Operational write proof cannot contain compiled evidence")
                         record = entry["framework_archive_write"]
                         self._validate_framework_write_record(writes, record)
                         writes.append(record)
-                        continue
-                    audits.append(entry["ingest_audit"])
-                    if entry["runtime_evidence"] is not None:
-                        envelope = json.dumps(entry["runtime_evidence"], sort_keys=True,
-                            separators=(",", ":"), allow_nan=False)
-                        previous = validated.get(envelope)
-                        if previous is None:
-                            message = RuntimeEvidenceMessage.from_dict(entry["runtime_evidence"])
-                            previous = (message.evidence_id, intake._evidence_content(message))
-                            validated[envelope] = previous
-                        identity, content = previous
-                        if (not entry["ingest_audit"]["accepted"]
-                                or entry["ingest_audit"]["evidence_id"] != identity
-                                or evidence.get(identity, content) != content):
-                            raise ValueError("Framework journal has inconsistent evidence or audit")
-                        evidence.setdefault(identity, content)
-                    elif entry["ingest_audit"]["accepted"]:
-                        raise ValueError("Framework journal acceptance lacks evidence")
+                    else:
+                        message = RuntimeEvidenceMessage.from_dict(entry)
+                        content = intake._evidence_content(message)
+                        if evidence.setdefault(message.evidence_id, content) != content:
+                            raise ValueError("Framework evidence identity conflict")
                 after = os.fstat(journal.fileno())
                 current = intake._recovery_journal_path.stat()
             if (writes != intake._framework_write_records
                     or list(evidence.items()) != list(intake._accepted_evidence_content.items())
-                    or json.dumps(audits, sort_keys=True) != json.dumps(
-                        [item.to_dict() for item in intake._runtime_evidence_audit], sort_keys=True)
                     or any(getattr(before, name) != getattr(after, name)
                            or getattr(before, name) != getattr(current, name)
                            for name in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))):
-                raise RuntimeError("Recovered framework compilation differs from current durable journal")
+                raise RuntimeError("Framework journal changed or differs from accepted state")
+            scope = intake._framework_verification_scope
             if scope is not None:
                 scope["stamp"] = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
                 scope["valid"] = True
@@ -268,29 +244,27 @@ class InMemoryIngestor:
     @staticmethod
     def _validate_framework_write_record(records, record):
         if (not isinstance(record, dict) or record.get("kind") not in {"intent", "completion"}
-                or any(not isinstance(record.get(k), str) or not record[k]
-                       for k in ("write_attempt_id", "storage_id"))):
+                or any(not isinstance(record.get(k), str) or not record[k] for k in ("write_attempt_id", "storage_id"))):
             raise ValueError("Invalid framework write proof")
         matches = [r for r in records if r["write_attempt_id"] == record["write_attempt_id"]]
+        digest = lambda value: isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
         if record["kind"] == "intent":
             fields = {"kind", "write_attempt_id", "storage_id", "storage_root", "target_month",
-                      "evidence_start", "evidence_end", "audit_start", "audit_end", "prior_fingerprint",
-                      "evidence_ids", "audit_fingerprint", "products", "before"}
-            products = {"runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"}
-            bounds = [record.get(k) for k in ("evidence_start", "evidence_end", "audit_start", "audit_end")]
-            digest = lambda value: isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+                      "evidence_start", "evidence_end", "base_count", "base_fingerprint",
+                      "prior_fingerprint", "evidence_ids", "products", "before"}
+            products = {"runtime_evidence.jsonl", "compilation_summary.json"}
             if (matches or set(record) != fields
-                    or any(type(n) is not int or n < 0 for n in bounds)
-                    or bounds[0] > bounds[1] or bounds[2] > bounds[3]
+                    or any(type(record[k]) is not int or record[k] < 0
+                           for k in ("evidence_start", "evidence_end", "base_count"))
+                    or record["evidence_end"] != record["evidence_start"] + record["base_count"] + len(record["evidence_ids"])
                     or not isinstance(record["storage_root"], str) or not Path(record["storage_root"]).is_absolute()
-                    or not isinstance(record["target_month"], str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}", record["target_month"])
+                    or re.fullmatch(r"[0-9]{4}-[0-9]{2}", record["target_month"]) is None
                     or not isinstance(record["evidence_ids"], list)
-                    or any(not isinstance(i, str) or not i for i in record["evidence_ids"])
-                    or len(set(record["evidence_ids"])) != bounds[1] or len(record["evidence_ids"]) != bounds[1]
-                    or not digest(record["prior_fingerprint"]) or not digest(record["audit_fingerprint"])
-                    or not isinstance(record["products"], dict) or set(record["products"]) != products
-                    or not all(digest(v) for v in record["products"].values())
-                    or not isinstance(record["before"], dict) or set(record["before"]) != products
+                    or any(not isinstance(identity, str) or not identity for identity in record["evidence_ids"])
+                    or len(set(record["evidence_ids"])) != len(record["evidence_ids"])
+                    or not digest(record["prior_fingerprint"]) or not digest(record["base_fingerprint"])
+                    or set(record["products"]) != products or not all(digest(v) for v in record["products"].values())
+                    or set(record["before"]) != products
                     or any(v is not None and not digest(v) for v in record["before"].values())):
                 raise ValueError("Conflicting or incomplete framework write intent")
         elif (len(matches) != 1 or matches[0]["kind"] != "intent"
@@ -391,7 +365,7 @@ class InMemoryIngestor:
 
     @contextmanager
     def framework_preservation_guard(self, storage_manager: PersistentStorageManager, *, verify_journal=False):
-        """Hold intake and storage steady while checking complete framework archival."""
+        """Hold intake and storage steady while checking pending scientific archival."""
         intake = self._framework_ingestor
         if intake is None:
             raise RuntimeError("Framework recovery journal is not configured")
@@ -399,53 +373,51 @@ class InMemoryIngestor:
             guards.enter_context(self.framework_journal_guard() if verify_journal else intake._intake_lock)
             confirmation = guards.enter_context(storage_manager.framework_preservation_guard())
             compiled = intake.compile_persistent_runtime_evidence()
-            if (intake._journal_failed or confirmation is None
-                    or any(confirmation[name] != [item.to_dict() for item in compiled[name]]
-                           for name in ("runtime_evidence", "ingest_audit"))):
-                raise RuntimeError("Current framework intake is not durably archived")
+            if (intake._journal_failed or confirmation is None or any(
+                    item.to_dict() not in confirmation["runtime_evidence"] for item in compiled["runtime_evidence"])):
+                raise RuntimeError("Current framework evidence is not durably archived")
             yield confirmation
 
     @service_operation()
     async def preserve_service_evidence(self, messages, source_id, acceptance_window_s):
-        """Confirm a producer boundary using authoritative journals and paired storage."""
+        """Confirm durable acceptance for a mixed boundary and archive only persistent rows."""
         messages = tuple(RuntimeEvidenceMessage.from_dict(m) for m in messages)
-        if (not messages or any(m.source_id != source_id or not m.is_persistent for m in messages)
+        if (not messages or any(m.source_id != source_id for m in messages)
                 or len({(m.session_id, m.evidence_id) for m in messages}) != len(messages)):
-            raise ValueError("A unique persistent evidence boundary for the requesting producer is required")
+            raise ValueError("A unique evidence boundary for the requesting producer is required")
         storage = self._storage_manager
-        if storage is None or self._framework_ingestor is None:
+        intake = self._framework_ingestor
+        if storage is None or intake is None:
             raise RuntimeError("Framework journal and paired StorageManager are required")
         for message in messages:
             if message.evidence_type == "scientific_original_deletion":
                 validate_deletion_evidence(message)
-            if message.session_id is None:
+            if message.session_id is None or message.session_id == self._session_id:
                 if not await self.await_durable_runtime_evidence(message, acceptance_window_s):
-                    raise RuntimeError("Producer framework evidence lacks journal-backed acceptance")
-            else:
-                # Session products remain immutable; this operation cannot repair or
-                # append to their Stage A baseline or collect scientific artifacts.
-                self.read_session_closeout(message.session_id)
+                    raise RuntimeError("Producer evidence lacks journal-backed acceptance")
+            elif message.is_persistent:
                 saved = storage.get_persisted_session_preservation_confirmation(message.session_id)
-                if (saved is None or message.to_dict() not in saved["runtime_evidence"]
-                        or message.evidence_id not in saved["compilation_summary"]["runtime_evidence_origins"]["ingestor"]):
-                    raise RuntimeError("Producer Session evidence lacks verified Stage A preservation")
-        intake = self._framework_ingestor
+                if saved is None or message.to_dict() not in saved["runtime_evidence"]:
+                    raise RuntimeError("Producer Session evidence lacks verified preservation")
+            else:
+                raise RuntimeError("Nonpersistent Session evidence requires its live acceptance scope")
+        persistent = tuple(m for m in messages if m.is_persistent)
         with self._intake_lock, intake._intake_lock, storage._preservation_lock:
-            if not storage._framework_evidence_write_safe():
-                raise RuntimeError("Framework archive requires authorized recovery")
             if any(not self.has_durable_runtime_evidence(m) for m in messages if m.session_id is None):
-                raise RuntimeError("Framework journal changed during boundary verification")
-            compiled = self.compile_framework_runtime_evidence()
-            current = storage.get_framework_preservation_confirmation()
-            if current is None or any(current[name] != [m.to_dict() for m in compiled[name]]
-                                      for name in ("runtime_evidence", "ingest_audit")):
-                storage.write_framework_evidence_archive(compiled)
-            with self.framework_preservation_guard(storage) as archive:
-                if any(m.to_dict() not in archive["runtime_evidence"] for m in messages if m.session_id is None):
-                    raise RuntimeError("Framework preservation does not cover the producer boundary")
-                return {"acceptance_confirmed": True, "archival_confirmed": True,
-                        "evidence": [m.to_dict() for m in messages],
-                        "storage_participant": {"component_type": "storage_manager", "component_id": storage._component_id}}
+                raise RuntimeError("Framework acceptance changed during boundary verification")
+            if any(m.session_id is None for m in persistent):
+                if not storage._framework_evidence_write_safe():
+                    raise RuntimeError("Framework archive requires authorized recovery")
+                storage.write_framework_evidence_archive(self.compile_framework_runtime_evidence())
+            for message in persistent:
+                saved = (storage.get_framework_preservation_confirmation() if message.session_id is None else
+                         storage.get_persisted_session_preservation_confirmation(message.session_id))
+                if saved is None or message.to_dict() not in saved["runtime_evidence"]:
+                    raise RuntimeError("Scientific preservation does not cover the producer boundary")
+            return {"acceptance_confirmed": True, "archival_confirmed": bool(persistent),
+                    "evidence": [m.to_dict() for m in messages],
+                    "archived_evidence_ids": [m.evidence_id for m in persistent],
+                    "storage_participant": {"component_type": "storage_manager", "component_id": storage._component_id}}
 
     def _initialize_closed_sessions(self) -> None:
         """An existing directory without its ledger is uncertain, not a fresh store."""
@@ -597,7 +569,7 @@ class InMemoryIngestor:
                             "recovered_entry_count": len(self._accepted_runtime_evidence),
                             "recovery_time": time(),
                         },
-                        is_persistent=True,
+                        is_persistent=False,
                     )
                 )
             else:
@@ -700,8 +672,7 @@ class InMemoryIngestor:
                     or receipt.get("session_id") != self._session_id
                     or receipt.get("evidence_id") != marker.evidence_id
                     or receipt.get("durable_receipt_confirmed") is not True
-                    or type(receipt.get("marker_stream_sequence")) is not int
-                    or receipt["marker_stream_sequence"] <= 0):
+):
                 raise RuntimeError("Finalization requires matching complete durable acquisition receipt")
             with self.durable_runtime_evidence_history_guard(self._session_id,
                     self._recovery_journal_path, self._accepted_runtime_evidence) as confirmed:
@@ -709,8 +680,7 @@ class InMemoryIngestor:
                     raise RuntimeError("Finalization journal coverage is unconfirmed")
                 checkpoint = {"kind": "acquisition_finality", "session_id": self._session_id,
                     "marker": marker.to_dict(), "receipt": deepcopy(receipt),
-                    "evidence_ids": list(self._accepted_evidence_content),
-                    "ingest_audit": [audit.to_dict() for audit in self._runtime_evidence_audit]}
+                    "evidence_ids": list(self._accepted_evidence_content)}
                 self._append_runtime_evidence(json.dumps({"ingestor_checkpoint": checkpoint},
                     sort_keys=True, allow_nan=False))
                 self._finalized_intake = checkpoint
@@ -754,10 +724,11 @@ class InMemoryIngestor:
                 if current is None:
                     record = deepcopy(session_record)
                     record.update(runtime_evidence=[m.to_dict() for m in compiled["runtime_evidence"]],
-                                  runtime_evidence_audit=[a.to_dict() for a in compiled["ingest_audit"]])
+                                  runtime_evidence_audit=[])
                     if mode == "normal":
                         storage.write_acquisition_stage(session_id, compiled,
-                            receipt=self._finalized_intake["receipt"], **record)
+                            receipt=self._finalized_intake["receipt"],
+                            acquisition_marker=self._finalized_intake["marker"], **record)
                     else:
                         uncertainties = deepcopy(uncertainties) + [{"evidence_id": m.get("evidence_id"),
                             "acceptance_confirmed": False, "reason": "Controller publication is unconfirmed"}
@@ -788,7 +759,6 @@ class InMemoryIngestor:
                 origins = set((current or {}).get("compilation_summary", {}).get("runtime_evidence_origins", {}).get("ingestor", []))
                 if (current is None or [m for m in current["runtime_evidence"] if m["evidence_id"] in origins]
                         != [v.to_dict() for v in compiled["runtime_evidence"]]
-                        or current["ingest_audit"] != [v.to_dict() for v in compiled["ingest_audit"]]
                         or current["artifact_collection_handoff"] != self.compile_artifact_collection_handoff(session_id)):
                     raise RuntimeError("Current closeout preservation does not cover intake")
                 normal = self._finalized_intake is not None
@@ -797,8 +767,8 @@ class InMemoryIngestor:
                     if (summary.get("stage_a_complete") is not True
                             or summary.get("acquisition_evidence_completion", {}).get("evidence_id")
                                 != self._finalized_intake["marker"]["evidence_id"]
-                            or summary["acquisition_evidence_completion"].get("marker_stream_sequence")
-                                != self._finalized_intake["receipt"]["marker_stream_sequence"]):
+                            or summary["acquisition_evidence_completion"].get("receipt")
+                                != self._finalized_intake["receipt"]):
                         raise RuntimeError("Finalized marker provenance is not preserved")
                 elif not summary.get("kill_preservation", {}).get("preservation_confirmed"):
                     raise RuntimeError("Partial Kill preservation is unconfirmed")
@@ -851,23 +821,22 @@ class InMemoryIngestor:
                 if normal:
                     provenance = summary.get("acquisition_evidence_completion", {})
                     receipt = provenance.get("receipt")
-                    markers = [m for m in current["runtime_evidence"]
-                               if m["evidence_id"] == provenance.get("evidence_id")
-                               and m["evidence_type"] == "acquisition_evidence_completion"]
-                    if (len(markers) != 1 or summary.get("kill_preservation") is not None
+                    marker = provenance.get("marker")
+                    if marker is None:
+                        marker = next((m for m in current["runtime_evidence"]
+                            if m["evidence_id"] == provenance.get("evidence_id")
+                            and m["evidence_type"] == "acquisition_evidence_completion"), None)
+                    if (not isinstance(marker, dict) or summary.get("kill_preservation") is not None
                             or not isinstance(receipt, dict)
                             or receipt.get("session_id") != session_id
-                            or receipt.get("evidence_id") != markers[0]["evidence_id"]
-                            or receipt.get("durable_receipt_confirmed") is not True
-                            or type(receipt.get("marker_stream_sequence")) is not int
-                            or receipt["marker_stream_sequence"] <= 0
-                            or receipt["marker_stream_sequence"] != provenance.get("marker_stream_sequence")):
+                            or receipt.get("evidence_id") != marker.get("evidence_id")
+                            or receipt.get("durable_receipt_confirmed") is not True):
                         raise RuntimeError("Permanent normal-finalization provenance is unconfirmed")
-                    audit = current["ingest_audit"]
+                    parsed = RuntimeEvidenceMessage.from_dict(marker)
+                    if parsed.session_id != session_id or parsed.evidence_type != "acquisition_evidence_completion":
+                        raise RuntimeError("Permanent marker identity is inconsistent")
                     finality = {"kind": "acquisition_finality", "session_id": session_id,
-                        "marker": markers[0], "receipt": receipt,
-                        "evidence_ids": list(dict.fromkeys(a["evidence_id"] for a in audit if a["accepted"])),
-                        "ingest_audit": audit}
+                        "marker": marker, "receipt": receipt}
                 else:
                     kill = summary.get("kill_preservation", {})
                     if (state not in {"aborted", "failed"} or summary.get("stage_a_complete") is not False
@@ -923,19 +892,16 @@ class InMemoryIngestor:
             summary = current["compilation_summary"]
             if finality is not None:
                 if (finality.get("evidence_ids") != list(messages)
-                        or finality.get("ingest_audit") != current["ingest_audit"]
                         or finality.get("marker") != messages.get(finality.get("receipt", {}).get("evidence_id"))
                         or finality.get("marker", {}).get("session_id") != session_id
                         or finality.get("marker", {}).get("evidence_type") != "acquisition_evidence_completion"
                         or finality.get("receipt", {}).get("session_id") != session_id
                         or finality.get("receipt", {}).get("durable_receipt_confirmed") is not True
-                        or type(finality.get("receipt", {}).get("marker_stream_sequence")) is not int
-                        or finality["receipt"]["marker_stream_sequence"] <= 0
                         or summary.get("stage_a_complete") is not True
                         or summary.get("acquisition_evidence_completion", {}).get("evidence_id")
                             != finality["receipt"]["evidence_id"]
-                        or summary.get("acquisition_evidence_completion", {}).get("marker_stream_sequence")
-                            != finality.get("receipt", {}).get("marker_stream_sequence")):
+                        or summary.get("acquisition_evidence_completion", {}).get("receipt")
+                            != finality.get("receipt")):
                     raise RuntimeError("Saved finalized intake coverage is unconfirmed")
             elif not kill or not summary.get("kill_preservation", {}).get("preservation_confirmed"):
                 raise RuntimeError("Saved partial Kill obligation is unconfirmed")
@@ -1004,11 +970,11 @@ class InMemoryIngestor:
                 archived = self._storage_manager.get_persisted_session_preservation_confirmation(session_id)
                 origins = set(archived["compilation_summary"]["runtime_evidence_origins"]["ingestor"])
                 record.update(runtime_evidence=[m for m in archived["runtime_evidence"] if m["evidence_id"] in origins],
-                              runtime_evidence_audit=archived["ingest_audit"])
+                              runtime_evidence_audit=[])
             else:
                 compiled = self.compile_persistent_runtime_evidence()
                 record.update(runtime_evidence=[m.to_dict() for m in compiled["runtime_evidence"]],
-                              runtime_evidence_audit=[a.to_dict() for a in compiled["ingest_audit"]])
+                              runtime_evidence_audit=[])
             self._storage_manager.write_final_session_record(session_id, **record)
             result = self.read_session_closeout(session_id)
             if status["state"] == "completed" and self._session_id == session_id and self._finalized_intake is not None:
@@ -1055,7 +1021,7 @@ class InMemoryIngestor:
                                [item for item in confirmation["runtime_evidence"] if item["evidence_id"] in origins["ingestor"]])
                 if (acquisition
                         != [item.to_dict() for item in compiled["runtime_evidence"]]
-                        or confirmation["ingest_audit"] != [item.to_dict() for item in compiled["ingest_audit"]]):
+):
                     raise RuntimeError("Archive confirmation does not cover current runtime intake")
                 if partial_kill or any(message.evidence_type == "acquisition_evidence_completion"
                                        for message in self._accepted_runtime_evidence):
@@ -1114,8 +1080,16 @@ class InMemoryIngestor:
                            for identity, content in required.items()):
                         with self._recovery_journal_path.open("rb") as journal:
                             before = os.fstat(journal.fileno())
-                            finality_seen = None
-                            kill_seen = False
+                            snapshot = self._recovery_checkpoint
+                            finality_seen = deepcopy(snapshot["finality"]) if snapshot else None
+                            kill_seen = snapshot["kill_required"] if snapshot else False
+                            if snapshot:
+                                self._require_checkpoint_boundary(journal, snapshot)
+                                journal.seek(snapshot["boundary"])
+                                for identity, content in snapshot["content"]:
+                                    if remaining.get(identity) != content:
+                                        raise ValueError("Checkpoint differs from accepted evidence")
+                                    remaining.pop(identity)
                             for line in journal:
                                 data = json.loads(line)
                                 if "ingestor_checkpoint" in data:
@@ -1218,145 +1192,89 @@ class InMemoryIngestor:
                 raise ValueError("Recovery checkpoint does not end at a complete journal record")
 
     def _load_recovery_checkpoint(self):
-        """Validate an optional snapshot; invalid shortcuts fall back to journal recovery."""
+        """Load a current snapshot, including the journal-replacement crash boundary."""
         path = self._recovery_journal_path.with_suffix(self._recovery_journal_path.suffix + ".checkpoint.json")
-        if not path.exists():
-            return None
+        candidates = []
+        if path.exists():
+            try:
+                candidates.append(PersistentStorageManager._read_preservation_json(path.read_bytes()))
+            except (OSError, ValueError):
+                pass
+        with self._recovery_journal_path.open("rb") as journal:
+            first = journal.readline()
+        embedded = None
         try:
-            for entry in (path, self._recovery_journal_path):
-                info = entry.lstat()
-                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
-                        or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
-                    raise ValueError("Aliased recovery checkpoint or journal")
-            envelope = PersistentStorageManager._read_preservation_json(path.read_bytes())
-            data = envelope["state"]
-            if (set(envelope) != {"state", "sha256"}
-                    or hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":"),
-                        allow_nan=False).encode("utf-8")).hexdigest() != envelope["sha256"]
-                    or set(data) != {"version", "scope", "session_id", "component_id", "journal_path",
-                        "journal_identity", "boundary", "boundary_sha256", "content", "audit", "writes", "finality",
-                        "kill_required", "qualification"}
-                    or type(data["version"]) is not int or data["version"] != 1 or data["scope"] != self._evidence_scope
-                    or data["session_id"] != self._session_id or data["component_id"] != self._component_id
-                    or type(data["boundary"]) is not int or data["boundary"] <= 0
-                    or type(data["kill_required"]) is not bool):
-                raise ValueError("Invalid recovery checkpoint envelope")
-            with self._recovery_journal_path.open("rb") as journal:
-                self._require_checkpoint_boundary(journal, data)
-            content, restored = {}, {}
-            for identity, serialized in data["content"]:
-                message = RuntimeEvidenceMessage.from_dict(json.loads(serialized))
-                if (identity in content or identity != message.evidence_id
-                        or serialized != self._evidence_content(message)):
-                    raise ValueError("Checkpoint evidence identity or content is inconsistent")
-                content[identity] = serialized
-                restored[identity] = (serialized, message)
-            audits = [RuntimeEvidenceAuditRecord(**row) for row in data["audit"]]
-            if (any(type(a.ingest_order) is not int or a.ingest_order != i
-                    or type(a.accepted) is not bool or not isinstance(a.reason, str)
-                    or type(a.ingest_received_at) not in (int, float)
-                    or not isfinite(a.ingest_received_at)
-                    or (a.accepted and a.evidence_id not in content)
-                    for i, a in enumerate(audits, 1))
-                    or {a.evidence_id for a in audits if a.accepted} != set(content)):
-                raise ValueError("Checkpoint audit coverage is incomplete")
-            writes = []
-            for record in data["writes"]:
-                self._validate_framework_write_record(writes, record)
-                writes.append(record)
-            qualification = data["qualification"]
-            if self._evidence_scope == "framework":
-                if data["finality"] is not None or data["kill_required"]:
-                    raise ValueError("Framework checkpoint contains Session finality")
-                completion = qualification["completion"]
-                intent = next(r for r in writes if r["kind"] == "intent"
-                              and r["write_attempt_id"] == completion["write_attempt_id"])
-                ids = [identity for identity, (_, message) in restored.items() if message.is_persistent]
-                if (completion not in writes or completion["kind"] != "completion"
-                        or intent["evidence_ids"] != ids or intent["audit_end"] != len(audits)
-                        or intent["audit_fingerprint"] != PersistentStorageManager._framework_fingerprint(data["audit"])):
-                    raise ValueError("Checkpoint lacks qualifying durable archival completion")
-                self._validate_checkpoint_partitions(data, len(ids))
-            else:
-                if (qualification["session_id"] != self._session_id or writes
-                        or not (qualification.get("state") == "completed"
-                                or qualification.get("preservation_confirmed") is True)):
-                    raise ValueError("Checkpoint lacks confirmed Session completion or archival")
-                if data["finality"] is not None:
-                    self._validate_recovery_finality(data["finality"], content)
-                    if data["finality"]["ingest_audit"] != data["audit"] or data["kill_required"]:
-                        raise ValueError("Checkpoint finality contradicts operational state")
-                elif not data["kill_required"]:
-                    raise ValueError("Checkpoint lacks acquisition finality or partial-Kill proof")
-            self._recovery_checkpoint = data
-            return data, restored, audits
-        except (OSError, ValueError, TypeError, KeyError, IndexError, StopIteration, OverflowError):
-            self._recovery_checkpoint = None
-            return None
-
-    def _validate_checkpoint_partitions(self, checkpoint, persistent_count):
-        """Check archival coverage metadata against the normal operational snapshot."""
-        evidence_count = audit_count = 0
-        names = []
-        for partition in checkpoint["qualification"]["partitions"]:
-            name, ne, na = partition
-            if (not isinstance(name, str) or (name != "" and re.fullmatch(r"[0-9]{4}-[0-9]{2}", name) is None)
-                    or type(ne) is not int or type(na) is not int or min(ne, na) < 0):
-                raise ValueError("Invalid checkpoint partition coverage")
-            names.append(name)
-            products = checkpoint["qualification"]["products"][name]
-            if (set(products) != {"runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json"}
-                    or any(not isinstance(v, list) or len(v) != 4
-                           or any(type(n) is not int for n in v) for v in products.values())):
-                raise ValueError("Invalid checkpoint product identity")
-            evidence_count += ne
-            audit_count += na
-        if (not names or names != sorted(set(names)) or evidence_count != persistent_count
-                or audit_count != len(checkpoint["audit"])):
-            raise ValueError("Incomplete checkpoint partition coverage")
-        completion = checkpoint["qualification"]["completion"]
-        intent = next(r for r in checkpoint["writes"] if r["kind"] == "intent"
-                      and r["write_attempt_id"] == completion["write_attempt_id"])
-        last = checkpoint["qualification"]["partitions"][-1]
-        if (last[0] != intent["target_month"] or evidence_count - last[1] != intent["evidence_start"]
-                or audit_count - last[2] != intent["audit_start"]):
-            raise ValueError("Checkpoint partition boundaries contradict durable write intent")
+            embedded = json.loads(first).get("recovery_snapshot")
+            if embedded is not None:
+                candidates.append(embedded)
+        except (ValueError, AttributeError):
+            pass
+        for envelope in candidates:
+            try:
+                data = deepcopy(envelope["state"])
+                if (set(envelope) != {"state", "sha256"}
+                        or PersistentStorageManager._framework_fingerprint(data) != envelope["sha256"]
+                        or data["version"] != 2 or data["scope"] != self._evidence_scope
+                        or data["session_id"] != self._session_id or data["component_id"] != self._component_id):
+                    raise ValueError("Invalid recovery snapshot")
+                with self._recovery_journal_path.open("rb") as journal:
+                    if envelope is embedded:
+                        info = os.fstat(journal.fileno())
+                        data.update(journal_identity=[info.st_dev, info.st_ino], boundary=len(first),
+                            boundary_sha256=hashlib.sha256(first[-4096:]).hexdigest())
+                    self._require_checkpoint_boundary(journal, data)
+                restored = {}
+                for identity, serialized in data["content"]:
+                    message = RuntimeEvidenceMessage.from_dict(json.loads(serialized))
+                    if (identity in restored or identity != message.evidence_id
+                            or serialized != self._evidence_content(message)):
+                        raise ValueError("Snapshot evidence is inconsistent")
+                    restored[identity] = (serialized, message)
+                records = []
+                for record in data["writes"]:
+                    self._validate_framework_write_record(records, record)
+                    records.append(record)
+                if self._evidence_scope == "session" and data["finality"] is not None:
+                    self._validate_recovery_finality(data["finality"], dict(data["content"]))
+                if self._evidence_scope == "framework" and (data["finality"] is not None or data["kill_required"]):
+                    raise ValueError("Framework snapshot contains Session finality")
+                self._recovery_checkpoint = data
+                return data, restored, []
+            except (OSError, ValueError, TypeError, KeyError, IndexError):
+                continue
+        self._recovery_checkpoint = None
+        return None
 
     def _validate_recovery_finality(self, checkpoint, content):
-        """Reconcile finalized intake with the accepted evidence and receipt."""
+        """Reconcile finalized intake with the exact accepted marker and receipt."""
         marker = RuntimeEvidenceMessage.from_dict(checkpoint["marker"])
         receipt = checkpoint["receipt"]
-        audits = [RuntimeEvidenceAuditRecord(**item) for item in checkpoint["ingest_audit"]]
         if (checkpoint["session_id"] != self._session_id or checkpoint["kind"] != "acquisition_finality"
                 or checkpoint["evidence_ids"] != list(content)
                 or content.get(marker.evidence_id) != self._evidence_content(marker)
                 or marker.evidence_type != "acquisition_evidence_completion"
                 or receipt.get("session_id") != self._session_id
                 or receipt.get("evidence_id") != marker.evidence_id
-                or receipt.get("durable_receipt_confirmed") is not True
-                or type(receipt.get("marker_stream_sequence")) is not int
-                or receipt["marker_stream_sequence"] <= 0
-                or any(a.ingest_order != i or type(a.accepted) is not bool
-                    or type(a.ingest_received_at) not in {int, float} or not isinstance(a.reason, str)
-                    or (a.accepted and a.evidence_id not in content) for i, a in enumerate(audits, 1))
-                or {a.evidence_id for a in audits if a.accepted} != set(content)):
-            raise ValueError("Finalized journal coverage or audit is inconsistent")
+                or receipt.get("durable_receipt_confirmed") is not True):
+            raise ValueError("Finalized journal coverage is inconsistent")
 
     def _write_recovery_checkpoint(self, qualification):
-        """Atomically publish operational state only at an already confirmed boundary."""
+        """Publish a snapshot before replacing the journal with a self-contained copy."""
         if self._recovery_journal_path is None or self._journal_failed:
             return
         with self._intake_lock:
-            path = self._recovery_journal_path.with_suffix(self._recovery_journal_path.suffix + ".checkpoint.json")
-            info = self._recovery_journal_path.stat()
-            state = {"version": 1, "scope": self._evidence_scope, "session_id": self._session_id,
-                "component_id": self._component_id, "journal_path": str(self._recovery_journal_path.absolute()),
+            journal_path = self._recovery_journal_path
+            path = journal_path.with_suffix(journal_path.suffix + ".checkpoint.json")
+            info = journal_path.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("Aliased recovery journal")
+            state = {"version": 2, "scope": self._evidence_scope, "session_id": self._session_id,
+                "component_id": self._component_id, "journal_path": str(journal_path.absolute()),
                 "journal_identity": [info.st_dev, info.st_ino], "boundary": info.st_size,
-                "content": list(self._accepted_evidence_content.items()),
-                "audit": [a.to_dict() for a in self._runtime_evidence_audit],
+                "content": list(self._accepted_evidence_content.items()), "audit": [],
                 "writes": deepcopy(self._framework_write_records), "finality": deepcopy(self._finalized_intake),
                 "kill_required": self._kill_handoff_required, "qualification": qualification}
-            with self._recovery_journal_path.open("rb") as journal:
+            with journal_path.open("rb") as journal:
                 journal.seek(max(0, info.st_size - 4096))
                 state["boundary_sha256"] = hashlib.sha256(journal.read(min(4096, info.st_size))).hexdigest()
                 self._require_checkpoint_boundary(journal, state)
@@ -1365,8 +1283,7 @@ class InMemoryIngestor:
                 if (not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1
                         or getattr(metadata, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
                     raise ValueError("Aliased recovery checkpoint")
-            content = json.dumps(state, sort_keys=True, separators=(",", ":"), allow_nan=False)
-            envelope = {"state": state, "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest()}
+            envelope = {"state": state, "sha256": PersistentStorageManager._framework_fingerprint(state)}
             temporary = None
             try:
                 with NamedTemporaryFile(dir=path.parent, prefix=".incomplete-checkpoint-", delete=False) as output:
@@ -1377,26 +1294,52 @@ class InMemoryIngestor:
                 os.replace(temporary, path)
                 temporary = None
                 self._sync_journal_directory()
+                # Either old journal + published snapshot or the self-contained new
+                # journal can recover; no two-file atomic replacement is assumed.
+                with NamedTemporaryFile(dir=path.parent, prefix=".incomplete-checkpoint-", delete=False) as output:
+                    temporary = Path(output.name)
+                    line = (json.dumps({"recovery_snapshot": envelope}, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+                    output.write(line)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.replace(temporary, journal_path)
+                temporary = None
+                self._sync_journal_directory()
+                info = journal_path.stat()
+                state.update(journal_identity=[info.st_dev, info.st_ino], boundary=len(line),
+                    boundary_sha256=hashlib.sha256(line[-4096:]).hexdigest())
+                self._recovery_checkpoint = state
+                self._runtime_evidence_audit = ()
+            except BaseException:
+                self._journal_failed = True
+                raise
             finally:
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)
 
     def _checkpoint_framework_recovery(self, partitions):
-        """Capture a just-verified archival boundary using its durable write completion."""
+        """Retire completed archive state while retaining current maintenance obligations."""
         intake = self._framework_ingestor
-        records = intake._framework_write_records
-        completion = next((r for r in reversed(records) if r["kind"] == "completion"), None)
-        if completion is None:
-            return
         with self.framework_journal_guard():
-            intake._write_recovery_checkpoint({"completion": completion,
-                "partitions": [[directory.name if directory.name != "evidence" else "",
-                    len(products["runtime_evidence"]), len(products["ingest_audit"])]
-                    for directory, products in partitions],
-                "products": {directory.name if directory.name != "evidence" else "": {
-                    filename: [getattr(info, field) for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns")]
-                    for filename in ("runtime_evidence.jsonl", "ingest_audit.jsonl", "compilation_summary.json")
-                    for info in [(directory / filename).stat()]} for directory, _ in partitions}})
+            records = intake._framework_write_records
+            completed = {r["write_attempt_id"] for r in records if r["kind"] == "completion"}
+            if any(r["kind"] == "intent" and r["write_attempt_id"] not in completed for r in records):
+                return
+            interface = getattr(self, "_maintenance", None)
+            required = interface.required_evidence() if interface is not None else ()
+            keep = {(m.session_id, m.evidence_id) for m in required}
+            retained = tuple(m for m in intake._accepted_runtime_evidence if (m.session_id, m.evidence_id) in keep)
+            old_messages, old_content, old_writes = (intake._accepted_runtime_evidence,
+                intake._accepted_evidence_content, intake._framework_write_records)
+            intake._accepted_runtime_evidence = retained
+            intake._accepted_evidence_content = {m.evidence_id: intake._evidence_content(m) for m in retained}
+            intake._framework_write_records = []
+            try:
+                intake._write_recovery_checkpoint({"preservation_confirmed": True})
+            except BaseException:
+                intake._accepted_runtime_evidence, intake._accepted_evidence_content, intake._framework_write_records = (
+                    old_messages, old_content, old_writes)
+                raise
 
     def _restore_runtime_evidence(self) -> None:
         loaded = self._load_recovery_checkpoint()
@@ -1463,25 +1406,8 @@ class InMemoryIngestor:
                     continue
                 if finality is not None:
                     raise ValueError("Journal evidence follows finalized acquisition intake")
-                if self._evidence_scope == "framework":
-                    audit = RuntimeEvidenceAuditRecord(**data["ingest_audit"])
-                    if audit.ingest_order != len(framework_audit) + 1:
-                        raise ValueError("Framework journal intake order is inconsistent")
-                    framework_audit.append(audit)
-                    data = data["runtime_evidence"]
-                    if data is None:
-                        if audit.accepted:
-                            raise ValueError("Accepted framework audit lacks evidence")
-                        if not terminated:
-                            journal.write(b"\n")
-                            journal.flush()
-                            os.fsync(journal.fileno())
-                        continue
                 evidence = RuntimeEvidenceMessage.from_dict(data)
                 content = self._evidence_content(evidence)
-                if self._evidence_scope == "framework" and (
-                        not audit.accepted or audit.evidence_id != evidence.evidence_id):
-                    raise ValueError("Framework journal evidence and intake audit disagree")
                 previous = restored.get(evidence.evidence_id)
                 if previous is not None and previous[0] != content:
                     raise ValueError("Recovery journal contains conflicting evidence_id content")
@@ -1498,17 +1424,7 @@ class InMemoryIngestor:
         self._accepted_evidence_content = {key: value[0] for key, value in restored.items()}
         self._finalized_intake = finality
         self._kill_handoff_required = kill_required
-        if finality is not None:
-            self._runtime_evidence_audit = tuple(RuntimeEvidenceAuditRecord(**item) for item in finality["ingest_audit"])
-        elif self._evidence_scope == "framework":
-            self._runtime_evidence_audit = tuple(framework_audit)
-        else:
-            prior = tuple(checkpoint_audit)
-            known = {identity for identity, _ in recovery["content"]} if recovery else set()
-            suffix = (evidence for evidence in self._accepted_runtime_evidence if evidence.evidence_id not in known)
-            self._runtime_evidence_audit = prior + tuple(
-                RuntimeEvidenceAuditRecord(index, time(), evidence.evidence_id, True, "recovered")
-                for index, evidence in enumerate(suffix, len(prior) + 1))
+        self._runtime_evidence_audit = ()
 
     @staticmethod
     def _is_interrupted_json(text: str, error: json.JSONDecodeError) -> bool:
@@ -1558,7 +1474,6 @@ class InMemoryIngestor:
                     for evidence in self._accepted_runtime_evidence
                     if evidence.is_persistent
                 ),
-                "ingest_audit": self._runtime_evidence_audit,
             }
 
     def compile_artifact_collection_handoff(self, session_id: str) -> dict[str, Any]:
@@ -1615,24 +1530,16 @@ class InMemoryIngestor:
                 if previous is not None and previous != content:
                     raise ValueError("Conflicting runtime evidence content for evidence_id")
                 duplicate = previous is not None
-                if not duplicate and self._evidence_scope == "session":
+                if not duplicate:
                     self._append_runtime_evidence(content)
                     evidence = RuntimeEvidenceMessage.from_dict(json.loads(content))
             audit = RuntimeEvidenceAuditRecord(
-                ingest_order=len(self._runtime_evidence_audit) + 1,
+                ingest_order=len(self._accepted_runtime_evidence) + 1,
                 ingest_received_at=time(),
                 evidence_id=evidence.evidence_id,
                 accepted=accepted,
                 reason=("already_accepted" if duplicate else "accepted") if accepted else "missing_required_identity",
             )
-            if self._evidence_scope == "framework":
-                self._append_runtime_evidence(json.dumps({
-                    "runtime_evidence": evidence.to_dict() if accepted else None,
-                    "ingest_audit": audit.to_dict(),
-                }, sort_keys=True, separators=(",", ":"), allow_nan=False))
-                if accepted:
-                    evidence = RuntimeEvidenceMessage.from_dict(json.loads(content))
-            self._runtime_evidence_audit += (audit,)
             if accepted and not duplicate:
                 self._accepted_runtime_evidence += (evidence,)
                 self._accepted_evidence_content[evidence.evidence_id] = content
@@ -1660,7 +1567,7 @@ class InMemoryIngestor:
                                [item for item in confirmation["runtime_evidence"] if item["evidence_id"] in origins["ingestor"]])
                 if (acquisition
                         != [item.to_dict() for item in compiled["runtime_evidence"]]
-                        or confirmation["ingest_audit"] != [item.to_dict() for item in compiled["ingest_audit"]]):
+):
                     return ["Session intake is not completely preserved"]
             return []
 

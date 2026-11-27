@@ -130,6 +130,7 @@ class ServiceLauncher:
         self._handled_retirements = set()
         self._local_retirements = {}
         for maintenance, boundary in zip(self.maintenance, self.boundaries):
+            boundary._maintenance_owner = maintenance
             boundary.maintenance_command_handled = lambda command, result, owner=maintenance: self._remote_handled(owner, command, result)
 
     def _feedback(self, owner, command, result=None, error=None):
@@ -236,6 +237,12 @@ class ServiceLauncher:
                     reader.cancel()
                 await asyncio.gather(reader, return_exceptions=True)
 
+    async def _complete_retirement(self, owner, command, result):
+        await owner.complete_retirement(command, result)
+        boundary = next(b for b in self.boundaries if b.component_type == owner.participant.component_type
+                        and b.component_id == owner.participant.component_id)
+        await boundary._retire_delivery_interests()
+
     async def _stop_locally(self, administrator_id):
         if self._local_stop is None:
             self._local_stop = {"attempt": uuid4().hex, "index": 0, "pending": [], "blocked": None}
@@ -253,7 +260,7 @@ class ServiceLauncher:
                         and result.payload.get("termination_confirmed") is True and owner.terminated):
                     self._local_retirements[owner.participant] = (command, result)
                     self._report("Operational retirement confirmed; confirming dependency release and final handling.")
-                    await owner.complete_retirement(command, result)
+                    await self._complete_retirement(owner, command, result)
                     self._handled_retirements.add(owner.participant)
                 self._feedback(owner, command, result)
                 return result
@@ -280,7 +287,7 @@ class ServiceLauncher:
                     await asyncio.gather(*(asyncio.shield(task) for task in deliveries), return_exceptions=True)
                 for command_id, pair in tuple(boundary._pending_dependent_deliveries.items()):
                     try:
-                        await owner.complete_retirement(*pair)
+                        await self._complete_retirement(owner, *pair)
                         self._remote_handled(owner, *pair)
                         boundary._pending_dependent_deliveries.pop(command_id, None)
                     except Exception as error:
@@ -291,7 +298,7 @@ class ServiceLauncher:
                     try:
                         self._report(f"Retrying retained completion: {owner.participant.component_id}; "
                                      f"attempt {pending_local[0].payload['stop_attempt_id']}.")
-                        await owner.complete_retirement(*pending_local)
+                        await self._complete_retirement(owner, *pending_local)
                         self._handled_retirements.add(owner.participant)
                     except Exception as error:
                         completion_error = str(error)
@@ -475,12 +482,12 @@ async def launch_storage_services(*, servers, ingestor_id, storage_id, storage_r
             # Even a failed subscription may have begun admitting evidence.
             admission_started = True
             await intake_handler.subscribe_evidence(None)
+            await intake_handler.subscribe_commands()
+            await NatsStorageManagerCommunication(boundaries[1], storage).subscribe_commands()
             for boundary, interface in zip(boundaries, interfaces):
                 report(f"Publishing startup/readiness evidence: {interface.participant.component_id}.")
                 status = await NatsServiceMaintenanceCommunication(boundary, interface).start()
                 report(json.dumps({"target": interface.participant.to_dict(), "startup": status}, sort_keys=True))
-            await intake_handler.subscribe_commands()
-            await NatsStorageManagerCommunication(boundaries[1], storage).subscribe_commands()
             report("Startup sequence finished; inspect readiness and preservation results above.")
         except asyncio.CancelledError:
             # The protected launcher cancels and awaits initialization before Stop.

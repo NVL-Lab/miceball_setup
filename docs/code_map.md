@@ -1,5 +1,14 @@
 # Code Map
 
+**Decisions 456-457 implementation in progress:** The uncommitted implementation
+is not ready for independent validation or deployment. The accepted pre-admission
+collection clarification is recorded in Decision 457 Section 7. Recipient-addressed
+results, shared reception and transient reads are being integrated with owner
+recovery changes. Checkpoint qualification/retirement, startup archive-verification
+costs and affected regression fixtures still require completion. Native
+InterestPolicy has deliberately not been enabled before those prerequisites pass.
+Descriptions below do not certify this unfinished implementation.
+
 **Accepted architecture awaiting implementation assessment (November 24, 2026):**
 [Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
 removes permanent Ingestor intake-audit requirements, qualifies universal journaling
@@ -17,6 +26,9 @@ consumers, recipient-addressed results, authoritative owner outcomes and removal
 of historical broker-delivery/audit checks. Current recovery state and crash-safe
 compaction use existing checkpoint boundaries; transient reads may use Core NATS.
 Implementation planning, concrete enforcement and validation remain pending.
+Decision 457 Section 7 now clarifies that side-effect-free pre-admission collection
+rejections use existing lifetime-scoped duplicate and instance protection, not
+durable rejection history. Admitted collection outcomes remain durable.
 Do not enable new retention before required interests and history-independent
 operations exist; do not bypass current checks without an authorized correction.
 
@@ -735,6 +747,8 @@ Q022 remains OPEN. See
 installation_and_deployment.md and Decisions 383-388.
 
 ## src/lab_sync_acquisition/service_launcher.py
+
+- ServiceLauncher._complete_retirement(owner, command, result): Completes the existing authoritative retirement and then retires native delivery interests before local process-exit confirmation.
 
 Decision 445 adds validated `**nats_auth` (`nats_username`, `nats_password`) to
 `launch_storage_services()` and forwards them to both existing owner boundaries.
@@ -2217,7 +2231,6 @@ claimed.
 
 - InMemoryIngestor._require_checkpoint_boundary(journal, checkpoint): Checks exact journal identity, safe ancestry, complete offset and a bounded boundary-content anchor without reading the historical prefix.
 - InMemoryIngestor._load_recovery_checkpoint(): Validates snapshot integrity, scope, recovery-state coverage and qualifying durable completion, falling back to ordinary journal recovery when invalid.
-- InMemoryIngestor._validate_checkpoint_partitions(checkpoint, persistent_count): Reconciles checkpoint archival coverage and product identities with the durable qualifying write intent.
 - InMemoryIngestor._validate_recovery_finality(checkpoint, content): Shares Session finality, receipt and audit reconciliation between full journal replay and checkpoint restoration.
 - InMemoryIngestor._write_recovery_checkpoint(qualification): Atomically replaces and durably publishes the current operational recovery snapshot at an already confirmed boundary.
 - InMemoryIngestor._checkpoint_framework_recovery(partitions): Captures just-verified framework archival coverage linked to a durable monthly-write completion.
@@ -2294,6 +2307,15 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 
 ## src/lab_sync_acquisition/nats_communication.py
 
+- _CoreCommandDelivery(message): Presents a transient request to existing admission and owner dispatch without a consumer acknowledgment obligation.
+- _ResultInterest(boundary, callback): Owns one logical observer of a shared service result receiver and joins its active callback on unsubscribe.
+- _SharedResultDelivery(message): Defers transport acknowledgment until all applicable logical result observers have completed.
+- NatsCommunicationBoundary._subscribe_results(callback): Reuses one recipient-filtered result receiver, durable for framework services and ephemeral for GUI/terminal observers.
+- NatsCommunicationBoundary._subscribe_session_evidence(session_id, purpose, subject, callback, *, durable=None): Installs a stable explicit-ACK evidence interest and associates Session consumers with their release responsibility.
+- NatsCommunicationBoundary._request_read(command, participant, timeout_s): Uses Core NATS for replaceable owner reads without publishing into durable streams.
+- NatsCommunicationBoundary._retire_delivery_interests(): Retires service consumers at confirmed operational retirement only when native outstanding deliveries are absent.
+- NatsControllerCommunication._retire_session_state(session_id): Retires a verified released Session's communication snapshots while refusing to discard unpublished evidence.
+
 - DurablePublicationError: Reports failed JetStream publication with message class, message identity, subject, intended stream, and reason while leaving the original message caller-owned.
 - NatsCommunicationBoundary(component_type, component_id, servers=("nats://127.0.0.1:4222",), *, nats_username=UNSET, nats_password=UNSET): Owns a validated real nats-py connection with optional exact credentials, credential-safe connection/cleanup errors and existing readiness, JetStream, serialization and acknowledgement mechanics.
 - NatsCommunicationBoundary.controller_claim_owner: Reports the confirmed unreleased claim's operational-instance identity independently of transport connectivity.
@@ -2355,16 +2377,12 @@ unchanged; physical outage continuity is not yet validated.
 - NatsIngestorCommunication: Consumes durable RuntimeEvidenceMessage records and passes them to InMemoryIngestor for separate evidence intake and audit.
 - NatsIngestorCommunication.subscribe_commands(): Admits fresh readiness/preparation, evidence readback and serialized closeout commands, validating complete scoped resolution history and publishing owner results before command ACK.
 - NatsIngestorCommunication._execute_closeout_command(command): Coordinates optional bounded exact-marker acceptance before complete Normal Stop proof, and executes existing partial preservation, terminal persistence, restart reconciliation and guarded intake release.
-- read_closeout_result(boundary, record, operation): Validates persisted closeout resolution routing, canonical command identity, nonce, request payload and preservation flags.
-- read_scoped_result_history(boundary, command, validate): Scans complete owner/Session/operation result history and rejects malformed or conflicting same-attempt resolutions before mutation or reuse.
 - NatsIngestorCommunication._execute_evidence_readback(command): Delegates scoped compilation, exact journal-backed runtime-evidence acceptance and W041 marker-receipt verification to the Ingestor owner with current-request reply correlation and explicit failed/unconfirmed results.
 - NatsStorageManagerCommunication(boundary, storage_manager): Binds one existing authoritative StorageManager to matching NATS participant identity without constructing another owner.
 - NatsStorageManagerCommunication.subscribe_commands(): Admits fresh StorageManager commands, serializes collection attempt resolution through durable result publication before ACK, and keeps administrative execution within the configured owner maintenance interface.
 - NatsStorageManagerCommunication.execute_command(command): Routes scoped preservation/status readback, eligible saved-Session collection and separately explicit permanent archive closure to the authoritative storage owner without arbitrary remote methods or recovery/release bypasses.
 - NatsStorageManagerCommunication._validate_saved_session_request(command): Checks the exact collection or explicit archive-closure payload, nonce and canonical Session/evidence or Session/operation command identity.
-- NatsStorageManagerCommunication._execute_saved_session_attempt(command, *, retained_result=None): Validates complete operation-scoped history and same-nonce identity before execution or reuse, rejecting disagreement with a retained successful closure before current archive reconfirmation.
 - NatsStorageManagerCommunication._reconfirm_archive_closure(command, result): Requires matching current closed-archive preservation before reconfirming a retained or historical successful closure through the owner.
-- NatsStorageManagerCommunication._read_saved_session_result(record, operation): Validates persisted result correlation, subject/body routing and collection-evidence or closed-summary identity before matching.
 - _subscribe_participant_commands(boundary, receive): Resumes boundary-owned fresh-only command subscriptions without duplicate handlers, retaining asynchronous retirement delivery after exact result publication and delivery ACK.
 - _complete_maintenance_delivery(boundary, command, result): Retains the exact published/ACKed retirement in an owned, coalesced completion task so the command subscription can answer Ingestor readback; only confirmed completion notifies launcher exit gating, and close joins/cancels tasks without clearing unresolved deliveries.
 - NatsControllerCommunication.request_maintenance_readback(participant, operation, payload, result_window_s): Reuses existing Session-independent commands with fresh owner/operation-scoped nonce correlation, bounded waiting and temporary-subscription cleanup for dependent registration and confirmation.
@@ -2468,7 +2486,6 @@ admission and other service roles unchanged.
 - ServiceMaintenanceInterface._validate_controller_release(registration, release, ingestor): Validates the existing coordinated-shutdown scope, final checkpoint, correlated preparation/retirement results and Controller cleanup evidence for both the producer and historical reconstruction.
 - ServiceMaintenanceInterface._validate_dependent_retirement(participant, instance, confirmation): Checks the existing correlated Stop/Kill confirmation contract for receipt and orderly-Stop history selection.
 - ServiceMaintenanceInterface.retire_dependent_maintenance_history(): Explicitly retires only superseded Ingestor orderly-Stop producer copies after physical-journal, archive, reconstruction, pending-work and resource-safety checks; uncertainty retains all copies.
-- ServiceMaintenanceInterface._orderly_dependent_stop(message, participant): Recognizes fully confirmed orderly-Stop dependent history while excluding registration, conflict, Kill and Controller-release records.
 - ServiceMaintenanceInterface._producer_copy_retirement_guard(*, verify_journal=False): Reuses intake, preservation and admission serialization plus active-operation and resource blockers for producer-copy retirement and existing administrator abandonment.
 - ServiceMaintenanceInterface._record_dependent_state(registration, confirmation=None, *, conflicting=False): Persists callback acceptance/conflict state through existing framework evidence and archive ownership before confirmation.
 - ServiceMaintenanceInterface._receive_dependent_command(command): Preserves uncertain dependent state before cancellable owner readback and accepts release authority only from semantically valid, correlated current-owner proof.
@@ -3163,40 +3180,26 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - StageBCollectionTests.test_cross_session_historical_intake_cannot_confirm_baseline(): Checks historical saved-record validation without legacy writers, retaining conflicting bytes and blocking collection.
 - StageBCollectionTests.test_incomplete_historical_intake_cannot_confirm_preservation(): Checks missing historical audit fields block confirmation and collection without modifying saved data.
 
+## tests/test_delivery_responsibilities.py
+
+- DeliveryResponsibilityTests: Defines isolated-broker checks for native retention, shared recipient reception, durable disconnection/reconnection, ephemeral GUI interest and transient readback; full integrated verification remains pending.
+
 ## tests/test_remote_saved_collection.py
 
-- CollectionBroker: Models durable command-result history independently from simulated reply delivery/drop for collection transport tests.
-- CollectionBroker.stream_info(name): Exposes independent result-stream history metadata for authoritative attempt readback.
-- CollectionBroker.get_msg(stream, **options): Reads retained result publications through the same filtered stream API used by the production adapter.
-- CollectionBroker.publish(subject, data, stream): Retains owner result publications even when the simulated requester loses the reply.
-
-- run_storage_owner(url, root, files, ready, stop): Runs shared-process Ingestor/StorageManager owners with simulated SFTP and real NATS for remote collection tests.
-- RemoteSavedCollectionTests: Exercises Controller-driven remote saved-Session collection through real storage guards and NATS request/result adapters.
-- RemoteSavedCollectionTests.subscribe(storage): Replaces only the test storage transport subscriptions to exercise restart readback with a new owner.
-- RemoteSavedCollectionTests.collect(identity="collection", session="session"): Issues explicit collection through the Controller's public remote method.
-- RemoteSavedCollectionTests.test_lost_reply_retry_and_owner_restart_do_not_refetch(): Verifies missing replies remain unconfirmed and stable retry reuses durable outcomes across owner restart.
-- RemoteSavedCollectionTests.test_ineligible_corrupt_and_closed_sessions_do_not_transfer(): Checks stopping, damaged preservation and closed archives cannot authorize new retrieval or archive mutation.
-- RemoteSavedCollectionTests.test_collection_failure_reports_durable_outcome_without_false_success(): Distinguishes preserved failure evidence from successful scientific collection.
-- RemoteSavedCollectionTests.test_wrong_identity_stale_reply_and_missing_service_remain_unconfirmed(): Rejects mismatched collection command identity and refuses stale or absent owner replies.
-- RemoteSavedCollectionTests.test_repeated_overlapping_requests_preserve_one_collection_identity(): Exercises concurrent caller requests without repeated scientific transfer.
-- RemoteSavedCollectionTests.test_owner_revalidates_after_status_before_transfer(): Refuses retrieval when persisted lifecycle changes after the preliminary status snapshot.
-- RemoteSavedCollectionTests.test_rejected_attempt_stays_rejected_but_explicit_retry_can_collect(): Keeps repeated delivery of a rejected nonce rejected across owner restart while allowing an explicit fresh-nonce retry.
-- RemoteSavedCollectionTests.test_unconfirmed_result_history_blocks_new_collection(): Refuses collection when result-history readback is unavailable or retained history has gaps.
-- RemoteSavedCollectionTests.test_rejected_attempt_survives_failed_reply_publication(): Retains an unpublished rejection so later delivery cannot reevaluate it after eligibility changes.
-- RemoteSavedCollectionTests._reject_corrupted_result(change): Reproduces rejected collection, controlled result corruption, eligibility resolution and owner reconstruction through the public command path while checking no transfer, archive change or repair.
-- RemoteSavedCollectionTests.test_missing_persisted_nonce_cannot_reactivate_rejected_collection(): Refuses redelivery when a prior rejection lost its required nonce.
-- RemoteSavedCollectionTests.test_persisted_source_mismatch_cannot_reactivate_rejected_collection(): Refuses redelivery when a stored rejection disagrees with its source subject.
-- RemoteSavedCollectionTests.test_same_nonce_destination_conflict_blocks_rejected_replay(): Rejects a preserved attempt nonce with altered destination without transfer or history repair.
-- RemoteSavedCollectionTests.test_same_nonce_command_conflict_blocks_rejected_replay(): Rejects a preserved attempt nonce with altered canonical command identity without transfer or history repair.
-- RemoteSavedCollectionTests.test_same_nonce_conflicts_after_matching_history_block_collection(): Checks conflicting unrelated nonce resolutions even after finding the requested attempt, preserving evidence and historical results.
-- RemoteSavedCollectionTests.test_invalid_result_correlation_blocks_collection(): Exercises missing fields, malformed correlation types, Session/command/status mismatches and invalid payloads through actual owner-history matching.
-- RemoteSavedCollectionTests.test_valid_unrelated_attempts_and_other_sessions_remain_isolated(): Allows valid explicit collection despite unrelated valid attempt and other-Session results.
-- RemoteSavedCollectionTests.test_conflicting_attempt_resolutions_block_collection(): Rejects contradictory persisted resolutions instead of choosing the first matching record.
-- RemoteSavedCollectionTests.test_success_result_requires_matching_collection_evidence(): Refuses successful-history replay with corrupted evidence, Session or source identity without refetching or changing archives.
-- RemoteSavedCollectionTests.test_cancelled_result_publication_retains_rejection(): Preserves the original rejected attempt through publication cancellation and later redelivery.
-- RemoteSavedCollectionTests.test_rejected_collection_is_not_replayed_after_process_restart(): Reproduces rejected stopping-Session collection followed by eligibility resolution and owner restart, proving no automatic transfer or evidence write with real JetStream.
-- RemoteSavedCollectionTests._separate_process_collection(*, reject_first): Coordinates real local JetStream storage-process restart and public readback barriers for success/rejection workflows without arbitrary sleeps.
-- RemoteSavedCollectionTests.test_separate_storage_process_collects_and_retries_after_restart(): Uses real local JetStream with separate Controller/storage processes, overlapping requests and restart-safe saved outcome readback.
+- CollectionBroker: Retains the existing historical transport fixture used by closeout tests that still require conversion.
+- run_storage_owner(url, root, files, ready, stop): Runs an isolated storage process for existing separate-process closure tests.
+- RemoteSavedCollectionTests: Exercises collection through isolated authenticated JetStream with real Controller claims, instance registration and disk-backed StorageManager outcomes.
+- RemoteSavedCollectionTests.new_boundary(kind, identity): Connects a test participant to its disposable broker with owned cleanup.
+- RemoteSavedCollectionTests.subscribe(storage): Replaces the test storage owner and installs existing authorization and command handlers.
+- RemoteSavedCollectionTests.collect(identity="collection"): Invokes the Controller's explicit public saved-Session collection workflow.
+- RemoteSavedCollectionTests.redeliver(command): Republishes the exact original addressed envelope to exercise real transport redelivery without assigning new authority.
+- RemoteSavedCollectionTests.test_rejected_attempt_is_lifetime_scoped_and_fresh_retry_can_collect(): Distinguishes same-lifetime rejection replay, previous-instance refusal and fresh authorized collection.
+- RemoteSavedCollectionTests.test_changed_same_lifetime_attempt_cannot_execute(): Rejects changed request contents using an existing attempt nonce.
+- RemoteSavedCollectionTests.test_unavailable_broker_history_is_not_a_collection_dependency(): Proves current collection does not retrieve historical broker results.
+- RemoteSavedCollectionTests.test_reply_loss_and_owner_replacement_do_not_repeat_transfer(): Recovers an uncertain reply through durable owner outcomes without retransferring scientific files.
+- RemoteSavedCollectionTests.test_duplicate_success_uses_durable_owner_outcome(): Reuses actual preserved collection outcomes after owner replacement.
+- RemoteSavedCollectionTests.test_failed_transfer_retains_durable_outcome(): Preserves unsuccessful transfer outcomes across owner replacement.
+- RemoteSavedCollectionTests.test_closed_or_ineligible_session_does_not_transfer(): Preserves scientific products and rejects inadmissible collection.
 
 ## tests/test_nats_evidence_readback.py
 

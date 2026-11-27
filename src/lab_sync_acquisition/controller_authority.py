@@ -78,7 +78,7 @@ def controller_independent_command(command):
     if command.issuer_type == "controller":
         return False
     if any(v is not None for v in (command.controller_instance_id,
-                                   command.controller_claim_revision, command.receiver_instance_id)):
+                                   command.controller_claim_revision)):
         raise RuntimeError("Controller authority metadata requires a Controller issuer")
     if (command.issuer_type == "controller_service" and command.command_type in
             (DEPENDENT_MAINTENANCE_COMMANDS | {"preserve_service_evidence"})):

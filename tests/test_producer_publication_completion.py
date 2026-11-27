@@ -16,6 +16,7 @@ from lab_sync_acquisition import (
     NatsCommunicationBoundary, NatsControllerCommunication, NatsIngestorCommunication,
     NatsSynchronizationManagerCommunication, RuntimeEvidenceMessage, RuntimeParticipant,
     ScientificOutputSelection, ServiceReadiness, ExperimentConfiguration,
+    parse_runtime_subject,
 )
 from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
 from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server
@@ -35,14 +36,14 @@ class PublicationBroker(_Broker):
         self.before_publication = None
         self.after_publication = None
 
-    async def publish(self, subject, data, stream):
+    async def publish(self, subject, data, stream=None, reply=""):
         payload = json.loads(data)
         if self.before_publication is not None:
             await self.before_publication(subject, payload)
         if stream == "LAB_EVIDENCE":
             await EvidenceReceiptBroker.publish(self, subject, data, stream)
         self.events.append((subject, payload))
-        acknowledgment = await super().publish(subject, data, stream)
+        acknowledgment = await super().publish(subject, data, stream, reply=reply)
         if self.after_publication is not None:
             await self.after_publication(subject, payload)
         return acknowledgment
@@ -74,7 +75,7 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
             _, declaration, _ = await f.node(name)
             selections[name] = [replace(declaration, required=False) if optional else declaration]
         launched = await f.launch(selections)
-        self.assertTrue(launched.succeeded, launched.error)
+        self.assertTrue(launched.succeeded, (launched.error, launched.details))
         sid = launched.details["session_id"]
         self.assertTrue((await f.controller.start_launched_session()).succeeded)
         if artifacts:
@@ -103,6 +104,7 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await f.controller.stop_launched_session()).succeeded)
         outcome = await self.marker()
         self.assertTrue(outcome.succeeded, outcome.error)
+        self.assertFalse(outcome.details["marker"]["is_persistent"])
         events = f.broker.events
         marker_index = next(i for i, (_, data) in enumerate(events)
                             if data.get("evidence_type") == "acquisition_evidence_completion")
@@ -111,14 +113,16 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
                 if data.get("evidence_type") == "artifact_manifest" and data["source_id"] == node
                 and data["payload"]["lifecycle_state"] == "finalized")
             response_index = next(i for i, (subject, data) in enumerate(events)
-                if subject.endswith(".stop_runtime") and "command_result" in subject
+                if "result_id" in data and parse_runtime_subject(subject)["message_type"] == "stop_runtime"
                 and data["source_id"] == node)
             self.assertLess(final_index, response_index)
             self.assertLess(response_index, marker_index)
         mapping = self.published("mapping_update_evidence")
         self.assertEqual([m["payload"]["update_type"] for m in mapping], ["created", "retired"])
         self.assertTrue(all(m["session_id"] == sid for m in mapping))
+        self.assertTrue(all(m["is_persistent"] for m in mapping))
         self.assertEqual(len(self.published("controller_action_decision")), 1)
+        self.assertTrue(self.published("controller_action_decision")[0]["is_persistent"])
         self.assertEqual(f.controller._session.current_state.value, "stopping")
         self.assertTrue(f.sync.check_ready().ready)
         again = await self.marker()
@@ -138,7 +142,7 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(entered.wait(), 2)
             self.assertFalse((await self.marker()).succeeded)
             self.assertFalse(self.published("acquisition_evidence_completion"))
-            self.assertFalse(any(subject.endswith(".stop_runtime") and "command_result" in subject
+            self.assertFalse(any("result_id" in data and parse_runtime_subject(subject)["message_type"] == "stop_runtime"
                 and data["source_id"] == "node-b" for subject, data in self.fixture.broker.events))
         finally:
             resume.set()
@@ -192,7 +196,7 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(final_entered.wait(), 2)
             self.assertFalse((await self.marker()).succeeded)
             self.assertFalse(self.published("acquisition_evidence_completion"))
-            self.assertFalse(any("command_result" in subject and subject.endswith(".stop_runtime")
+            self.assertFalse(any("result_id" in data and parse_runtime_subject(subject)["message_type"] == "stop_runtime"
                 and data["source_id"] == "node-a" for subject, data in f.broker.events))
             final_resume.set()
             self.assertTrue((await stopped).succeeded)
@@ -202,7 +206,7 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
             events = f.broker.events
             final_index = next(i for i, (_, data) in enumerate(events) if data == produced[-1])
             response_index = next(i for i, (subject, data) in enumerate(events)
-                if "command_result" in subject and subject.endswith(".stop_runtime")
+                if "result_id" in data and parse_runtime_subject(subject)["message_type"] == "stop_runtime"
                 and data["source_id"] == "node-a")
             marker_index = next(i for i, (_, data) in enumerate(events)
                 if data.get("evidence_type") == "acquisition_evidence_completion")
@@ -398,6 +402,7 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
             ServiceReadiness("node-a", "acquisition_node", True, False, "required preparation failed"),))
         self.assertFalse(rejected.succeeded)
         original = rejected.details["rejection_evidence"]
+        self.assertFalse(original["is_persistent"])
         self.assertTrue((await f.controller.stop_launched_session()).succeeded)
         self.assertTrue((await self.marker()).succeeded)
         self.assertEqual(self.published("experiment_start_rejected"), [original])
@@ -413,7 +418,8 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await f.controller.stop_launched_session()).succeeded)
         self.assertTrue((await self.marker()).succeeded)
         self.assertEqual(self.published("experiment_start_rejected"), [retained.to_dict()])
-        self.assertTrue(f.ingestor.has_durable_runtime_evidence(retained))
+        self.assertFalse(retained.is_persistent)
+        self.assertNotIn(retained, f.ingestor.compile_persistent_runtime_evidence()["runtime_evidence"])
 
     async def test_unaccepted_produced_marker_cannot_be_discarded_by_release(self):
         sid = await self.running(two=False)
@@ -554,12 +560,12 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_local_recovery_evidence_is_not_republished(self):
         sid = await self.running(two=False)
-        local = RuntimeEvidenceMessage("local-recovery", sid, "ingestor_recovery_evidence", "ingestor", {}, True)
+        local = RuntimeEvidenceMessage("local-recovery", sid, "ingestor_recovery_evidence", "ingestor", {}, False)
         self.fixture.ingestor.receive_runtime_evidence(local)
         self.assertTrue((await self.fixture.controller.stop_launched_session()).succeeded)
         self.assertTrue((await self.marker()).succeeded)
         self.assertFalse(self.published("ingestor_recovery_evidence"))
-        self.assertIn(local, self.fixture.ingestor.compile_persistent_runtime_evidence()["runtime_evidence"])
+        self.assertNotIn(local, self.fixture.ingestor.compile_persistent_runtime_evidence()["runtime_evidence"])
 
     async def test_delayed_controller_health_callback_blocks_marker_until_finished(self):
         sid = await self.running(two=False)
@@ -583,15 +589,17 @@ class ProducerPublicationCompletionTests(unittest.IsolatedAsyncioTestCase):
         await _Boundary("acquisition_node", "node-a", f.broker).publish_evidence(health)
         self.assertEqual(len(f.controller.controller_action_decisions), 1)
 
-    async def test_controller_unconsumed_published_health_cannot_be_omitted(self):
+    async def test_completed_health_processing_needs_no_historical_broker_records(self):
         sid = await self.running(two=False)
         f = self.fixture
         health = RuntimeEvidenceMessage("health", sid, "health_interpretation", "node-a", interpretation().to_dict(), True)
         await _Boundary("acquisition_node", "node-a", f.broker).publish_evidence(health)
-        await f.communication.subscribe_health_interpretation_evidence(sid, f.controller)
         self.assertTrue((await f.controller.stop_launched_session()).succeeded)
-        self.assertFalse((await self.marker()).succeeded)
-        self.assertFalse(self.published("acquisition_evidence_completion"))
+        with patch.object(f.broker, "get_msg", side_effect=AssertionError("historical delivery scan")):
+            result = await self.marker()
+        self.assertTrue(result.succeeded, result.error)
+        self.assertEqual(len(f.controller.controller_action_decisions), 1)
+        self.assertEqual(len(self.published("acquisition_evidence_completion")), 1)
 
     async def test_produced_health_keeps_session_identity_after_interrupted_publication_and_reuse(self):
         f = self.fixture

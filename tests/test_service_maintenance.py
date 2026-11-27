@@ -44,6 +44,49 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         return RuntimeCommandMessage(identity, None, operation, "administrator", interface.participant.component_id,
                                      {"stop_attempt_id": attempt, "administrator_id": "operator", "authorized": authorized})
 
+    async def test_operational_readiness_is_durable_without_permanent_archival(self):
+        interface, _ = self.target("synchronization_manager")
+        status = await interface.announce_readiness(startup=True)
+        self.assertTrue(status["acceptance_confirmed"], status)
+        message = RuntimeEvidenceMessage.from_dict(status["evidence"])
+        self.assertFalse(message.is_persistent)
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(message))
+        self.assertIn(message, interface.required_evidence())
+        self.assertNotIn(message.to_dict(), self.storage.get_framework_preservation_confirmation()["runtime_evidence"])
+        decision = await interface.record_administrator_decision("operator", "resume", {})
+        self.assertTrue(decision["evidence"]["is_persistent"])
+        self.assertIn(decision["evidence"], self.storage.get_framework_preservation_confirmation()["runtime_evidence"])
+
+    async def test_orderly_stop_retains_operational_checkpoint_not_permanent_history(self):
+        interface, close = self.target("synchronization_manager")
+        command = self.command(interface)
+        result = await interface.execute_command(command)
+        self.assertTrue(result.success, result.reason)
+        self.assertTrue(interface.terminated)
+        self.assertTrue(interface.evidence)
+        for message in interface.evidence:
+            self.assertFalse(message.is_persistent)
+            self.assertTrue(self.ingestor.has_durable_runtime_evidence(message))
+            self.assertNotIn(message.to_dict(), self.storage.get_framework_preservation_confirmation()["runtime_evidence"])
+        self.assertEqual(await interface.execute_command(command), result)
+        close.assert_awaited_once_with(False)
+
+    async def test_nonpersistent_unpublished_readiness_blocks_orderly_stop_without_replay(self):
+        interface, close = self.target("synchronization_manager")
+        interface.evidence_publisher = AsyncMock(side_effect=ConnectionError("unavailable"))
+        with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+            status = await interface.announce_readiness(startup=True)
+        missing = RuntimeEvidenceMessage.from_dict(status["evidence"])
+        self.assertFalse(missing.is_persistent)
+        self.assertFalse(status["acceptance_confirmed"])
+        interface.evidence_publisher = None
+        result = await interface.execute_command(self.command(interface))
+        self.assertFalse(result.success)
+        self.assertIn("Outstanding maintenance evidence", result.reason)
+        self.assertFalse(self.ingestor.has_durable_runtime_evidence(missing))
+        self.assertFalse(interface.terminated)
+        close.assert_not_awaited()
+
     async def test_orderly_idle_stop_of_each_principal_service(self):
         for kind in ("controller", "acquisition_node", "synchronization_manager", "ingestor", "storage_manager"):
             with self.subTest(kind=kind):

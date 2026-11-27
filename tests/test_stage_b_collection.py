@@ -77,7 +77,7 @@ class StageBCollectionTests(unittest.IsolatedAsyncioTestCase):
     def products(self):
         directory = self.root / "session_session"
         return {name: (directory / name).read_bytes() for name in (
-            "evidence/runtime_evidence.jsonl", "evidence/ingest_audit.jsonl",
+            "evidence/runtime_evidence.jsonl",
             "session_record_final.json", "artifact_collection_handoff.json")}
 
     def collect(self, storage=None, identity="collection"):

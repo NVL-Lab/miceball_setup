@@ -2820,6 +2820,14 @@ settles all 20 assignments (14 persistent/six nonpersistent), native InterestPol
 required durable service interests, non-durable GUI consumers, recipient-addressed
 results, lifecycle-based retirement and transient Core reads. Historical delivery
 comparisons are removed; authoritative owner records replace broker result history.
+The accepted Decision 457 Section 7 clarification requires lifetime-scoped
+protection, not durable historical reconstruction, for side-effect-free
+pre-admission collection rejections. Old attempts remain fenced to their original
+StorageManager instance; admitted/uncertain outcomes retain recovery obligations.
+Implementation has resumed but remains incomplete and unvalidated; native
+InterestPolicy is not yet enabled. Owner recovery qualification, bounded-state
+verification and integrated regression work remain implementation tasks, not new
+architectural questions or evidence of slice completion.
 Implementation planning and safe existing-installation transition remain pending;
 do not enable InterestPolicy before required interests and history-independent
 operations are established. Earlier implementation and validation records are not

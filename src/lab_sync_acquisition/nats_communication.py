@@ -8,6 +8,7 @@ from copy import deepcopy
 import json
 import logging
 from collections.abc import Awaitable, Callable, Iterable
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from time import get_clock_info, monotonic
 from typing import Any
@@ -15,7 +16,7 @@ from uuid import uuid4
 
 from nats.aio.client import Client as NATS
 from nats.aio.subscription import Subscription
-from nats.errors import ConnectionReconnectingError
+from nats.errors import ConnectionReconnectingError, NoRespondersError
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, Header, RetentionPolicy, StorageType, StreamConfig
 from nats.js.client import JetStreamContext
 from nats.js.errors import NotFoundError, KeyWrongLastSequenceError
@@ -76,6 +77,15 @@ async def _unsubscribe_session_subscription(subscription) -> None:
     client = subscription._conn
     if not client.is_connected:
         raise RuntimeError("Subscription teardown requires a connected NATS transport")
+    responsibility = getattr(subscription, "_session_responsibility", None)
+    if responsibility is not None:
+        jetstream, stream, consumer = responsibility
+        try:
+            info = await jetstream.consumer_info(stream, consumer)
+        except NotFoundError:
+            info = None
+        if info is not None and (info.num_pending != 0 or info.num_ack_pending != 0):
+            raise RuntimeError("Session consumer still has unresolved deliveries")
     task = asyncio.current_task()
     cancellations = task.cancelling()
     if subscription._closed:
@@ -99,6 +109,11 @@ async def _unsubscribe_session_subscription(subscription) -> None:
     # Some SDK flush paths suppress cancellation; that is not release confirmation.
     if task.cancelling() > cancellations:
         raise asyncio.CancelledError()
+    if responsibility is not None:
+        try:
+            await jetstream.delete_consumer(stream, consumer)
+        except NotFoundError:
+            pass
 
 
 class DurablePublicationError(RuntimeError):
@@ -123,6 +138,62 @@ class DurablePublicationError(RuntimeError):
             f"subject={subject}, intended_stream={intended_stream}, "
             f"reason={reason}"
         )
+
+
+_core_command_reply = ContextVar("core_command_reply", default=None)
+_TRANSIENT_READS = frozenset({
+    "check_readiness", "get_inventory", "read_controller_admission", "read_operational_instance",
+    "list_storage_sessions", "read_storage_session", "read_session_preservation",
+    "get_saved_session_collection_status", "confirm_collected_originals", "compile_session_evidence",
+    "read_runtime_evidence_acceptance", "read_session_closeout", "read_experiment_expiry",
+    "read_session_time", "read_storage_history", "verify_acquisition_receipt",
+})
+_INSTANCE_SCOPED_ADMIN = frozenset({"stop", "kill", "cancel", "prepare_stop"}) | SERVICE_RECOVERY_COMMAND_TYPES
+
+
+class _CoreCommandDelivery:
+    """Adapt a transient request to the existing admission and owner dispatch."""
+
+    def __init__(self, message):
+        self.data = message.data
+        self.subject = message.subject
+
+    async def ack(self):
+        pass
+
+
+class _ResultInterest:
+    """One logical result observer, sharing its service's native delivery interest."""
+
+    def __init__(self, boundary, callback):
+        self.boundary = boundary
+        self.callback = callback
+        self.tasks = {}
+
+    async def unsubscribe(self):
+        self.boundary._result_interests.discard(self)
+        others = tuple(done for task, done in self.tasks.items() if task is not asyncio.current_task())
+        if others:
+            await asyncio.gather(*(asyncio.shield(task) for task in others))
+        if self.boundary.component_type not in {
+                "controller", "ingestor", "storage_manager", "acquisition_node", "synchronization_manager"}:
+            async with self.boundary._result_subscription_lock:
+                if not self.boundary._result_interests and self.boundary._result_subscription is not None:
+                    await self.boundary._result_subscription.unsubscribe()
+                    self.boundary._result_subscription = None
+
+
+class _SharedResultDelivery:
+    """Only the shared receiver acknowledges after all observers finish safely."""
+
+    def __init__(self, message):
+        self.message = message
+
+    def __getattr__(self, name):
+        return getattr(self.message, name)
+
+    async def ack(self):
+        pass
 
 
 class NatsCommunicationBoundary:
@@ -159,6 +230,10 @@ class NatsCommunicationBoundary:
         self._controller_claim_lock = asyncio.Lock()
         self._controller_authority_configuration = None
         self._controller_registration_lock = asyncio.Lock()
+        self._result_interests = set()
+        self._result_subscription = None
+        self._result_subscription_lock = asyncio.Lock()
+        self._core_read_subscription = None
 
     @property
     def controller_claim_owner(self) -> str | None:
@@ -316,6 +391,10 @@ class NatsCommunicationBoundary:
             return None
         execute = False
         try:
+            if (command.command_type in _INSTANCE_SCOPED_ADMIN and command.issuer_type != "controller"):
+                owner = getattr(self, "_maintenance_owner", None)
+                if owner is None or command.receiver_instance_id != owner.operational_instance_id:
+                    raise RuntimeError("Administrative command belongs to an invalid operational instance")
             if command.command_type in {"read_controller_admission", "register_controller"}:
                 if (command.session_id is not None or not command.command_id or not command.source_id
                         or set(command.payload) != {"request_nonce"}
@@ -549,6 +628,9 @@ class NatsCommunicationBoundary:
             self._jetstream = None
             self._close_task = None
             self._participant_command_subscriptions.clear()
+            self._result_subscription = None
+            self._core_read_subscription = None
+            self._result_interests.clear()
         if cancellation is not None:
             raise cancellation
 
@@ -561,6 +643,19 @@ class NatsCommunicationBoundary:
         """Own SDK subscriptions even when construction raises before returning a handle."""
         await self._finish_partial_result_subscriptions()
         jetstream = self._require_jetstream()
+        durable, stream = options.get("durable"), options.get("stream")
+        if durable is not None and stream is not None:
+            try:
+                existing = await jetstream.consumer_info(stream, durable)
+            except NotFoundError:
+                existing = None
+            if existing is not None:
+                config = existing.config
+                if (config.durable_name != durable or config.ack_policy != AckPolicy.EXPLICIT
+                        or config.deliver_policy != DeliverPolicy.ALL or config.max_ack_pending != 1
+                        or config.mem_storage or config.filter_subject != subject or config.filter_subjects
+                        or config.max_deliver not in (None, -1)):
+                    raise RuntimeError("Required consumer configuration needs explicit existing-installation transition")
         try:
             return await jetstream.subscribe(subject, cb=callback, manual_ack=True, **options)
         except BaseException:
@@ -577,6 +672,90 @@ class NatsCommunicationBoundary:
             except BaseException:
                 logger.warning("Partial result subscription cleanup was interrupted or failed")
             raise
+
+    async def _subscribe_results(self, callback):
+        interest = _ResultInterest(self, callback)
+        async with self._result_subscription_lock:
+            self._result_interests.add(interest)
+            try:
+                if self._result_subscription is None:
+                    async def receive(message):
+                        delivery = _SharedResultDelivery(message)
+                        task = asyncio.current_task()
+                        for observer in tuple(self._result_interests):
+                            if observer not in self._result_interests:
+                                continue
+                            done = asyncio.get_running_loop().create_future()
+                            observer.tasks[task] = done
+                            try:
+                                await observer.callback(delivery)
+                            finally:
+                                observer.tasks.pop(task, None)
+                                done.set_result(None)
+                        await message.ack()
+                    durable = "results_" + sha256(
+                        f"{self.component_type}:{self.component_id}".encode()).hexdigest()[:24]
+                    self._result_subscription = await self._subscribe_jetstream(
+                        f"command_results.{self.component_id}.>", receive,
+                        stream="LAB_COMMAND_RESULTS", **({"durable": durable} if self.component_type in {
+                            "controller", "ingestor", "storage_manager", "acquisition_node", "synchronization_manager"} else {}),
+                        config=ConsumerConfig(deliver_policy=DeliverPolicy.ALL,
+                            ack_policy=AckPolicy.EXPLICIT, max_ack_pending=1))
+            except BaseException:
+                self._result_interests.discard(interest)
+                raise
+        return interest
+
+    async def _subscribe_session_evidence(self, session_id, purpose, subject, callback, *, durable=None):
+        if durable is None:
+            durable = "evidence_" + sha256(
+                f"{self.component_type}:{self.component_id}:{session_id}:{purpose}".encode()).hexdigest()[:32]
+        subscription = await self._subscribe_jetstream(subject, callback,
+            stream="LAB_EVIDENCE", durable=durable,
+            config=ConsumerConfig(deliver_policy=DeliverPolicy.ALL, ack_policy=AckPolicy.EXPLICIT,
+                max_ack_pending=1, mem_storage=False,
+                metadata={"purpose": purpose, **({"session_id": session_id} if session_id is not None else {})}))
+        info = await subscription.consumer_info()
+        config = info.config
+        if (config.durable_name != durable or config.ack_policy != AckPolicy.EXPLICIT
+                or config.deliver_policy != DeliverPolicy.ALL or config.max_ack_pending != 1
+                or config.mem_storage or config.filter_subject != subject or config.filter_subjects):
+            await subscription.unsubscribe()
+            raise RuntimeError("Required evidence consumer configuration is unconfirmed")
+        if session_id is not None:
+            subscription._session_responsibility = (self._require_jetstream(), "LAB_EVIDENCE", durable)
+        return subscription
+
+    async def _retire_delivery_interests(self):
+        """Retire owned native interests only after confirmed operational retirement."""
+        owner = getattr(self, "_maintenance_owner", None)
+        if owner is None or not owner.terminated:
+            raise RuntimeError("Delivery interests require confirmed service retirement")
+        async with self._participant_command_lock, self._result_subscription_lock:
+            if any(state["pending"] for state in self._framework_evidence_subscriptions):
+                raise RuntimeError("Framework evidence deliveries remain unresolved")
+            subscriptions = list(self._participant_command_subscriptions.values())
+            subscriptions.extend(state["subscription"] for state in self._framework_evidence_subscriptions)
+            subscriptions.append(self._result_subscription)
+            for subscription in subscriptions:
+                if subscription is None:
+                    continue
+                try:
+                    info = await subscription.consumer_info()
+                except NotFoundError:
+                    info = None
+                if info is not None and (info.num_pending != 0 or info.num_ack_pending != 0):
+                    raise RuntimeError("Service consumer still has unresolved deliveries")
+                await _unsubscribe_session_subscription(subscription)
+                if info is not None and info.config.durable_name:
+                    try:
+                        await self._require_jetstream().delete_consumer(subscription._stream, info.name)
+                    except NotFoundError:
+                        pass
+            self._participant_command_subscriptions.clear()
+            self._result_subscription = None
+            self._result_interests.clear()
+            self._framework_evidence_subscriptions.clear()
 
     async def _finish_partial_result_subscriptions(self):
         """Join partial subscription cleanup; unresolved handles stay owned for explicit retry."""
@@ -627,47 +806,23 @@ class NatsCommunicationBoundary:
             raise asyncio.CancelledError()
 
     async def ensure_streams(self) -> None:
-        """Provision disjoint runtime filters without replacing existing streams."""
-
+        """Create runtime streams; existing-installation conversion is explicit work."""
         jetstream = self._require_jetstream()
-        streams = (
-            ("LAB_COMMANDS", "command", LAB_COMMANDS),
-            ("LAB_COMMAND_RESULTS", "command_result", LAB_COMMAND_RESULTS),
-            ("LAB_EVIDENCE", "evidence", LAB_EVIDENCE),
-        )
-        existing = {}
-        # Narrow all known legacy filters before adding participant coverage:
-        # a five-token filter can otherwise overlap another stream's legacy >.
-        for stream_name, message_class, legacy_subject in streams:
+        for name, subjects in (
+            ("LAB_COMMANDS", ["messages.*.command.*.*.*", "messages.command.*.*.*"]),
+            ("LAB_COMMAND_RESULTS", ["command_results.>"]),
+            ("LAB_EVIDENCE", ["messages.*.evidence.*.*.*", "messages.evidence.*.*.*"]),
+        ):
             try:
-                info = await jetstream.stream_info(stream_name)
+                info = await jetstream.stream_info(name)
             except NotFoundError:
+                await jetstream.add_stream(config=StreamConfig(
+                    name=name, subjects=subjects, storage=StorageType.FILE))
                 continue
-            replacements = {legacy_subject: f"messages.*.{message_class}.*.*.*",
-                            f"messages.{message_class}.>": f"messages.{message_class}.*.*.*"}
-            narrowed = list(dict.fromkeys(replacements.get(subject, subject)
-                                         for subject in (info.config.subjects or [])))
-            config = replace(info.config, subjects=narrowed)
-            if narrowed != info.config.subjects:
-                await jetstream.update_stream(config=config)
-            existing[stream_name] = config
-
-        for stream_name, message_class, _ in streams:
-            subjects = [f"messages.*.{message_class}.*.*.*",
-                        f"messages.{message_class}.*.*.*"]
-            if stream_name not in existing:
-                await jetstream.add_stream(
-                    config=StreamConfig(
-                        name=stream_name, subjects=subjects,
-                        storage=StorageType.FILE,
-                    )
-                )
-            else:
-                config = existing[stream_name]
-                updated = list(config.subjects)
-                updated.extend(subject for subject in subjects if subject not in updated)
-                if updated != config.subjects:
-                    await jetstream.update_stream(config=replace(config, subjects=updated))
+            if set(info.config.subjects or ()) != set(subjects):
+                raise RuntimeError(f"{name} requires explicit existing-installation transition")
+            if info.config.storage != StorageType.FILE:
+                raise RuntimeError(f"{name} requires persistent storage")
 
     async def publish_command(
         self,
@@ -693,6 +848,10 @@ class NatsCommunicationBoundary:
                                                             result_window_s=self._controller_claim[4])
                 with owner._admission_lock:
                     owner._require_controller_dispatch()
+                    for name, value in registration.items():
+                        retained = getattr(message, name)
+                        if retained is not None and retained != value:
+                            raise RuntimeError("Command attempt belongs to a previous operational instance")
                     message = replace(message, issuer_type="controller", **registration)
                 await self._publish_command_wire(message, target_component_type)
             finally:
@@ -705,6 +864,8 @@ class NatsCommunicationBoundary:
             return
         elif message.issuer_type is None:
             message = replace(message, issuer_type=self.component_type)
+        if message.command_type in _INSTANCE_SCOPED_ADMIN and message.receiver_instance_id is None:
+            raise RuntimeError("Administrative command requires its admitted recipient instance")
         await self._publish_command_wire(message, target_component_type)
 
     async def _publish_command_wire(self, message, target_component_type):
@@ -737,12 +898,19 @@ class NatsCommunicationBoundary:
         """Publish a durable command result and require stream acceptance."""
 
         self._validate_source_id(message.source_id)
+        reply = _core_command_reply.get()
+        if reply is not None:
+            if reply[0] != id(self):
+                raise RuntimeError("Transient result owner mismatch")
+            await self._require_client().publish(reply[1], self._encode(message.to_dict()))
+            return
         subject = build_runtime_subject(
             message.session_id,
             "command_result",
             self.component_type,
             self.component_id,
             message_type,
+            recipient_id=message.target_id,
         )
         await self._publish_durable(
             subject,
@@ -755,6 +923,20 @@ class NatsCommunicationBoundary:
             _deployment_diagnostic("response.published", operation=message_type,
                 command_id=message.command_id, source=message.source_id, target=message.target_id,
                 outcome="succeeded" if message.success else "failed")
+
+    async def _request_read(self, command, participant, timeout_s):
+        self._validate_source_id(command.source_id)
+        build_runtime_subject(command.session_id, "command", participant.component_type,
+                              participant.component_id, command.command_type)
+        subject = f"runtime_read.{participant.component_type}.{participant.component_id}.{command.command_type}"
+        try:
+            reply = await self._require_client().request(subject, self._encode(command.to_dict()), timeout=timeout_s)
+        except (TimeoutError, NoRespondersError):
+            return None
+        try:
+            return RuntimeCommandResultMessage.from_dict(json.loads(reply.data))
+        except (ValueError, TypeError, KeyError):
+            return None
 
     async def publish_evidence(self, message: RuntimeEvidenceMessage) -> None:
         """Publish durable evidence once through the evidence stream."""
@@ -800,9 +982,9 @@ class NatsCommunicationBoundary:
             evidence = RuntimeEvidenceMessage.from_dict(json.loads(message.data.decode("utf-8")))
             await callback(evidence)
 
-        return await self._require_jetstream().subscribe(
-            subject, cb=receive, manual_ack=True, deliver_policy=DeliverPolicy.NEW,
-            config=ConsumerConfig(ack_policy=AckPolicy.NONE))
+        subscription = await self._require_client().subscribe(subject, cb=receive)
+        await self.flush()
+        return subscription
 
     async def subscribe_telemetry(
         self,
@@ -1357,6 +1539,9 @@ class NatsControllerCommunication:
                     and (not isinstance(session_id, str) or not session_id))):
             raise ValueError("Unsupported scoped persistence request")
         nonce = uuid4().hex
+        if command_type in _TRANSIENT_READS:
+            return await self.request_command(participant, command_type, session_id,
+                {**deepcopy(payload), "request_nonce": nonce}, result_window_s, command_id=command_id)
         requests = NatsControllerCommunication(self._boundary)
         subscription = await requests.subscribe_command_results(session_id, new_only=True,
             participant=participant, command_type=command_type,
@@ -1374,6 +1559,9 @@ class NatsControllerCommunication:
                 or type(result_window_s) not in {int, float} or not isfinite(result_window_s) or result_window_s <= 0):
             raise ValueError("Unsupported dependent maintenance request")
         nonce = uuid4().hex
+        if operation in _TRANSIENT_READS:
+            return await self.request_command(participant, operation, None,
+                {**deepcopy(payload), "request_nonce": nonce}, result_window_s)
         requests = NatsControllerCommunication(self._boundary)
         subscription = await requests.subscribe_command_results(None, new_only=True,
             participant=participant, command_type=operation,
@@ -1439,7 +1627,8 @@ class NatsControllerCommunication:
         nonce = envelope["payload"].get("request_nonce")
         if (any(type(value) is not str for value in (*fields, nonce))
                 or fields[0] != key[0] or fields[1] != key[2]
-                or subject != build_runtime_subject(key[0], "command_result", key[1], key[2], "stop_runtime")):
+                or subject != build_runtime_subject(key[0], "command_result", key[1], key[2], "stop_runtime",
+                                                    recipient_id=fields[2])):
             return None
         return self._runtime_stop_attempts.get((*key, "stop_runtime", fields[2], fields[1], fields[3], nonce))
 
@@ -1462,6 +1651,15 @@ class NatsControllerCommunication:
         try:
             command = admitted_stop or RuntimeCommandMessage(command_id, session_id, command_type,
                 self._boundary.component_id, participant.component_id, deepcopy(payload))
+            if (command_type in _INSTANCE_SCOPED_ADMIN
+                    and self._boundary.component_type != "controller"):
+                readback = await self.request_maintenance_readback(participant,
+                    "read_operational_instance", {}, result_window_s)
+                if (readback is None or not readback.success
+                        or not isinstance(readback.payload.get("operational_instance_id"), str)
+                        or not readback.payload["operational_instance_id"]):
+                    return None
+                command = replace(command, receiver_instance_id=readback.payload["operational_instance_id"])
             if command_type == "stop_runtime":
                 key = (session_id, participant.component_type, participant.component_id)
                 if admitted_stop is None:
@@ -1476,7 +1674,15 @@ class NatsControllerCommunication:
             if command_type in {"read_operational_instance", "register_operational_dependent", "check_readiness"}:
                 _deployment_diagnostic("command.submitted", command_id=command_id, operation=command_type,
                     source=self._boundary.component_id, target=participant.component_id, budget_s=result_window_s)
-            await self.publish_command(command, participant.component_type)
+            if command_type in _TRANSIENT_READS:
+                reply = await self._boundary._request_read(command, participant, result_window_s)
+                if (reply is None or reply.command_id != command.command_id or reply.session_id != command.session_id
+                        or reply.source_id != participant.component_id or reply.target_id != command.source_id
+                        or reply.payload.get("request_nonce") != payload.get("request_nonce")):
+                    return None
+                self._command_results += (reply,)
+            else:
+                await self.publish_command(command, participant.component_type)
             if command_type in {"read_operational_instance", "register_operational_dependent", "check_readiness"}:
                 _deployment_diagnostic("command.published", command_id=command_id, operation=command_type)
 
@@ -1519,6 +1725,9 @@ class NatsControllerCommunication:
             return None
         finally:
             self._command_result_events.pop(command_id, None)
+            if command_type in _TRANSIENT_READS:
+                self._command_results = tuple(reply for reply in self._command_results
+                                              if reply.command_id != command_id)
             if command_type in {"read_operational_instance", "register_operational_dependent", "check_readiness"}:
                 outcome = "unconfirmed" if result is None else "rejected" if not result.success else "succeeded"
                 if command_type == "check_readiness" and result is not None and result.success:
@@ -1552,6 +1761,9 @@ class NatsControllerCommunication:
             raise ValueError("An explicit Session, participant and caller payload are required")
         nonce = uuid4().hex
         command_id = uuid4().hex if command_id is None else command_id
+        if command_type in _TRANSIENT_READS:
+            return await self.request_command(participant, command_type, session_id,
+                {**deepcopy(payload), "request_nonce": nonce}, result_window_s, command_id=command_id)
         command = RuntimeCommandMessage(command_id, session_id, command_type,
             self._boundary.component_id, participant.component_id, {**deepcopy(payload), "request_nonce": nonce})
         requests = NatsControllerCommunication(self._boundary)
@@ -1724,15 +1936,18 @@ class NatsControllerCommunication:
     ) -> Subscription:
         """Consume durable results addressed to this command issuer."""
 
-        subject = "messages.command_result.*.*.*" if session_id is None else f"messages.{session_id}.command_result.*.*.*"
         if (participant is None) != (command_type is None):
             raise ValueError("Result subject scoping requires both participant and command type")
-        if participant is not None:
-            subject = build_runtime_subject(session_id, "command_result", participant.component_type,
-                                            participant.component_id, command_type)
 
         async def receive(message: Any) -> None:
             try:
+                route = parse_runtime_subject(message.subject)
+                if (route["session_id"] != session_id or (participant is not None and (
+                        route["component_type"] != participant.component_type
+                        or route["component_id"] != participant.component_id
+                        or route["message_type"] != command_type))):
+                    await message.ack()
+                    return
                 envelope = json.loads(message.data.decode("utf-8"))
                 owner = getattr(self._boundary, "_maintenance_owner", None)
                 operation = parse_runtime_subject(message.subject)["message_type"]
@@ -1758,6 +1973,9 @@ class NatsControllerCommunication:
                     invalid_result_callback("Command result addressed to another requester")
                 await message.ack()
                 return
+            if (route["recipient_id"] != result.target_id or route["component_id"] != result.source_id
+                    or route["session_id"] != result.session_id):
+                raise ValueError("Command result subject/body mismatch")
             # Scoped request filtering must not discard integrity observations
             # about another known attempt owned by this same issuer lifetime.
             self._observe_runtime_stop_result(message.subject, result)
@@ -1777,12 +1995,7 @@ class NatsControllerCommunication:
                 await callback(result)
             await message.ack()
 
-        return await self._boundary._subscribe_jetstream(
-            subject,
-            receive,
-            **({"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW,
-                                         ack_policy=AckPolicy.EXPLICIT)} if new_only else {}),
-        )
+        return await self._boundary._subscribe_results(receive)
 
     async def subscribe_experiment_expiry_evidence(self, session_id: str, controller: Controller):
         """Deliver node expiry proof through existing evidence subjects, never lifecycle commands."""
@@ -1795,9 +2008,8 @@ class NatsControllerCommunication:
                 raise ValueError("Expiry evidence subject/body mismatch")
             controller.accept_experiment_expiry(evidence)
             await message.ack()
-        return await self._boundary._require_jetstream().subscribe(
-            f"messages.{session_id}.evidence.acquisition_node.*.experiment_duration_expired",
-            cb=receive, manual_ack=True, config=ConsumerConfig(deliver_policy=DeliverPolicy.NEW))
+        return await self._boundary._subscribe_session_evidence(session_id, "expiry",
+            f"messages.{session_id}.evidence.acquisition_node.*.experiment_duration_expired", receive)
 
     async def subscribe_health_interpretation_evidence(
         self,
@@ -1852,7 +2064,8 @@ class NatsControllerCommunication:
                     if recorded[0] != content:
                         raise ValueError("Conflicting Controller health evidence identity")
                     if recorded[1] is None:
-                        raise RuntimeError("Session health-decision admission is closed")
+                        await message.ack()
+                        return
                     decision = recorded[1]
                 else:
                     try:
@@ -1861,10 +2074,11 @@ class NatsControllerCommunication:
                         else:
                             decision = controller.process_health_interpretation(evidence_message)
                     except _HealthAdmissionClosed:
-                        # Rejected delivery is not processed success. An already
-                        # accepted decision instead survives cutoff and failed handoff.
+                        # Definitive refusal creates no admitted decision. Earlier
+                        # accepted decisions still require complete accounting.
                         state["decisions"][evidence_message.evidence_id] = (content, None)
-                        raise
+                        await message.ack()
+                        return
                 state["decisions"][evidence_message.evidence_id] = (content, decision)
                 if callback is not None:
                     outcome = await callback(decision)
@@ -1883,49 +2097,34 @@ class NatsControllerCommunication:
                 state["inflight"].pop(evidence_message.evidence_id, None)
                 state["active"] -= 1
 
-        return await self._boundary._require_jetstream().subscribe(
-            subject,
-            cb=receive,
-            manual_ack=True,
-        )
+        state["subscription"] = await self._boundary._subscribe_session_evidence(
+            session_id, "health", subject, receive)
+        return state["subscription"]
 
     async def confirm_session_health_processing(self, session_id: str, controller: Controller) -> bool:
-        """Read back published health inputs; unfinished callbacks cannot close publication."""
+        """Confirm current native delivery and owned processing, without broker history."""
         states = self._health_receivers.get(session_id, ())
-        if not states:
-            return True
-        if any(state["controller"] is not controller or state["active"] for state in states):
-            return False
-        broker = self._boundary._require_jetstream()
-        info = await broker.stream_info("LAB_EVIDENCE")
-        if info.state.messages and (info.state.first_seq != 1 or info.state.num_deleted):
-            return False
-        sequence = 1
-        while sequence <= info.state.last_seq:
-            try:
-                record = await broker.get_msg("LAB_EVIDENCE", seq=sequence,
-                    subject=f"messages.{session_id}.evidence.*.*.*", next=True)
-            except NotFoundError:
-                break
-            if record.seq < sequence or record.seq > info.state.last_seq:
+        for state in states:
+            if state["controller"] is not controller or state["active"]:
                 return False
-            evidence = RuntimeEvidenceMessage.from_dict(json.loads(record.data))
-            if evidence.evidence_type not in {"health_interpretation", "timing_quality_interpretation"}:
-                sequence = record.seq + 1
-                continue
-            content = json.dumps(evidence.to_dict(), sort_keys=True,
-                                 separators=(",", ":"), allow_nan=False)
-            if controller._health_admission_closed(controller._session) and all(
-                    state["decisions"].get(evidence.evidence_id) == (content, None) for state in states):
-                sequence = record.seq + 1
-                continue
-            if evidence.session_id != session_id or any(
-                    state["processed"].get(evidence.evidence_id) != content for state in states):
+            subscription = state.get("subscription")
+            if subscription is None:
                 return False
-            sequence = record.seq + 1
-        current = await broker.stream_info("LAB_EVIDENCE")
-        return (current.created == info.created and current.state == info.state
-                and all(not state["active"] for state in states))
+            info = await subscription.consumer_info()
+            if info.num_pending != 0 or info.num_ack_pending != 0 or state["active"]:
+                return False
+        return True
+
+    def _retire_session_state(self, session_id):
+        """Retire communication working state after the existing verified release."""
+        if any(message.session_id == session_id for message in self._unpublished_evidence.values()):
+            raise RuntimeError("Session still has unpublished Controller evidence")
+        self._health_receivers.pop(session_id, None)
+        self._runtime_stop_commands = {key: value for key, value in self._runtime_stop_commands.items()
+                                       if key[0] != session_id}
+        self._runtime_stop_attempts = {key: value for key, value in self._runtime_stop_attempts.items()
+                                       if key[0] != session_id}
+        self._command_results = tuple(result for result in self._command_results if result.session_id != session_id)
 
     def session_acquisition_completion(self, participant: RuntimeParticipant,
                                        session_id: str) -> RuntimeCommandResultMessage | None:
@@ -2151,9 +2350,6 @@ class NatsAcquisitionNodeCommunication:
     async def subscribe_commands(self) -> tuple[Subscription, Subscription]:
         """Consume commands routed to this AcquisitionNode instance."""
 
-        subjects = (f"messages.*.command.acquisition_node.{self._boundary.component_id}.*",
-                    f"messages.command.acquisition_node.{self._boundary.component_id}.*")
-
         async def receive(message: Any) -> None:
             try:
                 command = _logical_command(RuntimeCommandMessage.from_dict(
@@ -2178,32 +2374,26 @@ class NatsAcquisitionNodeCommunication:
                 else:
                     result = (await _execute_maintenance_command(self._boundary, self._acquisition_node, command)
                               if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS) else self.execute_command(command))
-                await self._refresh_acquisition_execution()
-                await self.publish_new_artifact_manifest_evidence()
-                if command.session_id is not None:
-                    await self.publish_new_runtime_evidence()
-                    for pending in tuple(self._unpublished_evidence.values()):
-                        if pending.session_id == command.session_id:
-                            await self.publish_evidence(pending)
+                if command.command_type not in _TRANSIENT_READS:
+                    await self._refresh_acquisition_execution()
+                    await self.publish_new_artifact_manifest_evidence()
+                    if command.session_id is not None:
+                        await self.publish_new_runtime_evidence()
+                        for pending in tuple(self._unpublished_evidence.values()):
+                            if pending.session_id == command.session_id:
+                                await self.publish_evidence(pending)
                 if "request_nonce" in command.payload:
                     result = replace(result, payload={**result.payload, "request_nonce": command.payload["request_nonce"]})
                 await self._boundary.publish_command_result(result, command.command_type)
                 logger.info("command_result_published command_id=%s status=%s",
                             result.command_id, result.status)
                 await message.ack()
-                await _complete_maintenance_delivery(self._boundary, command, result)
+                return result
             except Exception:
                 logger.exception("command_delivery_processing_failed")
                 raise
 
-        async def authorized_receive(message):
-            return await self._boundary._receive_authorized_command(receive, message)
-
-        subscriptions = []
-        for subject in subjects:
-            subscriptions.append(await self._boundary._require_jetstream().subscribe(subject, cb=authorized_receive, manual_ack=True,
-                config=ConsumerConfig(deliver_policy=DeliverPolicy.NEW)))
-        return tuple(subscriptions)
+        return await _subscribe_participant_commands(self._boundary, receive)
 
     async def _execute_storage_command(self, command):
         payload = {}
@@ -2411,8 +2601,9 @@ class NatsAcquisitionNodeCommunication:
                                   payload.get('reason') if unconfirmed else None, payload)
         except Exception as error:
             result = self._result(command, "failed", False, str(error), {})
-        self._results_by_command_id[command.command_id] = result
-        self._commands_by_id[command.command_id] = deepcopy(identity)
+        if command.command_type not in _TRANSIENT_READS:
+            self._results_by_command_id[command.command_id] = result
+            self._commands_by_id[command.command_id] = deepcopy(identity)
         return result
 
     async def publish_new_artifact_manifest_evidence(self) -> None:
@@ -2479,81 +2670,6 @@ SESSION_CLOSEOUT_OPERATIONS = frozenset({"preserve_initial_session_record", "adm
     "read_session_closeout", "preserve_session_terminal_record", "release_session"})
 
 
-def read_closeout_result(boundary, record, operation):
-    """Validate owner and attempt identity before reusing a closeout resolution."""
-    data = json.loads(record.data)
-    required = {"result_id", "command_id", "session_id", "source_id", "target_id", "status", "success", "reason", "payload"}
-    if not isinstance(data, dict) or not required.issubset(data) or not isinstance(data["payload"], dict):
-        raise ValueError("Incomplete closeout result history")
-    result = RuntimeCommandResultMessage.from_dict(data)
-    route = parse_runtime_subject(record.subject)
-    if (any(not isinstance(value, str) or not value for value in
-            (result.result_id, result.command_id, result.session_id, result.source_id, result.target_id))
-            or route != parse_runtime_subject(build_runtime_subject(result.session_id, "command_result",
-                boundary.component_type, boundary.component_id, operation))
-            or result.source_id != boundary.component_id
-            or result.command_id != json.dumps([result.session_id, operation], separators=(",", ":"))
-            or type(result.success) is not bool or result.status not in {"succeeded", "failed"}
-            or result.success != (result.status == "succeeded")
-            or (result.reason is not None and not isinstance(result.reason, str))
-            or not isinstance(result.payload.get("request_nonce"), str) or not result.payload["request_nonce"]
-            or not isinstance(result.payload.get("request_payload"), dict)
-            or result.payload["request_payload"].get("request_nonce") != result.payload["request_nonce"]):
-        raise ValueError("Closeout result history has inconsistent correlation")
-    if result.success:
-        if result.payload.get("session_id") != result.session_id:
-            raise ValueError("Closeout result Session mismatch")
-        if operation == "admit_session_kill" and result.payload.get("kill_admitted") is not True:
-            raise ValueError("Kill admission is unconfirmed")
-        if operation == "release_session" and result.payload.get("released") is not True:
-            raise ValueError("Binding release is unconfirmed")
-        if operation == "preserve_initial_session_record" and (
-                result.payload.get("initial_record_preserved") is not True
-                or result.payload.get("session_record", {}).get("accepted_session_config", {}).get("session_id") != result.session_id):
-            raise ValueError("Initial Session Record history is unconfirmed")
-        if operation in {"read_session_closeout", "preserve_session_acquisition", "preserve_session_terminal_record"}:
-            if (result.payload.get("preservation_confirmed") is not True
-                    or not isinstance(result.payload.get("compilation_summary"), dict)
-                    or result.payload["compilation_summary"].get("session_id") != result.session_id):
-                raise ValueError("Closeout preservation history is unconfirmed")
-    return result
-
-
-async def read_scoped_result_history(boundary, command, validate):
-    """Read the complete retained owner/Session/operation history before mutation or reuse."""
-    jetstream = boundary._require_jetstream()
-    history = await jetstream.stream_info("LAB_COMMAND_RESULTS")
-    if not NatsIngestorCommunication._receiving_history_intact(history):
-        raise RuntimeError("Command-result history is unconfirmed")
-    subject = build_runtime_subject(command.session_id, "command_result",
-        boundary.component_type, boundary.component_id, command.command_type)
-    sequence, matched, resolutions = 1, None, {}
-    while sequence <= history.state.last_seq:
-        try:
-            record = await jetstream.get_msg("LAB_COMMAND_RESULTS", seq=sequence, subject=subject, next=True)
-        except NotFoundError:
-            break
-        if record.seq > history.state.last_seq:
-            break
-        if record.subject != subject or record.seq < sequence:
-            raise ValueError("Command-result history is inconsistent")
-        previous = validate(record)
-        nonce = previous.payload["request_nonce"]
-        content = previous.to_dict()
-        if nonce in resolutions and resolutions[nonce] != content:
-            raise ValueError("Command-result history contains conflicting attempt resolutions")
-        resolutions[nonce] = content
-        if nonce == command.payload["request_nonce"]:
-            if (previous.command_id != command.command_id or previous.target_id != command.source_id
-                    or ("request_payload" in previous.payload and previous.payload["request_payload"] != command.payload)):
-                raise ValueError("Command-result history contains conflicting same-attempt identity")
-            matched = previous
-        sequence = record.seq + 1
-    current = await jetstream.stream_info("LAB_COMMAND_RESULTS")
-    if (current.created != history.created or current.state.last_seq < history.state.last_seq
-            or not NatsIngestorCommunication._receiving_history_intact(current)):
-        raise RuntimeError("Command-result history changed during admission")
-    return matched
 
 
 class NatsIngestorCommunication:
@@ -2579,7 +2695,7 @@ class NatsIngestorCommunication:
             if command.target_id != self._boundary.component_id:
                 await message.ack()
                 return
-            if command.command_type in SESSION_CLOSEOUT_OPERATIONS:
+            if command.command_type in SESSION_CLOSEOUT_OPERATIONS and command.command_type not in _TRANSIENT_READS:
                 async with self._closeout_lock:
                     key = json.dumps(command.to_dict(), sort_keys=True)
                     retained = self._pending_closeout_results.get(key)
@@ -2592,27 +2708,22 @@ class NatsIngestorCommunication:
                                         or pending.target_id != command.source_id
                                         or pending.payload.get("request_payload") != command.payload)):
                                 raise ValueError("Retained closeout resolution conflicts with attempt identity")
-                        matched = await read_scoped_result_history(self._boundary, command,
-                            lambda record: read_closeout_result(self._boundary, record, command.command_type))
-                        if retained is not None and matched is not None and retained.to_dict() != matched.to_dict():
-                            raise ValueError("Persisted history conflicts with retained closeout resolution")
-                        if matched is not None and not matched.success:
-                            result = matched
-                        elif retained is not None and not retained.success:
+                        if retained is not None and not retained.success:
                             result = retained
                         else:
                             result = await self._execute_closeout_command(command)
-                            if result.success and (matched is not None or retained is not None):
-                                result = matched if matched is not None else retained
+                            if result.success and retained is not None:
+                                result = retained
                     except Exception as error:
                         result = _participant_result(self._boundary, command, False, str(error),
                             {"request_nonce": command.payload.get("request_nonce"), "request_payload": deepcopy(command.payload)})
                     self._pending_closeout_results[key] = deepcopy(result)
                     await self._boundary.publish_command_result(result, command.command_type)
-                    self._pending_closeout_results.pop(key, None)
                     await message.ack()
                 return
-            result = (await self._execute_evidence_readback(command)
+            result = (await self._execute_closeout_command(command)
+                      if command.command_type == "read_session_closeout" else
+                      await self._execute_evidence_readback(command)
                       if command.command_type in {"compile_session_evidence", "verify_acquisition_receipt",
                                                  "read_runtime_evidence_acceptance", "preserve_service_evidence"} else
                       await _execute_maintenance_command(self._boundary, self._ingestor, command)
@@ -2735,7 +2846,7 @@ class NatsIngestorCommunication:
                         raise RuntimeError("Prior binding release is unconfirmed")
                 subscription = self._evidence_subscriptions.get(command.session_id)
                 if subscription is not None:
-                    await subscription.unsubscribe()
+                    await _unsubscribe_session_subscription(subscription)
                     self._evidence_subscriptions.pop(command.session_id, None)
                 payload = {"session_id": command.session_id, "released": True}
             else:
@@ -2763,29 +2874,6 @@ class NatsIngestorCommunication:
                 if type(window) not in {int, float} or not isfinite(window) or window < 0:
                     raise ValueError("A finite nonnegative acceptance window is required")
 
-                def validate(record):
-                    previous = RuntimeCommandResultMessage.from_dict(json.loads(record.data))
-                    request = previous.payload.get("request_payload")
-                    previous_nonce = previous.payload.get("request_nonce")
-                    if (record.subject != build_runtime_subject(None, "command_result", "ingestor",
-                            self._boundary.component_id, command.command_type)
-                            or previous.session_id is not None or previous.source_id != self._boundary.component_id
-                            or any(not isinstance(v, str) or not v for v in
-                                   (previous.result_id, previous.command_id, previous.target_id, previous_nonce))
-                            or type(previous.success) is not bool or previous.status not in {"succeeded", "failed"}
-                            or previous.success != (previous.status == "succeeded")
-                            or not isinstance(request, dict) or request.get("request_nonce") != previous_nonce):
-                        raise ValueError("Producer preservation history correlation is unconfirmed")
-                    if previous.command_id == command.command_id:
-                        if (previous.target_id != command.source_id or
-                                {k: v for k, v in request.items() if k != "request_nonce"} !=
-                                {k: v for k, v in command.payload.items() if k != "request_nonce"}):
-                            raise ValueError("Conflicting producer preservation command identity")
-                    if previous.success and (previous.payload.get("acceptance_confirmed") is not True
-                            or previous.payload.get("archival_confirmed") is not True
-                            or previous.payload.get("evidence") != request.get("evidence")):
-                        raise ValueError("Producer history lacks exact preservation coverage")
-                    return previous
 
                 async with self._closeout_lock:
                     for retained in self._pending_closeout_results.values():
@@ -2793,12 +2881,8 @@ class NatsIngestorCommunication:
                                 retained.command_id != command.command_id or retained.target_id != command.source_id
                                 or retained.payload.get("request_payload") != command.payload):
                             raise ValueError("Retained producer preservation conflicts with request identity")
-                    matched = await read_scoped_result_history(self._boundary, command, validate)
                     key = json.dumps(command.to_dict(), sort_keys=True)
-                    pending = self._pending_closeout_results.get(key)
-                    if pending is not None and matched is not None and pending.to_dict() != matched.to_dict():
-                        raise ValueError("Producer preservation history conflicts with retained result")
-                    previous = matched if matched is not None else pending
+                    previous = self._pending_closeout_results.get(key)
                     if previous is not None and not previous.success:
                         return previous
                     payload = await self._ingestor.preserve_service_evidence(
@@ -2866,35 +2950,7 @@ class NatsIngestorCommunication:
             raise ValueError("Broker evidence intake requires the matching Session recovery journal")
         subject = "messages.evidence.*.*.*" if session_id is None else f"messages.{session_id}.evidence.*.*.*"
         jetstream = self._boundary._require_jetstream()
-        options = {}
         journal = self._ingestor.recovery_journal_path
-        if session_id is not None:
-            stream = await jetstream.stream_info("LAB_EVIDENCE")
-            durable = self._session_consumer_name(session_id)
-            try:
-                consumer = await jetstream.consumer_info("LAB_EVIDENCE", durable)
-            except NotFoundError:
-                # Only a fresh journal and intact stream establish a new receiving
-                # origin. Missing old broker state cannot be silently reconstructed.
-                origin_known = (not self._ingestor.accepted_runtime_evidence
-                                and self._receiving_history_intact(stream))
-                config = ConsumerConfig(
-                    durable_name=durable, deliver_policy=DeliverPolicy.ALL,
-                    ack_policy=AckPolicy.EXPLICIT, max_ack_pending=1,
-                    filter_subject=subject, mem_storage=False,
-                    metadata={"session_id": session_id,
-                              "stream_created": stream.created.isoformat(),
-                              "receiving_origin_verified": str(origin_known).lower()},
-                )
-            else:
-                self._validate_session_consumer(consumer, stream, session_id)
-                # Reusing broker ACK state does not establish local journal continuity;
-                # receipt confirmation reconciles the retained histories separately.
-                config = consumer.config
-            if (self._ingestor.session_id != session_id
-                    or self._ingestor.recovery_journal_path != journal):
-                raise RuntimeError("Session binding changed during evidence subscription")
-            options = {"durable": durable, "stream": "LAB_EVIDENCE", "config": config}
 
         framework_state = {"subscription": None, "pending": {}} if session_id is None else None
         if framework_state is not None:
@@ -2963,11 +3019,13 @@ class NatsIngestorCommunication:
             await asyncio.sleep(0)
 
         if framework_state is not None:
-            subscription = await self._boundary._subscribe_jetstream(subject, receive, **options)
+            subscription = await self._boundary._subscribe_session_evidence(
+                None, "framework_intake", subject, receive)
             framework_state["subscription"] = subscription
             self._evidence_subscriptions[None] = subscription
         else:
-            subscription = await jetstream.subscribe(subject, cb=receive, manual_ack=True, **options)
+            subscription = await self._boundary._subscribe_session_evidence(
+                session_id, "session_intake", subject, receive, durable=self._session_consumer_name(session_id))
         if session_id is not None and (
                 self._ingestor.session_id != session_id
                 or self._ingestor.recovery_journal_path != journal):
@@ -2979,54 +3037,12 @@ class NatsIngestorCommunication:
     def _session_consumer_name(session_id: str) -> str:
         return "ingestor-session-" + sha256(session_id.encode("utf-8")).hexdigest()
 
-    @staticmethod
-    def _receiving_history_intact(stream: Any) -> bool:
-        state = stream.state
-        # With no trusted narrower Session start boundary, require retained history
-        # from stream origin. Stream cardinality detects holes here; it is not
-        # a producer evidence-count registry or a substitute for ACK progress.
-        return (stream.config.storage == StorageType.FILE
-                and stream.config.retention == RetentionPolicy.LIMITS
-                and stream.config.first_seq in (None, 0, 1)
-                and (state.first_seq == 1 or state.first_seq == state.last_seq == 0)
-                and state.last_seq >= 0
-                and state.num_deleted in (None, 0) and not state.lost
-                and state.messages == state.last_seq)
-
-    @classmethod
-    def _validate_session_consumer(cls, consumer: Any, stream: Any, session_id: str) -> None:
-        config = consumer.config
-        metadata = config.metadata or {}
-        if (consumer.stream_name != "LAB_EVIDENCE"
-                or consumer.name != cls._session_consumer_name(session_id)
-                or config.durable_name != consumer.name
-                or config.deliver_policy != DeliverPolicy.ALL
-                or config.ack_policy != AckPolicy.EXPLICIT
-                or config.max_ack_pending != 1 or config.mem_storage
-                or config.filter_subject != f"messages.{session_id}.evidence.*.*.*"
-                or config.filter_subjects
-                or config.deliver_group or config.max_deliver not in (None, -1)
-                or metadata.get("session_id") != session_id
-                or metadata.get("stream_created") != stream.created.isoformat()
-                or metadata.get("receiving_origin_verified") not in {"true", "false"}):
-            raise ValueError("Session receiving state is invalid or has changed")
-
-    @staticmethod
-    def _acknowledgment_progress_valid(consumer: Any, last_sequence: int) -> bool:
-        floor, delivered = consumer.ack_floor, consumer.delivered
-        return (floor is not None and delivered is not None
-                and all(type(value) is int for value in (
-                    floor.consumer_seq, floor.stream_seq,
-                    delivered.consumer_seq, delivered.stream_seq))
-                and (floor.consumer_seq == 0) == (floor.stream_seq == 0)
-                and 0 <= floor.consumer_seq <= delivered.consumer_seq
-                and 0 <= floor.stream_seq <= delivered.stream_seq <= last_sequence)
 
     def _marker_acceptance_failure(self, marker):
         """Distinguish pending exact intake from definite marker or journal failures."""
         intake = self._ingestor
         with intake._intake_lock:
-            if (marker.evidence_type != "acquisition_evidence_completion" or marker.is_persistent is not True
+            if (marker.evidence_type != "acquisition_evidence_completion" or marker.is_persistent is not False
                     or any(not isinstance(value, str) or not value for value in (marker.evidence_id, marker.source_id))):
                 return "invalid_completion_marker"
             if marker.session_id is None or marker.session_id != intake.session_id:
@@ -3041,14 +3057,11 @@ class NatsIngestorCommunication:
                 return "marker_not_durably_accepted"
         return None
 
-    async def verify_acquisition_evidence_receipt(
-        self, marker: RuntimeEvidenceMessage,
-    ) -> dict[str, Any]:
-        """Check journal-backed receipt through a marker, not Normal Stop completion."""
+    async def verify_acquisition_evidence_receipt(self, marker: RuntimeEvidenceMessage) -> dict[str, Any]:
+        """Confirm durable intake and completion of the native receiving responsibility."""
         result = {"session_id": marker.session_id, "evidence_id": marker.evidence_id,
-                  "durable_receipt_confirmed": False, "reason": "unverifiable_progress"}
-        session_id = marker.session_id
-        finalized = self._ingestor.finalized_acquisition_intake(session_id)
+                  "durable_receipt_confirmed": False, "reason": "unconfirmed_intake"}
+        finalized = self._ingestor.finalized_acquisition_intake(marker.session_id)
         if finalized is not None:
             if finalized["marker"] != marker.to_dict():
                 result["reason"] = "finalized_marker_mismatch"
@@ -3060,79 +3073,23 @@ class NatsIngestorCommunication:
             return result
         journal = self._ingestor.recovery_journal_path
         try:
-            canonical_content = self._ingestor._evidence_content
-            marker_content = canonical_content(marker)
-            jetstream = self._boundary._require_jetstream()
-            stream = await jetstream.stream_info("LAB_EVIDENCE")
-            consumer = await jetstream.consumer_info(
-                "LAB_EVIDENCE", self._session_consumer_name(session_id))
-            self._validate_session_consumer(consumer, stream, session_id)
-            if (consumer.config.metadata["receiving_origin_verified"] != "true"
-                    or not self._receiving_history_intact(stream)):
-                result["reason"] = "missing_history_or_receiving_origin"
-                return result
-            subject = build_runtime_subject(session_id, "evidence", "controller",
-                                            marker.source_id, marker.evidence_type)
-            published = await jetstream.get_last_msg("LAB_EVIDENCE", subject)
-            if (published.subject != subject or published.seq <= 0
-                    or canonical_content(RuntimeEvidenceMessage.from_dict(json.loads(published.data))) != marker_content):
-                result["reason"] = "marker_publication_unconfirmed"
-                return result
-            if not self._acknowledgment_progress_valid(consumer, stream.state.last_seq):
-                return result
-            floor = consumer.ack_floor
-            if floor.stream_seq < published.seq:
-                result["reason"] = "incomplete_acknowledgment_progress"
-                return result
-            required = {}
-            sequence = 1
-            while sequence <= published.seq:
-                record = await jetstream.get_msg(
-                    "LAB_EVIDENCE", seq=sequence,
-                    subject=f"messages.{session_id}.evidence.*.*.*", next=True)
-                routing = parse_runtime_subject(record.subject)
-                if (type(record.seq) is not int or not sequence <= record.seq <= published.seq
-                        or routing["session_id"] != session_id or routing["message_class"] != "evidence"):
-                    raise ValueError("Session publication history is unverifiable")
-                item = RuntimeEvidenceMessage.from_dict(json.loads(record.data))
-                if item.session_id != session_id:
-                    raise ValueError("Published evidence does not match the Session")
-                content = canonical_content(item)
-                previous = required.get(item.evidence_id)
-                if previous is not None and canonical_content(previous) != content:
-                    raise ValueError("Conflicting evidence identity in publication history")
-                required[item.evidence_id] = item
-                if record.seq == published.seq and content != marker_content:
-                    raise ValueError("Completion marker changed during history readback")
-                sequence = record.seq + 1
-            # Recheck history after asynchronous readback; publication and journal
-            # acceptance are separate from the broker's contiguous ACK floor.
-            current = await jetstream.stream_info("LAB_EVIDENCE")
-            current_consumer = await jetstream.consumer_info(
-                "LAB_EVIDENCE", self._session_consumer_name(session_id))
-            # Cover history changes during consumer readback as well as the scan.
-            current = await jetstream.stream_info("LAB_EVIDENCE")
-            self._validate_session_consumer(current_consumer, current, session_id)
-            if (current.created != stream.created or not self._receiving_history_intact(current)
-                    or current_consumer.created != consumer.created
-                    or not self._acknowledgment_progress_valid(current_consumer, current.state.last_seq)
-                    or current_consumer.ack_floor.stream_seq < published.seq
-                    or self._ingestor.session_id != session_id
-                    or self._ingestor.recovery_journal_path != journal
-                    or not self._ingestor.has_durable_runtime_evidence(marker)):
+            consumer = await self._boundary._require_jetstream().consumer_info(
+                "LAB_EVIDENCE", self._session_consumer_name(marker.session_id))
+            config = consumer.config
+            if (config.ack_policy != AckPolicy.EXPLICIT or config.max_ack_pending != 1
+                    or config.filter_subject != f"messages.{marker.session_id}.evidence.*.*.*"
+                    or not config.durable_name or config.mem_storage
+                    or consumer.num_pending != 0 or consumer.num_ack_pending != 0):
+                result["reason"] = "outstanding_native_deliveries"
                 return result
             with self._ingestor.durable_runtime_evidence_history_guard(
-                    session_id, journal, required.values()) as confirmed:
-                if not confirmed:
-                    result["reason"] = "journal_history_unconfirmed"
-                    return result
-                result.update(durable_receipt_confirmed=True, reason="contiguous_durable_receipt",
-                              marker_stream_sequence=published.seq,
-                              acknowledged_stream_sequence=floor.stream_seq,
-                              acknowledged_consumer_sequence=floor.consumer_seq)
-                return result
+                    marker.session_id, journal, (marker,)) as confirmed:
+                if confirmed:
+                    result.update(durable_receipt_confirmed=True, reason="durable_intake_complete")
+                else:
+                    result["reason"] = "journal_acceptance_unconfirmed"
         except Exception as error:
-            result["reason"] = f"unverifiable_progress: {error}"
+            result["reason"] = f"unconfirmed_intake: {error}"
         return result
 
 
@@ -3170,15 +3127,21 @@ class NatsStorageManagerCommunication:
                 return
             if command.command_type in {"collect_saved_artifacts", "close_session_evidence_archive"}:
                 async with self._collection_command_lock:
-                    identity = json.dumps(command.to_dict(), sort_keys=True)
-                    result = self._pending_collection_results.get(identity)
-                    if result is None:
-                        result = await self._execute_saved_session_attempt(command)
-                        self._pending_collection_results[identity] = deepcopy(result)
-                    elif result.success and command.command_type == "close_session_evidence_archive":
-                        result = await self._execute_saved_session_attempt(command, retained_result=result)
+                    identity = json.dumps([command.source_id, command.payload.get("request_nonce")],
+                                          sort_keys=True, allow_nan=False)
+                    retained = self._pending_collection_results.get(identity)
+                    if retained is not None and retained[0] != command.to_dict():
+                        result = _participant_result(self._boundary, command, False,
+                            "Conflicting collection attempt identity",
+                            {"request_nonce": command.payload.get("request_nonce")})
+                    elif retained is None:
+                        result = self.execute_command(command)
+                        self._pending_collection_results[identity] = (command.to_dict(), deepcopy(result))
+                    else:
+                        result = retained[1]
+                        if result.success and command.command_type == "close_session_evidence_archive":
+                            result = self._reconfirm_archive_closure(command, result)
                     await self._boundary.publish_command_result(result, command.command_type)
-                    self._pending_collection_results.pop(identity, None)
             else:
                 result = (await _execute_maintenance_command(self._boundary, self._storage_manager, command)
                           if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"}
@@ -3204,98 +3167,12 @@ class NatsStorageManagerCommunication:
                 [command.session_id, command.payload["evidence_id"]], separators=(",", ":")):
             raise ValueError("Collection command identity must match its Session and evidence identity")
 
-    async def _execute_saved_session_attempt(self, command, *, retained_result=None):
-        # No storage lock is borrowed across broker readback. The caller keeps
-        # attempt resolution and result publication serialized together.
-        try:
-            self._validate_saved_session_request(command)
-            matched = await read_scoped_result_history(self._boundary, command,
-                lambda record: self._read_saved_session_result(record, command.command_type))
-            if retained_result is not None:
-                if matched is not None and matched.to_dict() != retained_result.to_dict():
-                    raise ValueError("Collection result history conflicts with the retained attempt resolution")
-                return self._reconfirm_archive_closure(command, retained_result)
-            if matched is not None:
-                if matched.success and command.command_type == "close_session_evidence_archive":
-                    return self._reconfirm_archive_closure(command, matched)
-                return matched
-            return self.execute_command(command)
-        except Exception as error:
-            return _participant_result(self._boundary, command, False, str(error),
-                {"request_nonce": command.payload.get("request_nonce")})
-
     def _reconfirm_archive_closure(self, command, result):
         confirmation = self._storage_manager.get_persisted_session_preservation_confirmation(command.session_id)
         if (confirmation is None
                 or confirmation["compilation_summary"].get("archive_closed") is not True
                 or confirmation["compilation_summary"] != result.payload["compilation_summary"]):
             raise RuntimeError("Closed archive history lacks matching current preservation")
-        return self.execute_command(command)
-
-    def _read_saved_session_result(self, record, operation):
-        """Validate scoped persisted correlation before treating a result as unrelated."""
-        data = json.loads(record.data)
-        required = {"result_id", "command_id", "session_id", "source_id", "target_id",
-                    "status", "success", "reason", "payload"}
-        if (not isinstance(data, dict) or not required.issubset(data)
-                or not isinstance(data["payload"], dict)):
-            raise ValueError("Collection result history lacks required result fields")
-        result = RuntimeCommandResultMessage.from_dict(data)
-        if (any(not isinstance(value, str) or not value for value in
-                (result.result_id, result.command_id, result.session_id, result.source_id, result.target_id))
-                or not isinstance(result.payload.get("request_nonce"), str)
-                or not result.payload["request_nonce"]
-                or type(result.success) is not bool
-                or result.status not in {"succeeded", "failed"}
-                or result.success != (result.status == "succeeded")
-                or (result.reason is not None and not isinstance(result.reason, str))):
-            raise ValueError("Collection result history has invalid correlation or final status")
-        routing = parse_runtime_subject(record.subject)
-        if (routing["session_id"] != result.session_id
-                or routing["message_class"] != "command_result"
-                or routing["component_type"] != self._boundary.component_type
-                or routing["component_id"] != result.source_id
-                or result.source_id != self._boundary.component_id
-                or routing["message_type"] != operation):
-            raise ValueError("Collection result history disagrees with its NATS subject")
-        identity = json.loads(result.command_id)
-        if (not isinstance(identity, list) or len(identity) != 2
-                or identity[0] != result.session_id
-                or not isinstance(identity[1], str) or not identity[1]
-                or result.command_id != json.dumps(identity, separators=(",", ":"))):
-            raise ValueError("Collection result history has inconsistent Session/evidence command identity")
-        if "session_id" in result.payload and result.payload["session_id"] != result.session_id:
-            raise ValueError("Collection result payload disagrees with its Session")
-        if operation == "close_session_evidence_archive":
-            if identity[1] != operation:
-                raise ValueError("Closure result history has inconsistent operation identity")
-            if result.success:
-                closure = result.payload.get("closure_outcome")
-                summary = result.payload.get("compilation_summary")
-                if (not isinstance(closure, dict) or closure.get("session_id") != result.session_id
-                        or closure.get("archive_closed") is not True
-                        or closure.get("archival_confirmed") is not True
-                        or not isinstance(summary, dict) or summary.get("session_id") != result.session_id
-                        or summary.get("archive_closed") is not True):
-                    raise ValueError("Successful closure history lacks confirmed archive preservation")
-            return result
-        if "collection_status" in result.payload:
-            status = result.payload["collection_status"]
-            if not isinstance(status, dict) or status.get("session_id") != result.session_id:
-                raise ValueError("Collection status history disagrees with its Session")
-        if "collection_outcome" in result.payload:
-            outcome = result.payload["collection_outcome"]
-            if not isinstance(outcome, dict):
-                raise ValueError("Collection result history has an invalid outcome")
-            evidence = RuntimeEvidenceMessage.from_dict(outcome["collection_evidence"])
-            if (outcome.get("session_id") != result.session_id
-                    or evidence.session_id != result.session_id
-                    or evidence.evidence_id != identity[1] or evidence.source_id != result.source_id):
-                raise ValueError("Collection result history has inconsistent collection evidence identity")
-        if result.success and (not isinstance(result.payload.get("collection_outcome"), dict)
-                or result.payload["collection_outcome"].get("archival_confirmed") is not True
-                or result.payload["collection_outcome"].get("artifact_collection_result", {}).get("succeeded") is not True):
-            raise ValueError("Successful collection result lacks confirmed collection preservation")
         return result
 
     def execute_command(self, command: RuntimeCommandMessage) -> RuntimeCommandResultMessage:
@@ -3460,7 +3337,8 @@ def _execute_service_command(boundary: NatsCommunicationBoundary, service: Any,
         result = _participant_result(boundary, command, True, None, payload)
     except Exception as error:
         result = _participant_result(boundary, command, False, str(error), {})
-    results[command.command_id] = result
+    if command.command_type not in _TRANSIENT_READS:
+        results[command.command_id] = result
     return result
 
 
@@ -3486,6 +3364,7 @@ async def _complete_maintenance_delivery(boundary, command, result):
                 # Ingestor reads this owner back through the same subscription.
                 # Release the callback, but retain delivery and exit obligations.
                 await interface.complete_retirement(command, result)
+                await boundary._retire_delivery_interests()
                 observer = boundary.maintenance_command_handled
                 if observer is not None:
                     observer(command, result)
@@ -3523,11 +3402,29 @@ async def _subscribe_participant_commands(boundary: NatsCommunicationBoundary, r
                 command = _logical_command(RuntimeCommandMessage.from_dict(json.loads(message.data.decode("utf-8"))))
                 await _complete_maintenance_delivery(boundary, command, result)
 
-            options = {"config": ConsumerConfig(deliver_policy=DeliverPolicy.NEW)}
+            durable = "commands_" + sha256(subject.encode()).hexdigest()[:32]
+            options = {"stream": "LAB_COMMANDS", "durable": durable,
+                       "config": ConsumerConfig(deliver_policy=DeliverPolicy.ALL,
+                           ack_policy=AckPolicy.EXPLICIT, max_ack_pending=1, mem_storage=False)}
             # Retain each completed installation immediately. Failed SDK-local
             # construction uses the same cleanup boundary as command results.
             subscription = await boundary._subscribe_jetstream(subject, handled, **options)
             boundary._participant_command_subscriptions[subject] = subscription
+        if boundary._core_read_subscription is None:
+            async def read(message):
+                command = RuntimeCommandMessage.from_dict(json.loads(message.data))
+                if (command.command_type not in _TRANSIENT_READS
+                        or message.subject != f"runtime_read.{boundary.component_type}.{boundary.component_id}.{command.command_type}"
+                        or not message.reply.startswith("_INBOX.")):
+                    return
+                token = _core_command_reply.set((id(boundary), message.reply))
+                try:
+                    await boundary._receive_authorized_command(receive, _CoreCommandDelivery(message))
+                finally:
+                    _core_command_reply.reset(token)
+            boundary._core_read_subscription = await boundary._require_client().subscribe(
+                f"runtime_read.{boundary.component_type}.{boundary.component_id}.*", cb=read)
+            await boundary.flush()
         return tuple(boundary._participant_command_subscriptions.values())
 
 
@@ -3732,8 +3629,9 @@ class NatsSynchronizationManagerCommunication:
                         result = (await _execute_maintenance_command(self._boundary, owner, command)
                             if command.command_type in ({"stop", "kill", "cancel", "prepare_stop", "check_stop_readiness"} | SERVICE_RECOVERY_COMMAND_TYPES | DEPENDENT_MAINTENANCE_COMMANDS)
                             else _execute_service_command(self._boundary, owner, command, self._results_by_command_id))
-                    self._results_by_command_id[command.command_id] = result
-                    self._commands_by_id[command.command_id] = deepcopy(identity)
+                    if command.command_type not in _TRANSIENT_READS:
+                        self._results_by_command_id[command.command_id] = result
+                        self._commands_by_id[command.command_id] = deepcopy(identity)
             except Exception as error:
                 result = _participant_result(self._boundary, command, False, f"{type(error).__name__}: {error}", {})
             if "request_nonce" in command.payload:

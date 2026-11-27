@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 from threading import Barrier
 from types import SimpleNamespace
+from uuid import uuid4
 import unittest
 import h5py
 import numpy as np
@@ -23,9 +24,11 @@ from lab_sync_acquisition import (
     ScientificOutputSelection, ScientificProductDeclaration, ServiceReadiness,
     OpenCVCameraConfig, SeeedIMX219OpenCVCameraAdapter, DeviceAdapterState,
     SynchronizationManager, ActiveExperimentRuntimeContext, PersistentStorageManager, build_runtime_subject, parse_runtime_subject,
+    ServiceMaintenanceInterface,
 )
 from tests.fakes import ReadyFakeAdapter
 from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
+from tests.nats_server_fixture import acquire_test_controller_authority
 from tests.test_scientific_camera_collection import FakeCV2 as CameraBoundary
 from tests.test_seeed_imx219_camera_adapter import (
     FakeCV2 as ReopeningCameraBoundary, FakeVideoCapture,
@@ -33,13 +36,24 @@ from tests.test_seeed_imx219_camera_adapter import (
 
 
 class _Subscription:
-    def __init__(self, subject, callback):
+    def __init__(self, subject, callback, broker=None, stream=None, durable=None):
         self.subject = subject
         self.callback = callback
         self.active = True
+        self._closed = False
+        self.pending_msgs = 0
+        self._broker, self._stream, self._durable = broker, stream, durable
+        self.unacknowledged = set()
+
+    async def consumer_info(self):
+        return await self._broker.consumer_info(self._stream, self._durable)
+
+    async def drain(self):
+        await self.unsubscribe()
 
     async def unsubscribe(self):
         self.active = False
+        self._closed = True
 
 
 class _Broker(EvidenceReceiptBroker):
@@ -54,6 +68,7 @@ class _Broker(EvidenceReceiptBroker):
         self.change_result = None
         self.on_command = None
         self.command_history = EvidenceReceiptBroker()
+        self.core_requests = {}
 
     async def stream_info(self, name):
         if name == "LAB_COMMAND_RESULTS":
@@ -67,7 +82,7 @@ class _Broker(EvidenceReceiptBroker):
 
     async def subscribe(self, subject, cb, **kwargs):
         self.register(subject, kwargs)
-        subscription = _Subscription(subject, cb)
+        subscription = _Subscription(subject, cb, self, kwargs.get("stream"), kwargs.get("durable"))
         self.subscriptions.append(subscription)
         return subscription
 
@@ -81,16 +96,39 @@ class _Broker(EvidenceReceiptBroker):
                 return False
         return len(tokens) == len(pattern.split("."))
 
-    async def publish(self, subject, data, stream):
+    async def request(self, subject, data, timeout):
+        inbox = "_INBOX." + uuid4().hex
+        response = asyncio.get_running_loop().create_future()
+
+        async def receive(message):
+            if not response.done():
+                response.set_result(message)
+
+        subscription = await self.subscribe(inbox, cb=receive)
+        self.core_requests[inbox] = json.loads(data)["command_type"]
+        try:
+            async with asyncio.timeout(timeout):
+                await self.publish(subject, data, reply=inbox)
+                return await response
+        finally:
+            self.core_requests.pop(inbox, None)
+            await subscription.unsubscribe()
+
+    async def flush(self):
+        return None
+
+    async def publish(self, subject, data, stream=None, reply=""):
         payload = json.loads(data)
         if stream == "LAB_COMMANDS":
             self.commands.append(payload)
             if self.on_command is not None:
                 self.on_command(payload)
-        elif stream == "LAB_COMMAND_RESULTS":
-            await self.command_history.publish(subject, data, stream)
+        elif stream == "LAB_COMMAND_RESULTS" or subject in self.core_requests:
+            if stream == "LAB_COMMAND_RESULTS":
+                await self.command_history.publish(subject, data, stream)
             self.results.append(payload)
-            operation = subject.split(".")[-1]
+            operation = (self.core_requests[subject] if subject in self.core_requests
+                         else parse_runtime_subject(subject)["message_type"])
             if (payload["source_id"], operation) in self.drop_results:
                 return SimpleNamespace(stream=stream)
             if self.change_result is not None:
@@ -98,7 +136,19 @@ class _Broker(EvidenceReceiptBroker):
                 data = json.dumps(payload).encode()
         for subscription in tuple(self.subscriptions):
             if subscription.active and self.matches(subscription.subject, subject):
-                await subscription.callback(SimpleNamespace(subject=subject, data=data, ack=AsyncMock(), ack_sync=AsyncMock()))
+                identity = (subject, data)
+                consumer = self.consumers.get(subscription._durable)
+                if consumer is not None:
+                    subscription.unacknowledged.add(identity)
+                    consumer.num_ack_pending = len(subscription.unacknowledged)
+
+                async def acknowledge(subscription=subscription, consumer=consumer, identity=identity):
+                    subscription.unacknowledged.discard(identity)
+                    if consumer is not None:
+                        consumer.num_ack_pending = len(subscription.unacknowledged)
+
+                await subscription.callback(SimpleNamespace(subject=subject, data=data, reply=reply,
+                    ack=AsyncMock(side_effect=acknowledge), ack_sync=AsyncMock(side_effect=acknowledge)))
         return SimpleNamespace(stream=stream)
 
 
@@ -113,6 +163,11 @@ class _Boundary(NatsCommunicationBoundary):
         return self.available
 
     def _require_jetstream(self):
+        if not self.available:
+            raise ConnectionError("NATS unavailable")
+        return self.broker
+
+    def _require_client(self):
         if not self.available:
             raise ConnectionError("NATS unavailable")
         return self.broker
@@ -159,6 +214,7 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.participants = [RuntimeParticipant("ingestor", "ingestor"),
                              RuntimeParticipant("synchronization_manager", "sync")]
         self.nodes = {}
+        self.node_handlers = {}
         self.adapters = {}
         self.config = {"storage_location": str(self.root / "session-records"),
                        "protocol_plan": {"name": "no-op"},
@@ -195,10 +251,30 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         await handler.subscribe_commands()
         self.participants.append(RuntimeParticipant("acquisition_node", node_id))
         self.nodes[node_id] = node
+        self.node_handlers[node_id] = handler
         self.adapters[node_id] = adapters
         return node, declaration, adapter
 
     async def launch(self, selections, **kwargs):
+        if getattr(self.controller, "_maintenance", None) is None:
+            maintenance = ServiceMaintenanceInterface(self.controller, RuntimeParticipant("controller", "controller"),
+                ingestor=self.ingestor, storage_manager=self.storage, preservation_window_s=2,
+                close_resources=AsyncMock(return_value=True))
+            authority = await acquire_test_controller_authority(self, maintenance)
+            authority._require_jetstream = lambda: self.broker
+            authority._require_client = lambda: self.broker
+            self.communication._boundary = authority
+            handlers = [(handler, owner) for handler, owner in (
+                (getattr(self, "ingestor_handler", None), self.ingestor),
+                (getattr(self, "sync_handler", None), self.sync)) if handler is not None]
+            handlers.extend((self.node_handlers[identity], node) for identity, node in self.nodes.items())
+            for handler, owner in handlers:
+                boundary = handler._boundary
+                boundary._client, boundary._jetstream = authority._client, authority._jetstream
+                boundary.configure_controller_authority(account="LAB", bucket="AUTHORITY", key="controller", timeout_s=2)
+                ServiceMaintenanceInterface(owner, RuntimeParticipant(boundary.component_type, boundary.component_id),
+                    ingestor=self.ingestor, storage_manager=self.storage, preservation_window_s=2,
+                    close_resources=AsyncMock(return_value=True))
         return await self.controller.launch_session(selections, communication=self.communication,
             participants=self.participants, config_parameters=self.config, result_window_s=0.01, **kwargs)
 
@@ -1145,7 +1221,7 @@ class SessionLaunchTests(unittest.IsolatedAsyncioTestCase):
         await boundary.ensure_streams()
         streams = {call.kwargs["config"].name: call.kwargs["config"].subjects for call in self.broker.add_stream.await_args_list}
         self.assertEqual(streams["LAB_COMMANDS"], ["messages.*.command.*.*.*", "messages.command.*.*.*"])
-        self.assertEqual(streams["LAB_COMMAND_RESULTS"], ["messages.*.command_result.*.*.*", "messages.command_result.*.*.*"])
+        self.assertEqual(streams["LAB_COMMAND_RESULTS"], ["command_results.>"])
         self.assertEqual(streams["LAB_EVIDENCE"], ["messages.*.evidence.*.*.*", "messages.evidence.*.*.*"])
 
     async def test_node_abort_is_idempotent_and_preserves_finalized_artifacts(self):

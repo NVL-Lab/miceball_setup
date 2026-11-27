@@ -491,9 +491,8 @@ class Controller:
                     confirmation = self._storage_manager.get_acquisition_stage_preservation_confirmation(session.session_id)
                     if (confirmation is None or ingest_state != self._session_ingest_state()
                             or required != self._controller_owned_session_evidence_snapshot(session.session_id)
-                            or any(json.dumps(confirmation[name], sort_keys=True) != json.dumps(
-                                [item.to_dict() for item in compiled[name]], sort_keys=True)
-                                for name in ("runtime_evidence", "ingest_audit"))):
+                            or json.dumps(confirmation["runtime_evidence"], sort_keys=True) != json.dumps(
+                                [item.to_dict() for item in compiled["runtime_evidence"]], sort_keys=True)):
                         raise RuntimeError("Current complete Stage A preservation is unconfirmed")
                     return self._record_successful_command("archive_acquisition_evidence", {
                         "session_id": session.session_id, "stage_a_complete": True, "archive_closed": False,
@@ -533,9 +532,8 @@ class Controller:
                         raise RuntimeError("Handoff requires the closing Session and completed acquisition persistence")
                     archived = self._storage_manager.get_acquisition_stage_preservation_confirmation(session.session_id)
                     compiled = intake.compile_persistent_runtime_evidence()
-                    if archived is None or any(json.dumps(archived[name], sort_keys=True) != json.dumps(
-                            [item.to_dict() for item in compiled[name]], sort_keys=True)
-                            for name in ("runtime_evidence", "ingest_audit")):
+                    if archived is None or json.dumps(archived["runtime_evidence"], sort_keys=True) != json.dumps(
+                            [item.to_dict() for item in compiled["runtime_evidence"]], sort_keys=True):
                         raise RuntimeError("Current Stage A coverage must be confirmed before handoff preservation")
                     handoff = intake.compile_artifact_collection_handoff(session.session_id)
                     path = self._storage_manager.write_artifact_collection_handoff(session.session_id, handoff)
@@ -630,7 +628,7 @@ class Controller:
             with self._service_operation_lock:
                 if self._session is not session:
                     raise RuntimeError("Controller Session binding changed during publication")
-                required = self._controller_owned_session_evidence_snapshot(session.session_id)
+                required = self._controller_owned_session_evidence_snapshot(session.session_id, persistent_only=False)
                 self._require_health_accounting(session)
                 producer_confirmations = tuple((p, communication.session_acquisition_completion(p, session.session_id))
                                                for p in (*nodes, synchronization[0]))
@@ -642,7 +640,7 @@ class Controller:
                     raise RuntimeError("Controller evidence changed during publication; retry before the marker")
                 if self._acquisition_marker is None:
                     self._acquisition_marker = RuntimeEvidenceMessage(uuid4().hex,
-                        session.session_id, "acquisition_evidence_completion", self._component_id, {}, True)
+                        session.session_id, "acquisition_evidence_completion", self._component_id, {}, False)
                 marker = self._acquisition_marker
             await communication.publish_evidence(marker)
             with self._service_operation_lock:
@@ -1758,7 +1756,7 @@ class Controller:
                 rejection = RuntimeEvidenceMessage(uuid4().hex, session.session_id,
                     "experiment_start_rejected", self._component_id,
                     {"experiment_id": experiment_id, "reason": str(error),
-                     "session_time_s": None, "timing_unconfirmed": True}, True)
+                     "session_time_s": None, "timing_unconfirmed": True}, False)
                 session.record_service_readiness((ServiceReadiness(self._component_id,
                     "experiment_preparation", True, False, str(error)),))
                 return self._record_failed_command("start_experiment", error,
@@ -2078,18 +2076,19 @@ class Controller:
             if message.session_id == session_id
         }
 
-    def _controller_owned_session_evidence_snapshot(self, session_id: str) -> dict[str, dict[str, Any]]:
-        """Read owned persistent decisions, rejection evidence, and any produced marker."""
+    def _controller_owned_session_evidence_snapshot(
+        self, session_id: str, *, persistent_only: bool = True,
+    ) -> dict[str, dict[str, Any]]:
+        """Select owned preservation obligations or all required producer publications."""
         snapshot = self._controller_decision_evidence_snapshot(session_id)
         for result in self._command_results:
             if isinstance(result.details, Mapping):
                 contents = result.details.get("rejection_evidence")
                 if isinstance(contents, dict):
                     message = RuntimeEvidenceMessage.from_dict(contents)
-                    if message.session_id == session_id and message.source_id == self._component_id and message.is_persistent:
+                    if (message.session_id == session_id and message.source_id == self._component_id
+                            and (message.is_persistent or not persistent_only)):
                         snapshot[message.evidence_id] = deepcopy(message.to_dict())
-        if self._acquisition_marker is not None and self._acquisition_marker.session_id == session_id:
-            snapshot[self._acquisition_marker.evidence_id] = deepcopy(self._acquisition_marker.to_dict())
         return snapshot
 
     def _require_controller_owned_evidence(self, session_id: str, confirmation: dict) -> None:
@@ -2554,7 +2553,7 @@ class Controller:
                              "session_time_s": self._current_session_time_s(),
                              "preparations": [record.to_dict() for record in records if isinstance(record, ServiceReadiness)],
                              "command_outcomes": [outcome.to_dict() for outcome in outcomes if isinstance(outcome, GroupCommandOutcome)]},
-                    is_persistent=True,
+                    is_persistent=False,
                 )
                 rejection_details = {"rejection_evidence": message.to_dict()}
                 self._ingestor.receive_runtime_evidence(message)
@@ -2679,6 +2678,7 @@ class Controller:
 
     def _retire_session_binding(self, outcome):
         """Retire only the Controller's already verified Session-specific state."""
+        self._launch_communication._retire_session_state(self._session.session_id)
         self._last_released_session = outcome
         self._session = None
         self._launch_communication = None

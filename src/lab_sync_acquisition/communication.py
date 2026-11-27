@@ -21,7 +21,7 @@ DEPENDENT_MAINTENANCE_COMMANDS = frozenset({
 })
 
 LAB_COMMANDS = "messages.*.command.>"
-LAB_COMMAND_RESULTS = "messages.*.command_result.>"
+LAB_COMMAND_RESULTS = "command_results.>"
 LAB_EVIDENCE = "messages.*.evidence.>"
 
 
@@ -177,11 +177,22 @@ def build_runtime_subject(
     component_type: str,
     component_id: str,
     message_type: str,
+    *, recipient_id: str | None = None,
 ) -> str:
     """Build one concrete Session-scoped runtime routing subject."""
 
     if message_class not in MESSAGE_CLASSES:
         raise ValueError(f"Unsupported runtime message class: {message_class}")
+    if message_class == "command_result":
+        for name, value in (("recipient_id", recipient_id), ("component_type", component_type),
+                            ("component_id", component_id), ("message_type", message_type)):
+            _validate_subject_token(name, value)
+        if session_id is not None:
+            _validate_subject_token("session_id", session_id)
+        return (f"command_results.{recipient_id}.{component_type}.{component_id}.{message_type}"
+                + (f".{session_id}" if session_id is not None else ""))
+    if recipient_id is not None:
+        raise ValueError("Only command results use recipient addressing")
     if session_id is None:
         if message_class not in {"command", "command_result", "evidence"}:
             raise ValueError("Only participant commands/results and framework evidence may omit Session identity")
@@ -205,6 +216,14 @@ def parse_runtime_subject(subject: str) -> dict[str, str | None]:
     """Parse one concrete runtime subject into routing-only fields."""
 
     parts = subject.split(".")
+    if len(parts) in {5, 6} and parts[0] == "command_results":
+        recipient_id, component_type, component_id, message_type = parts[1:5]
+        session_id = parts[5] if len(parts) == 6 else None
+        build_runtime_subject(session_id, "command_result", component_type, component_id,
+                              message_type, recipient_id=recipient_id)
+        return {"session_id": session_id, "message_class": "command_result",
+                "component_type": component_type, "component_id": component_id,
+                "message_type": message_type, "recipient_id": recipient_id}
     if len(parts) not in {5, 6} or parts[0] != "messages":
         raise ValueError(f"Invalid runtime message subject: {subject}")
     if len(parts) == 5:

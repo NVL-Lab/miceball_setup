@@ -166,9 +166,9 @@ class HealthCloseoutAccountingTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(stopped.succeeded)
         self.assertIn("require durable accounting", stopped.error)
         _, late = self.delivery("new-after-cutoff")
-        with self.assertRaises(RuntimeError):
-            await callback(late)
-        late.ack.assert_not_awaited()
+        await callback(late)
+        late.ack.assert_awaited_once()
+        self.assertEqual(len(controller.controller_action_decisions), 1)
         await callback(original)
         original.ack.assert_awaited_once()
         self.assertEqual(len(controller.controller_action_decision_evidence), 1)
