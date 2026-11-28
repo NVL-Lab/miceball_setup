@@ -1,16 +1,24 @@
 # Framework Milestones
 
-**November 24, 2026 planning qualification; final clarification November 27:**
+**Decisions 456-457 software slice CLOSED (November 28, 2026):** Implementation,
+ICC independent software validation and Codex independent audit are complete at
+`6d304ba7ab3efa8f5df9d23d5e6aad623dc92318`, after correction and re-audit of the
+single P2 retention-limit finding. See the canonical
+[scope, evidence and limitations](validated_workflows.md#decisions-456-457-software-scope).
+This creates no new milestone identifier and does not close Q002, Q022, Q024,
+M015 or broader G5. G2 and Phase 16 retain their previously closed scopes.
+
+**Historical November 24, 2026 planning qualification; final clarification November 27:**
 [Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
 is accepted architecture only. Its final accepted clarification is
 [Decision 457](architecture_decisions.md#decision-457-native-delivery-interests-and-selective-evidence-retention-bound-operational-recovery):
 the 20 persistence assignments, native InterestPolicy/consumer responsibilities,
 recipient result routing, owner outcomes, removal of historical delivery/audit
-checks and checkpoint-boundary compaction are settled, not implemented or validated.
-Implementation planning is separately coordinated by ICC. Historical milestone
-evidence below is unchanged; no earlier PASS establishes compliance with the new
+checks and checkpoint-boundary compaction were settled, not yet implemented or validated
+at that synchronization. Implementation planning was separately coordinated by ICC.
+Historical milestone evidence below is unchanged; no earlier PASS establishes compliance with the new
 retention contract. G2 and Phase 16 remain CLOSED within their validated historical
-scope; Q022 and Q024 remain OPEN. No new milestone or closure is created.
+scope; Q022 and Q024 remain OPEN. That synchronization created no milestone or closure.
 
 **Current-status qualification (November 23, 2026):** Phase 16 operational
 software scope is CLOSED; M015 and broader G5 remain OPEN. See their current

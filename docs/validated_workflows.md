@@ -6834,6 +6834,90 @@ rendering regression remains unresolved and is not covered by this PASS.
 
 ---
 
+# Decisions 456-457 Software Scope
+
+**Status:** CLOSED within the bounded implemented software scope, November 28,
+2026, after ICC accepted independent validation and Codex audit PASS at
+`6d304ba7ab3efa8f5df9d23d5e6aad623dc92318`. This is not deployment qualification
+or closure of Q002, Q022, Q024 or any broader milestone. G2 and Phase 16 retain
+their previously closed scopes.
+
+## Implemented boundary
+
+- All three framework streams use native file-backed InterestPolicy, with durable
+  responsibility-scoped service consumers, non-durable GUI consumers and consumer
+  retirement only at resolved lifecycle boundaries. Recipient-addressed results
+  share the intended service's existing reception mechanism.
+- Current authoritative owner outcomes replace unnecessary historical broker-result,
+  evidence and acknowledgment reconstruction. Genuinely transient observations use
+  Core NATS; state-changing work and outstanding delivery remain reliable.
+- Producers apply Decision 457's exact 14 persistent/six nonpersistent assignments.
+  Permanent scientific evidence remains preserved; nonpersistent information remains
+  available while needed for outstanding obligations. Permanent Ingestor intake
+  auditing and its redundant historical archive product are removed, not replaced
+  by another permanent audit subsystem.
+- Qualified existing checkpoint boundaries compact completed recovery-journal
+  content. Checkpoint publication precedes journal replacement; current authority,
+  unresolved obligations, necessary authorization/duplicate protection and exact
+  owner-backed confirmation remain. Ordinary qualified recovery avoids completed
+  historical-prefix reconstruction; explicit archive integrity checks remain.
+- Decision 457 Section 7 uses lifetime-scoped protection for side-effect-free
+  pre-admission collection rejections. Previous-instance attempts remain fenced;
+  fresh explicitly authorized attempts can evaluate current eligibility. Actual
+  admitted collection outcomes remain durable, including failed or uncertain work.
+- Existing stream admission rejects expiry or limits that can evict required
+  unacknowledged messages. Safe finite discard-new backpressure remains supported,
+  including explicit per-subject discard-new protection. Capacity exhaustion can
+  refuse publication without falsely confirming it or losing accepted messages.
+  Fresh stream defaults, scientific ownership, Controller authority, timing,
+  Normal Stop/Kill distinctions, preservation and recovery guarantees are retained.
+
+## Evidence and correction history
+
+Counts below describe separate, potentially overlapping stages, not an aggregate.
+
+| Stage | Recorded evidence |
+| --- | --- |
+| Developer verification | Focused implementation verification reported; the bounded retention correction passed 4/4 selected developer test methods. |
+| ICC independent checks at `ac38cd05a62da4093318c3e241d44e6d20c309e2` | Checks 01-31: 31/31 PASS, including owner-backed collection recovery without historical broker-result retrieval. |
+| ICC integrated lifecycle validation | Two Normal Stop, durable scientific preservation, Release, Session-consumer retirement and sequential-reuse lifecycles PASS without service replacement. |
+| ICC producer classification | 18/20 source-expression checks and 9/20 actual runtime checks PASS, including runtime checks of both dynamically constructed types. Combined source or runtime coverage: 20/20, with no observed mismatches; not exhaustive runtime emission coverage. |
+| ICC corrected Kill-only validation | 5/5 PASS: baseline, genuine authority/current registration, native InterestPolicy, partial preservation with an unavailable registered node and unresolved cleanup, and resource cleanup. |
+| Original independent Codex audit at `ac38cd05a62da4093318c3e241d44e6d20c309e2` | FAIL: objectives B-G PASS, objective A failed with one P2. An existing `max_msgs=1` discard-old stream was accepted and evicted an offline recipient's unacknowledged result despite successful publications. |
+| Bounded correction | Shared stream compatibility validation now rejects expiry/global/per-subject eviction settings without changing existing streams; safe backpressure remains accepted. |
+| ICC independent correction validation | 42/42 substantive checks PASS: 11 compatibility cases on each of the three streams, plus nine capacity-exhaustion cases. Capacity checks used production `_publish_durable()` and native durable consumers. |
+| Targeted independent Codex re-audit at `6d304ba7ab3efa8f5df9d23d5e6aad623dc92318` | 27/27 scenarios PASS, including public command-result routing under count, byte and per-subject capacity exhaustion, exact recovery and native ACK retirement. Original P2 resolved; no new confirmed P0-P3 findings. Objectives B-G retained their original PASS; overall audit PASS. |
+
+The first integrated Kill run passed its substantive assertions, then failed during
+external-harness teardown by unsubscribing through the deliberately closed node
+connection. Corrected teardown ordering passed developer verification and then ICC's
+separate 5/5 check. This was a validation-harness defect, not a production Kill failure.
+The first ICC retention-validation run passed 11 assertions before its disposable
+cleanup attempted to disable creation-only native TTL. ICC corrected that harness
+and completed the remaining 31 checks. This was also a harness defect; the 42
+substantive checks do not include a claim that the original cleanup passed.
+
+## Operational limitations
+
+- An outstanding unacknowledged command can block subsequent delivery until native
+  redelivery, approximately 30 seconds with the validated default consumer settings.
+  The initially unconfirmed collection check recovered its exact durable outcome
+  after that interval without repeating transfer; a shorter request window can
+  truthfully return unconfirmed. This delay is not an accepted-contract defect.
+- Existing incompatible streams need an explicit installation transition. No
+  automatic conversion, purge, migration or historical-data deletion is implemented
+  or authorized by this closure. Safe capacity limits retain native backpressure.
+- Validation used Windows, Python 3.12.13, `nats-py` 2.15.0 and NATS Server 2.14.3.
+  Compatibility with the older deployed NATS Server remains unverified. Integrated
+  lifecycle services shared one Python event loop.
+- Hardware execution, actual distributed deployment, process-separated crash
+  recovery, physical power-loss and exhaustive concurrency behavior are unestablished.
+  Producer runtime emission was not exercised exhaustively across every branch.
+- The historical slowdown is not established as resolved in the actual installation;
+  that requires deployment verification. Broader open-question obligations remain.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

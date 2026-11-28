@@ -38,8 +38,12 @@ Resolved questions should be removed from this file and recorded in `architectur
 **Subsequent architectural qualification (Decision 456):** Any archive layout or
 historical requirement below containing `ingest_audit.jsonl` no longer requires
 that permanent product or complete intake-audit coverage. Session Records remain
-separate from scientific Evidence Archives; replacement integrity/compilation
-enforcement is pending assessment, not implemented by this synchronization.
+separate from scientific Evidence Archives. The bounded Decisions 456-457 software
+implementation, independent validation and audit are now CLOSED at
+`6d304ba7ab3efa8f5df9d23d5e6aad623dc92318`; see
+[scope and limitations](validated_workflows.md#decisions-456-457-software-scope).
+Q002 remains OPEN for its remaining schema and representation obligations below;
+the historical layout is retained as history, not a current intake-audit requirement.
 
 Current Direction
 
@@ -1343,6 +1347,14 @@ producer messages. It does not resolve this publication-recovery question.
 ---
 
 ## Q013: What further framework behavior follows ControllerActionDecision execution?
+
+**Later accepted correction, not implementation closure (2026-11-28):**
+[Decision 458](architecture_decisions.md#decision-458-confirmed-acquisition-and-recording-failures-follow-actual-experiment-participation)
+requires automatic actual-participant mandatory/optional consequences for confirmed
+acquisition/recording failures, without configured health mappings. Implementation
+and independent verification are pending. Earlier bounded Q013/G4 validation is
+preserved; G2 and Phase 16 remain CLOSED. No remote crash detector or new
+publication/restart-recovery scope is introduced.
 
 **Status:** CLOSED within the accepted G4 software scope. G4-A, G4-B and G4-C are
 CLOSED; deployment validation remains separate. See
@@ -2809,6 +2821,17 @@ Distributed operation
 
 ## Q022: What is the deployment-local configuration and initialization model?
 
+**Accepted mounted-storage clarification (2026-11-28):**
+[Decision 459](architecture_decisions.md#decision-459-explicit-acquisitionnode-mounted-storage-uses-standard-startup-mounting)
+permits optional explicitly configured AcquisitionNode filesystem mounting through
+standard OS installation authorization and startup mechanisms. It requires exact
+filesystem verification before scientific/failure-evidence directory access,
+Not Ready on absence/wrong identity, and manual readiness restoration without
+restart. Implementation and independent verification, including physical Jetson
+verification, are pending. Configuration placement/standard OS integration are
+implementation choices. Decision 453 graphical installer remains deferred; Q022
+remains OPEN and no Q035 reset behavior is authorized.
+
 **November 24, 2026 accepted retention amendment:**
 [Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
 separates reliable communication, scientific preservation and temporary recovery.
@@ -2824,14 +2847,17 @@ The accepted Decision 457 Section 7 clarification requires lifetime-scoped
 protection, not durable historical reconstruction, for side-effect-free
 pre-admission collection rejections. Old attempts remain fenced to their original
 StorageManager instance; admitted/uncertain outcomes retain recovery obligations.
-Developer integration now enables native InterestPolicy for new compatible streams,
+The completed software slice enables native InterestPolicy for new compatible streams,
 with durable required interests, recipient-specific results and current owner outcomes.
 Qualified checkpoints compact completed journal detail while retaining current
 authority, unconfirmed producer evidence and unresolved obligations; explicit archive
-integrity readback remains separate from ordinary startup. Independent validation
-and audit remain pending. Existing-installation transition is neither implemented
-nor authorized. Earlier implementation and validation records are not evidence of
-compliance with this later amendment. Q022 remains OPEN; no deployment reset or
+integrity readback remains separate from ordinary startup. Independent software
+validation and audit PASS at `6d304ba7ab3efa8f5df9d23d5e6aad623dc92318` close this
+bounded slice; [evidence and limitations](validated_workflows.md#decisions-456-457-software-scope)
+include the corrected P2 retention-limit finding. Existing-installation transition
+is neither implemented nor authorized, and older-server compatibility and actual
+distributed deployment remain unverified. Earlier validation retains its historical
+scope. Q022 remains OPEN for outstanding deployment work; no deployment reset or
 migration is authorized. Decision 453 remains deferred and Q035 remains unresolved.
 
 **Status:** OPEN - Q022-A installation/deployment design is accepted and synchronized
@@ -3781,11 +3807,14 @@ obsolete Experiment/Session/framework-operation recovery detail. Reuse authorita
 owner outcomes instead of acknowledged broker-result history. Existing checkpoint
 creation boundaries support actual crash-safe journal compaction, not only faster
 historical replay. No permanent intake-audit replacement or universal result store
-is authorized. Detailed file management, implementation planning, consolidation,
-verification and existing-data transition remain pending; no migration is authorized.
-Historical implementations, deferrals
-(including Decision 435) and validation records below retain their original scope;
-they do not establish compliance with Decision 456. G2 and Phase 16 remain CLOSED
+is authorized. Qualified crash-safe journal compaction and outstanding-responsibility
+retention are implemented and independently validated/audited in the bounded
+[Decisions 456-457 software closure](validated_workflows.md#decisions-456-457-software-scope)
+at `6d304ba7ab3efa8f5df9d23d5e6aad623dc92318`. Existing-data transition remains
+outside that closure; no migration is authorized. Q024 remains OPEN for its separate
+deferred recovery and memory-retirement obligations, not reopened completed slices.
+Historical implementations, deferrals (including Decision 435) and validation
+records below retain their original scope. G2 and Phase 16 remain CLOSED
 within their previously validated scope.
 
 **Status:** OPEN - narrow low-level contracts accepted in Decisions 332-338;

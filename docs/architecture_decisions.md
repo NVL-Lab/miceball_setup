@@ -3360,6 +3360,11 @@ decoder_001
 
 ## Decision 099: Expected participants define Experiment-scoped acquisition health scope
 
+**Later qualification:** Decision 458 makes confirmed acquisition/recording failure
+consequences automatic for actual participating devices; the mapping/policy scope
+below remains applicable to other health conditions (also qualifies Decisions
+100–110). Historical implementation/validation is unchanged.
+
 **Status:** Accepted
 
 Experiment-scoped acquisition health is evaluated only for the Expected Participants declared by the active Experiment.
@@ -7709,6 +7714,10 @@ introduced.
 ---
 
 ## Decision 290: Selected devices determine launch criticality
+
+**Later qualification:** Decision 458 uses actual Experiment participation for
+confirmed acquisition/recording failures; Session launch criticality alone does not
+determine those runtime consequences.
 
 **Status:** Accepted
 
@@ -14805,6 +14814,11 @@ Decision 445 retains its separate CLOSED scope; broader Q022 remains OPEN.
 
 ## Decision 447: Guided installation selects scientific storage and optionally prepares the separate GUI package
 
+**Later qualification:** Decision 459 permits standard OS installation authorization
+and startup mounting only for explicitly declared AcquisitionNode storage. The
+general no-mounting restriction below otherwise remains in force; implementation
+of that exception is pending.
+
 **Status:** Accepted
 
 This records the explicitly user-accepted LLC additions to future Q022 guided
@@ -15197,6 +15211,10 @@ it does not close their implementation/verification work.
 
 ## Decision 453: Self-contained graphical installation shares CLI operations and permits bounded local NATS provisioning
 
+**Later qualification:** Decision 459 permits standard OS installation authorization
+and startup mounting only for explicitly declared AcquisitionNode storage. Other
+mounting restrictions remain; graphical installer implementation remains deferred.
+
 **Status:** Accepted and unchanged; functionality implementation intentionally
 deferred by development priority. Technical investigation, implementation design
 review and preliminary Windows packaging feasibility assessment are complete;
@@ -15437,14 +15455,18 @@ audit. Package A/B status and Decision 453's deferral are unchanged.
 
 ## Decision 456: Communication retention, scientific preservation and operational recovery have distinct lifetimes
 
-**Status:** Accepted; architecture synchronized November 24, 2026. Message
-classification, implementation assessment, implementation and validation are pending.
+**Status:** Accepted; architecture synchronized November 24, 2026. At that
+synchronization, classification, assessment, implementation and validation were pending.
+The bounded Decisions 456-457 software slice is now CLOSED following independent
+validation and audit PASS at `6d304ba7ab3efa8f5df9d23d5e6aad623dc92318`;
+see [closure evidence and limitations](validated_workflows.md#decisions-456-457-software-scope).
+Accepted architecture is unchanged; existing-deployment transition remains separate.
 
 **Subsequent accepted resolution (Decision 457):** The pending classification and
 architectural selection statements in this initial synchronization are historical.
 Decision 457 records the final accepted assignments and delivery/recovery contracts.
-Implementation planning, implementation, validation and existing-data transition
-remain separate work; no implementation compliance is claimed.
+Implementation and validation were separate next steps at synchronization; the
+software-scope closure above records their completion, not existing-data transition.
 
 This records the explicitly user-accepted LLC evidence-preservation and operational-
 recovery clarifications following the
@@ -15544,7 +15566,11 @@ Determine the minimum retained correctness information in the pending assessment
 Decision 437 does not prevent eligible retirement of obsolete temporary recovery
 state and does not authorize deletion of permanent scientific evidence.
 
-### Pending architectural and implementation work
+### Historical next steps at synchronization
+
+The following records the November 24 handoff. Decision 457 and the subsequent
+bounded software closure above settle classification, policy and implementation
+within that scope; existing-data transition remains separately unvalidated.
 
 The next separately authorized task is a read-only inventory of messages/evidence,
 persistence intent, scientific relevance and operational dependencies. LLC review
@@ -15554,7 +15580,7 @@ acceptance enforcement, replacement of permanent-audit-dependent guarantees,
 journal/checkpoint retirement and treatment of existing historical data. Do not
 infer a migration/deletion policy or implement a replacement during synchronization.
 
-No implementation or validation compliance with this decision is claimed. Q024
+That synchronization did not establish implementation or validation compliance. Q024
 and affected broader questions remain OPEN. G2 and Phase 16 remain CLOSED within
 their previously validated scope, not validated against this later amendment.
 
@@ -15563,8 +15589,11 @@ their previously validated scope, not validated against this later amendment.
 ## Decision 457: Native delivery interests and selective evidence retention bound operational recovery
 
 **Status:** Accepted; final Decision 456 clarification synchronized November 27,
-2026. Implementation planning is separately coordinated by ICC. No implementation,
-deployment conversion, validation or milestone closure is established here.
+2026. The bounded implementation and software-validation slice is CLOSED following
+ICC independent validation and Codex audit PASS at
+`6d304ba7ab3efa8f5df9d23d5e6aad623dc92318`, after correction of the original P2
+retention-limit finding. See [evidence, history and limitations](validated_workflows.md#decisions-456-457-software-scope).
+No deployment conversion or broader question/milestone closure is established.
 
 This records the explicitly user-accepted LLC handoff following Decision 456 and
 the source, InterestPolicy feasibility and command-result routing assessments.
@@ -15699,8 +15728,9 @@ requirements, not Decision 363's durable actual collection outcomes or Decision
 364's current eligibility requirements. Admitted attempts, failed transfers and
 uncertain outcomes retain all applicable recovery, preservation and duplicate
 protection. No persistent rejection records, expiration mechanism or replacement
-historical result retrieval is authorized. Implementation and verification remain
-pending; historical validation records retain their original scope.
+historical result retrieval is authorized. Implementation and verification were
+pending at clarification; the bounded software closure is now recorded above.
+Historical validation records retain their original scope.
 
 ### 8. Intake auditing, current recovery state and journal compaction
 
@@ -15762,12 +15792,127 @@ operations still depend on acknowledged broker history. In-place retention conve
 is reported supported by the deployed server, but safe conversion is not validated.
 No deletion, migration or conversion of existing broker history, journals,
 checkpoints, archives or scientific files is authorized by this synchronization.
-ICC will separately coordinate implementation planning; this entry specifies no
-slice design and performs no implementation impact review or implementation.
+At synchronization, ICC separately coordinated subsequent implementation planning;
+this architectural entry specified no slice design or implementation. Current
+software-scope closure is recorded above, without authorizing existing-data transition.
+
+---
+
+## Decision 458: Confirmed acquisition and recording failures follow actual Experiment participation
+
+**Status:** Accepted by the project owner through LLC; synchronized 2026-11-28.
+Implementation and independent verification are pending. G2 and Phase 16 remain
+CLOSED within their previously validated scopes.
+
+For confirmed inability to acquire or store scientific data, reuse the existing
+mandatory/optional classification of the actual Experiment-participating device.
+This applies automatically, without an explicit runtime health mapping or additional
+experimenter health-policy configuration, and takes precedence over configurable
+health consequences for these confirmed failures only.
+
+| Confirmed condition | Required consequence |
+| --- | --- |
+| Mandatory participating device cannot acquire or record | Controller fails and stops the affected Experiment |
+| Optional participating device cannot acquire or record | Stop that device, preserve failure evidence, continue unaffected acquisition |
+| Shared resource fails for mandatory participants | Controller fails and stops the affected Experiment |
+| Shared resource fails only for optional participants | Continue unaffected acquisition |
+| Nonparticipating device fails | No Experiment failure solely for that device |
+
+Preserve affected-device identity through collection, partial-result preservation,
+recording and failure reporting. Distinguish device-local from genuinely shared
+failures. Healthy participating devices, including those on the same AcquisitionNode,
+must continue regardless of collection order relative to an optional failed device.
+Preserve already acquired scientific data and required failure evidence.
+
+Reuse the existing observation, interpretation and Controller action route.
+Controller remains the sole canonical Experiment lifecycle authority; use existing
+Experiment failure, without Session failure, Kill or retirement merely because a
+device failed. Reuse independent evidence retention, publication and reconciliation:
+delayed applicable failure evidence acts if its Experiment remains active; historical
+evidence remains preserved/accounted for without affecting a subsequent Experiment.
+Scientific acquisition remains independent of NATS publication (Decision 395).
+
+Unknown availability is not confirmed failure. Temporary communication interruption
+preserves autonomous acquisition; temporary synchronization degradation retains
+existing timing-quality policies. Other health conditions retain configurable health
+policies. An abrupt remote process crash may remain indistinguishable from temporary
+communication loss; the owner explicitly accepts this limitation.
+
+**Qualification of earlier decisions:** Decisions 097–110, particularly 099–102,
+105 and 108, retain explicit mappings/policies for their other health conditions;
+they are not prerequisites for the confirmed acquisition/recording consequences
+above. Decisions 113–114 retain Controller-owned action execution, with the bounded
+Experiment consequence above. Decisions 239, 284, 290 and 427–428 retain preparation,
+readiness and participation contracts; readiness/Session criticality must not be
+substituted for actual Experiment participation. Decisions 320–321, 328 and 395 retain
+service independence, unknown availability and publication independence. Historical
+decisions and validation evidence are preserved, not recertified by this clarification.
+
+No parallel mandatory flags, heartbeat, remote crash detector, monitoring service,
+channel, timeout policy, new lifecycle state, automatic restart, restart-durable
+unpublished-evidence recovery, publication redesign or Ingestor journal redesign is
+authorized.
+
+---
+
+## Decision 459: Explicit AcquisitionNode mounted storage uses standard startup mounting
+
+**Status:** Accepted by the project owner through LLC; synchronized 2026-11-28.
+Implementation and independent verification are pending. Decision 453 graphical
+installer development remains deferred.
+
+AcquisitionNode installation optionally declares a required separately mounted
+filesystem: whether mounting is required, stable filesystem identity (such as UUID),
+and mount point. Reuse existing scientific-data and failure-evidence paths; do not
+duplicate them in the declaration. No declaration preserves existing behavior.
+
+With explicit administrator approval, installation establishes necessary standard
+OS mount configuration and permissions. Prefer Linux/Jetson `/etc/fstab` and
+standard mount mechanisms. Reuse valid existing configuration; do not overwrite
+unrelated entries, format or partition disks, or introduce custom privilege
+infrastructure. The node continues as its ordinary service user.
+
+Before accessing or creating scientific-data or failure-evidence directories:
+
+1. No mount declaration: proceed normally.
+2. Correct filesystem already mounted: proceed normally.
+3. Required filesystem absent: attempt the configured, authorized standard OS mount
+   at startup, then verify the intended filesystem.
+4. Mounting/verification failure: report Not Ready with its specific reason through
+   existing readiness/diagnostics. Directory existence alone is not mount proof.
+5. Different filesystem mounted: report Not Ready; never automatically unmount or
+   replace it.
+
+Never create scientific-data or failure-evidence directories on the underlying
+system filesystem while the required mount is absent. Preserve readiness reassessment
+so subsequent manual mounting can restore readiness without node restart. Automatic
+attempts are startup-only, not continuous attempts or remounting during acquisition.
+Configuration field placement and standard OS integration are ordinary implementation
+choices within these boundaries, not outstanding architectural questions.
+
+**Qualification:** Decisions 447 and 453 prohibit general automatic mounting; this
+decision permits only explicitly configured AcquisitionNode storage as above.
+Decisions 368, 421, 440 and 446 retain configuration, installation and readiness
+boundaries. No framework service, custom mount scripts/infrastructure, whole-node
+elevation, continuous monitoring, general storage management, Controller/NATS,
+lifecycle or acquisition-policy change is authorized.
+
+**Owner-reported deployment reference, 2026-11-24 (not framework defaults):** Jetson,
+AcquisitionNode `2p-ball-node`, ext4 `/dev/nvme0n1p1`, UUID
+`0e888d5f-0beb-48a2-8cf0-8a20bc42d4b8`, mounted at `/mnt/ball-ssd`, scientific data
+`/mnt/ball-ssd/miceball-data`, failure evidence `/mnt/ball-ssd/miceball-errors`,
+service user `ratball`. The mount-point directory existed while the SSD was absent;
+failure-evidence access produced a permission error. Manual mounting restored
+Not Ready to Ready without restarting; existing directories were then accessible
+and correctly owned. This observation is not verification of automatic mounting.
 
 ---
 
 # Accepted Architectural Principles
+
+Decisions 458–459 qualify earlier health-mapping and installer mounting restrictions
+only within their explicitly accepted scopes; both await implementation and
+independent verification.
 
 The following principles summarize the accepted decisions so far.
 

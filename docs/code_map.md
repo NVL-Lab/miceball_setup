@@ -1,14 +1,18 @@
 # Code Map
 
-**Decisions 456-457 developer integration:** New streams use native InterestPolicy;
+**Decisions 456-457 software scope CLOSED:** Implementation, ICC independent
+validation and Codex audit PASS at `6d304ba7ab3efa8f5df9d23d5e6aad623dc92318`;
+see [evidence, correction history and limitations](validated_workflows.md#decisions-456-457-software-scope).
+New streams use native InterestPolicy;
 incompatible existing streams require a separate, unauthorized deployment transition.
 Recipient-addressed shared result reception, transient owner reads, instance-scoped
 collection rejection and durable actual collection outcomes are integrated with
 checkpoint-qualified operational recovery. Checkpoint publication precedes crash-safe
 journal replacement; ordinary continuation uses current required state rather than
 reconstructing permanent archive history. Explicit archive integrity readback remains.
-Focused developer verification has passed; independent validation, audit and closure
-are not established. No deployment conversion or historical-data migration is provided.
+Existing-stream admission rejects expiry and evicting limits while retaining safe
+native backpressure. No deployment conversion or historical-data migration is provided;
+the older deployed server and actual distributed deployment remain unverified.
 
 **Historical architecture synchronization (November 24, 2026):**
 [Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
@@ -26,8 +30,8 @@ InterestPolicy, durable responsibility-scoped service consumers/non-durable GUI
 consumers, recipient-addressed results, authoritative owner outcomes and removal
 of historical broker-delivery/audit checks. Current recovery state and crash-safe
 compaction use existing checkpoint boundaries; transient reads may use Core NATS.
-Implementation planning and enforcement were pending at synchronization; independent
-validation and audit remain pending after the developer integration described above.
+Implementation planning and enforcement were pending at synchronization; the bounded
+software implementation, validation and audit are now complete as recorded above.
 Decision 457 Section 7 now clarifies that side-effect-free pre-admission collection
 rejections use existing lifetime-scoped duplicate and instance protection, not
 durable rejection history. Admitted collection outcomes remain durable.

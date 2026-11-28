@@ -1,6 +1,22 @@
 # Installation And Deployment
 
-**November 24, 2026 architecture update; November 27 final clarification, not deployment instructions:**
+**Accepted AcquisitionNode mounted-storage scope, not yet implemented:**
+[Decision 459](architecture_decisions.md#decision-459-explicit-acquisitionnode-mounted-storage-uses-standard-startup-mounting)
+narrowly qualifies Decisions 447/453: optional required filesystem identity and
+mount point reuse existing data/evidence paths. Explicit administrator approval
+establishes standard OS configuration/permissions (Linux/Jetson: prefer existing
+`/etc/fstab` and standard mount). The ordinary service user must verify the intended
+filesystem before accessing/creating those directories; startup may attempt the
+authorized mount. Missing/wrong mounts produce specific Not Ready diagnostics,
+never silent writes to the underlying filesystem or automatic replacement of a
+wrong mount. Manual mounting must restore readiness without restart; no continuous
+automatic mount/remount is authorized. Existing valid entries and installations
+without a mount requirement are preserved. Current installer/runtime behavior does
+not yet provide this contract; implementation and physical verification are pending.
+The installation-specific November 24 Jetson values are recorded in Decision 459,
+not defaults. Graphical installer development remains deferred.
+
+**Decisions 456-457 bounded software closure (November 28, 2026), not deployment conversion instructions:**
 [Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
 separates broker delivery obligations, permanent scientific evidence and temporary
 operational recovery. Permanent Ingestor intake auditing is no longer required;
@@ -10,16 +26,31 @@ obligations resolve. The final accepted
 specifies the exact 14 persistent/six nonpersistent assignments, InterestPolicy,
 durable required service consumers/non-durable GUI consumers, recipient-addressed
 results, history-independent delivery/owner outcomes and crash-safe compaction at
-existing checkpoint boundaries. Developer integration now creates new streams with
+existing checkpoint boundaries. The validated and audited implementation at
+`6d304ba7ab3efa8f5df9d23d5e6aad623dc92318` creates new streams with
 InterestPolicy and refuses incompatible existing streams instead of converting them.
 Required native interests precede publication and retire at confirmed responsibility
 boundaries; ordinary qualified recovery no longer rereads permanent archive history.
-Independent validation/audit and safe treatment of existing deployments remain
-pending. No conversion, reset, historical deletion or migration is authorized here.
+Independent software validation and audit are complete; see
+[evidence and limitations](validated_workflows.md#decisions-456-457-software-scope).
+Actual distributed deployment and compatibility with the older deployed NATS Server
+remain unverified; the Windows checks used Python 3.12.13, `nats-py` 2.15.0 and
+NATS Server 2.14.3, with integrated lifecycle services on one event loop.
+No conversion, reset, historical deletion or migration is authorized here.
 Existing journal/audit/checkpoint descriptions below retain their historical scopes.
 Do not change JetStream, delete state or bypass preservation checks on this basis.
 The [destructive test-reset record](deployment_test_reset.md) remains historical
 evidence, not an implementation or migration procedure for Decision 456.
+
+Existing streams that can expire or evict required unacknowledged messages are
+rejected without alteration. Safe finite discard-new limits remain compatible;
+per-subject bounds additionally require native per-subject discard-new protection.
+Capacity exhaustion can refuse a publication while preserving accepted outstanding
+messages. An unacknowledged command may delay subsequent requests until native
+redelivery (approximately 30 seconds under validated defaults); a shorter requester
+window remains unconfirmed, not proof of failed execution. Do not reset evidence or
+automatically replay operations to bypass these conditions. Deployment verification
+is still required before claiming the historical installation slowdown is resolved.
 
 ## Accepted graphical installer direction (Decision 453; implementation deferred)
 
