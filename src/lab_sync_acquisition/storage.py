@@ -2367,7 +2367,7 @@ class PersistentStorageManager:
                     or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
                 raise ValueError("Framework archive product is unavailable or aliased")
 
-    def _read_framework_archive_history(self, *, excluded_target=None, checkpoint_prefix=False):
+    def _read_framework_archive_history(self, *, excluded_target=None):
         """Read immutable historical partitions and the current monthly products."""
         root = self._storage_root / "framework" / "evidence"
         self._require_framework_product_paths(root)
@@ -2410,7 +2410,7 @@ class PersistentStorageManager:
             raise ValueError("Duplicate evidence across framework archive partitions")
         return {"runtime_evidence": evidence, "compilation_summary": self._framework_summary(evidence)}, partitions
 
-    def _write_framework_evidence_archive(self, compiled_runtime_evidence, *, checkpoint_prefix=False):
+    def _write_framework_evidence_archive(self, compiled_runtime_evidence):
         """Append pending scientific evidence using the existing durable write intent."""
         with self._preservation_lock:
             records = self._framework_journal_owner.read_framework_write_records()
@@ -2421,6 +2421,13 @@ class PersistentStorageManager:
             journal = self._framework_journal_owner.compile_framework_runtime_evidence()
             if pending != [_to_plain_data(item) for item in journal["runtime_evidence"]]:
                 raise ValueError("Framework compilation differs from the durable acceptance boundary")
+            covered = self.get_framework_preservation_confirmation(checkpoint_prefix=True)
+            if covered is not None and "checkpoint_coverage" in covered and all(
+                    self._framework_fingerprint(row) in {
+                        self._framework_fingerprint(saved) for saved in covered["runtime_evidence"]}
+                    for row in pending):
+                self._framework_journal_owner._checkpoint_framework_recovery(())
+                return {}
             historical, partitions = self._read_framework_archive_history()
             known = {row["evidence_id"]: row for row in historical["runtime_evidence"]}
             additions = []
@@ -2429,12 +2436,12 @@ class PersistentStorageManager:
                 if message.session_id is not None or not message.is_persistent:
                     raise ValueError("Framework archive accepts only persistent framework evidence")
                 previous = known.get(message.evidence_id)
-                if previous is not None and previous != row:
+                if previous is not None and self._framework_fingerprint(previous) != self._framework_fingerprint(row):
                     raise ValueError("Framework compilation conflicts with preserved evidence")
                 if previous is None:
                     additions.append(row)
                     known[message.evidence_id] = row
-            if not additions:
+            if not additions and partitions:
                 self._framework_archive_confirmation = self._framework_fingerprint(historical)
                 self._framework_journal_owner._checkpoint_framework_recovery(partitions)
                 return {}
@@ -2501,7 +2508,7 @@ class PersistentStorageManager:
     @staticmethod
     def _framework_product_texts(products):
         return {"runtime_evidence.jsonl": "".join(json.dumps(r, allow_nan=False) + "\n" for r in products["runtime_evidence"]),
-                "compilation_summary.json": json.dumps(products["compilation_summary"], indent=2, allow_nan=False)}
+                "compilation_summary.json": json.dumps(products["compilation_summary"], indent=2, allow_nan=False).replace("\n", os.linesep)}
 
     def _complete_framework_write(self, intent):
         directory = self._storage_root / "framework/evidence" / intent["target_month"]
@@ -2621,17 +2628,42 @@ class PersistentStorageManager:
             completed = {r["write_attempt_id"] for r in records if r["kind"] == "completion"}
             if any(r["kind"] == "intent" and r["write_attempt_id"] not in completed for r in records):
                 self._recover_monthly_write(self._pending_framework_write(), allow_incomplete=False)
+            covered = self.get_framework_preservation_confirmation(checkpoint_prefix=True)
+            if covered is not None and "checkpoint_coverage" in covered and all(
+                    _to_plain_data(row) in covered["runtime_evidence"]
+                    for row in compiled_runtime_evidence["runtime_evidence"]):
+                self._framework_journal_owner._checkpoint_framework_recovery(())
+                return self.get_framework_preservation_confirmation(checkpoint_prefix=True)
             historical, partitions = self._read_framework_archive_history()
             self._framework_archive_confirmation = self._framework_fingerprint(historical)
-            if compiled_runtime_evidence["runtime_evidence"]:
-                self._write_framework_evidence_archive(compiled_runtime_evidence)
-            else:
-                self._framework_journal_owner._checkpoint_framework_recovery(partitions)
+            self._write_framework_evidence_archive(compiled_runtime_evidence)
             return self.get_framework_preservation_confirmation()
 
-    def get_framework_preservation_confirmation(self) -> dict[str, Any] | None:
+    def get_framework_preservation_confirmation(self, *, checkpoint_prefix=False) -> dict[str, Any] | None:
         """Confirm exact current durable products, not a historical publication result."""
         with self._preservation_lock:
+            if checkpoint_prefix:
+                owner = self._framework_journal_owner
+                intake = owner._framework_ingestor if owner is not None else None
+                checkpoint = intake._recovery_checkpoint if intake is not None else None
+                qualification = checkpoint.get("qualification", {}) if checkpoint else {}
+                if qualification.get("kind") == "framework_archive":
+                    try:
+                        directory = self._storage_root / "framework/evidence" / qualification["target_month"]
+                        self._require_framework_product_paths(directory)
+                        unchanged = all(
+                            [getattr((directory / name).stat(), key) for key in
+                             ("st_dev", "st_ino", "st_size", "st_mtime_ns")] == identity
+                            for name, identity in qualification["product_identities"].items())
+                        if (unchanged and qualification["storage_id"] == self._component_id
+                                and qualification["storage_root"] == str(self._storage_root.resolve())):
+                            rows = [json.loads(content) for _, content in checkpoint["content"]
+                                    if json.loads(content)["is_persistent"]]
+                            self._framework_archive_confirmation = qualification["archive_fingerprint"]
+                            return {"runtime_evidence": rows, "compilation_summary": self._framework_summary(rows),
+                                    "checkpoint_coverage": deepcopy(qualification)}
+                    except (OSError, ValueError, KeyError, TypeError):
+                        pass
             expected = self._framework_archive_confirmation
             if expected is None:
                 return None
@@ -2654,7 +2686,7 @@ class PersistentStorageManager:
     def framework_preservation_guard(self, *, require_closeout: bool = False):
         """Keep current archival and optional final intake coverage stable through commit."""
         with self._preservation_lock:
-            confirmation = self.get_framework_preservation_confirmation()
+            confirmation = self.get_framework_preservation_confirmation(checkpoint_prefix=True)
             if require_closeout and (
                     self._framework_closeout_compilation is None or confirmation is None
                     or any(confirmation[name] != required
@@ -2667,8 +2699,10 @@ class PersistentStorageManager:
         with self._preservation_lock:
             if self._framework_continuation_rejected or None in self._unfinished_archive_scopes:
                 return False
+            if self.get_framework_preservation_confirmation(checkpoint_prefix=True) is not None:
+                return True
             if self._framework_archive_confirmation is not None:
-                return self.get_framework_preservation_confirmation() is not None
+                return False
             directory = self._storage_root / "framework" / "evidence"
             return not directory.exists() or not any(directory.iterdir())
 

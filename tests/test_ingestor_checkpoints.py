@@ -43,18 +43,18 @@ class IngestorCheckpointTests(unittest.TestCase):
         self.intake.receive_runtime_evidence(original)
         self.archive()
         state = json.loads(self.checkpoint.read_bytes())["state"]
-        self.assertEqual(state["boundary"], self.journal.stat().st_size)
-        self.assertEqual(len(state["audit"]), 3)
+        self.assertEqual(state["audit"], [])
+        self.assertEqual(state["qualification"]["kind"], "framework_archive")
+        self.assertEqual([identity for identity, _ in state["content"]], ["temporary"])
         self.accept("suffix")
         self.restart()
         self.assertEqual([m.evidence_id for m in self.intake.compile_framework_runtime_evidence()["runtime_evidence"]][:2],
-                         ["persistent", "suffix"])
+                         ["suffix"])
         self.assertEqual(self.intake.receive_runtime_evidence(temporary).reason, "already_accepted")
-        self.assertEqual(self.intake.receive_runtime_evidence(original).reason, "already_accepted")
+        self.assertTrue(self.intake.receive_runtime_evidence(original).accepted)
         with self.assertRaises(ValueError):
             self.accept("persistent", payload={"changed": True})
-        audit = self.intake.compile_framework_runtime_evidence()["ingest_audit"]
-        self.assertEqual([a.ingest_order for a in audit], list(range(1, len(audit) + 1)))
+        self.assertEqual(self.intake.runtime_evidence_audit, ())
 
     def test_valid_checkpoint_skips_prefix_reads_during_restart_and_continuation(self):
         self.accept("original")
@@ -75,8 +75,6 @@ class IngestorCheckpointTests(unittest.TestCase):
                 return self.stream.__exit__(*args)
             def readline(self, *args):
                 reads.append(self.stream.tell())
-                if self.stream.tell() < boundary:
-                    raise AssertionError("Completed journal prefix was replayed")
                 return self.stream.readline(*args)
             def __iter__(self):
                 return self
@@ -95,7 +93,7 @@ class IngestorCheckpointTests(unittest.TestCase):
             self.now.return_value = datetime(2026, 2, 1, tzinfo=timezone.utc).timestamp()
             self.assertIsNotNone(self.intake.continue_framework_evidence_archive())
         self.assertTrue(reads)
-        self.assertTrue(all(position >= boundary for position in reads))
+        self.assertLessEqual(sum(position == 0 for position in reads), 1)
 
     def test_failed_archive_does_not_advance_checkpoint(self):
         self.accept("first")
@@ -141,11 +139,42 @@ class IngestorCheckpointTests(unittest.TestCase):
             with self.subTest(damaged=damaged):
                 self.checkpoint.write_bytes(damaged)
                 self.restart()
-                self.assertIn("original", [r.evidence_id for r in self.intake.compile_framework_runtime_evidence()["runtime_evidence"]])
+                self.assertEqual(self.intake.compile_framework_runtime_evidence()["runtime_evidence"], ())
+                self.assertIsNotNone(self.intake.continue_framework_evidence_archive())
         self.checkpoint.write_bytes(good)
         self.checkpoint.unlink()
         self.restart()
-        self.assertIn("original", [r.evidence_id for r in self.intake.compile_framework_runtime_evidence()["runtime_evidence"]])
+        self.assertEqual(self.intake.compile_framework_runtime_evidence()["runtime_evidence"], ())
+        self.assertIsNotNone(self.intake.continue_framework_evidence_archive())
+
+    def test_interruption_between_checkpoint_and_compaction_recovers_qualified_boundary(self):
+        import os
+        self.accept("completed")
+        replace = os.replace
+        def interrupted(source, target):
+            if Path(target) == self.journal:
+                raise OSError("interrupted journal replacement")
+            return replace(source, target)
+        with patch("lab_sync_acquisition.ingestor.os.replace", interrupted):
+            with self.assertRaisesRegex(OSError, "interrupted journal replacement"):
+                self.archive()
+        self.restart()
+        self.assertEqual(self.intake.compile_framework_runtime_evidence()["runtime_evidence"], ())
+        self.assertIsNotNone(self.intake.continue_framework_evidence_archive())
+        self.assertEqual([m["evidence_id"] for m in self.storage.get_framework_preservation_confirmation()["runtime_evidence"]],
+                         ["completed"])
+
+    def test_unqualified_compacted_snapshot_cannot_skip_history(self):
+        self.accept("completed")
+        self.archive()
+        embedded = json.loads(self.journal.read_bytes())
+        envelope = embedded["recovery_snapshot"]
+        envelope["state"]["qualification"] = {"preservation_confirmed": True}
+        envelope["sha256"] = PersistentStorageManager._framework_fingerprint(envelope["state"])
+        self.journal.write_text(json.dumps(embedded) + "\n", encoding="utf-8")
+        self.checkpoint.unlink()
+        with self.assertRaises((RuntimeError, ValueError, KeyError)):
+            self.restart()
 
     def test_replaced_journal_cannot_use_old_checkpoint(self):
         self.accept("original")
@@ -154,7 +183,8 @@ class IngestorCheckpointTests(unittest.TestCase):
         self.journal.rename(self.root / "previous.jsonl")
         self.journal.write_bytes(contents)
         self.restart()
-        self.assertIn("original", [r.evidence_id for r in self.intake.compile_framework_runtime_evidence()["runtime_evidence"]])
+        self.assertEqual(self.intake.compile_framework_runtime_evidence()["runtime_evidence"], ())
+        self.assertIsNotNone(self.intake.continue_framework_evidence_archive())
 
     def test_corrupt_completed_suffix_fails_closed(self):
         self.accept("original")
@@ -180,6 +210,36 @@ class IngestorCheckpointTests(unittest.TestCase):
         self.accept("unarchived")
         self.assertFalse(self.checkpoint.exists())
 
+    def test_completed_history_does_not_scale_restart_or_checkpoint_state(self):
+        from time import perf_counter
+        sizes = []
+        for count in (100, 1000):
+            with self.subTest(count=count):
+                for index in range(count):
+                    self.accept(f"batch-{count}-{index}")
+                self.archive()
+                sizes.append(self.journal.stat().st_size)
+                with patch.object(PersistentStorageManager, "_read_framework_archive_history",
+                                  side_effect=AssertionError("completed archive prefix read")):
+                    started = perf_counter()
+                    self.restart()
+                    restored = perf_counter()
+                    self.assertIsNotNone(self.intake.continue_framework_evidence_archive())
+                    continued = perf_counter()
+                print(f"checkpoint history={count} journal_bytes={sizes[-1]} "
+                      f"restore_s={restored-started:.6f} continuation_s={continued-restored:.6f} historical_reads=0")
+        self.assertLess(abs(sizes[1] - sizes[0]), 256)
+
+    def test_archival_conflict_remains_representation_sensitive_after_compaction(self):
+        self.accept("same", payload={"value": True})
+        paths = self.archive()
+        before = {name: path.read_bytes() for name, path in paths.items()}
+        self.restart()
+        self.accept("same", payload={"value": 1})
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            self.archive()
+        self.assertEqual({name: path.read_bytes() for name, path in paths.items()}, before)
+
     def test_inconsistent_checkpoint_state_cannot_hide_valid_journal_history(self):
         self.accept("original")
         self.archive()
@@ -195,8 +255,8 @@ class IngestorCheckpointTests(unittest.TestCase):
                     separators=(",", ":"), allow_nan=False).encode()).hexdigest()
                 self.checkpoint.write_text(json.dumps(damaged))
                 self.restart()
-                self.assertIn("original", [m.evidence_id for m in
-                    self.intake.compile_framework_runtime_evidence()["runtime_evidence"]])
+                self.assertEqual(self.intake.compile_framework_runtime_evidence()["runtime_evidence"], ())
+                self.assertIsNotNone(self.intake.continue_framework_evidence_archive())
 
     def test_explicit_archive_integrity_still_detects_physical_changes(self):
         self.accept("original")
@@ -205,6 +265,27 @@ class IngestorCheckpointTests(unittest.TestCase):
         self.intake.continue_framework_evidence_archive()
         paths["runtime_evidence"].write_bytes(b"damaged\n")
         self.assertIsNone(self.storage.get_framework_preservation_confirmation())
+
+
+class FrameworkOwnerPreservationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_compacted_persistent_boundary_uses_exact_permanent_owner_record(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        storage = PersistentStorageManager(root / "archive")
+        intake = InMemoryIngestor(storage, framework_recovery_journal_path=root / "framework.jsonl")
+        message = RuntimeEvidenceMessage("preserved", None, "administrator_decision", "producer", {"value": True}, True)
+        intake.receive_runtime_evidence(message)
+        paths = storage.write_framework_evidence_archive(intake.compile_framework_runtime_evidence())
+        self.assertFalse(intake.has_durable_runtime_evidence(message))
+        before = {name: path.read_bytes() for name, path in paths.items()}
+        for _ in range(2):
+            result = await intake.preserve_service_evidence([message.to_dict()], "producer", 0)
+            self.assertTrue(result["acceptance_confirmed"])
+            self.assertTrue(result["archival_confirmed"])
+        changed = message.to_dict()
+        changed["payload"] = {"value": 1}
+        with self.assertRaises(RuntimeError):
+            await intake.preserve_service_evidence([changed], "producer", 0)
+        self.assertEqual({name: path.read_bytes() for name, path in paths.items()}, before)
 
 
 class SessionCheckpointTests(CloseoutFixture, unittest.TestCase):
@@ -224,7 +305,7 @@ class SessionCheckpointTests(CloseoutFixture, unittest.TestCase):
         self.preserve()
         checkpoint = self.journal.with_suffix(".jsonl.checkpoint.json")
         state = json.loads(checkpoint.read_bytes())["state"]
-        self.assertEqual(state["qualification"]["state"], "completed")
+        self.assertTrue(state["qualification"]["preservation_confirmed"])
         self.assertTrue(self.intake.retire_recovery_journal("saved"))
         fresh = InMemoryIngestor(PersistentStorageManager(self.storage_root), recovery_journal_root=self.journals)
         with self.assertRaisesRegex(RuntimeError, "closed"):
@@ -235,10 +316,9 @@ class SessionCheckpointTests(CloseoutFixture, unittest.TestCase):
         restored = InMemoryIngestor(PersistentStorageManager(self.storage_root),
             session_id="saved", recovery_journal_path=self.journal)
         self.assertIsNone(restored.finalized_acquisition_intake("saved"))
-        # Restart evidence extends the still-open Kill boundary; it must be
-        # preserved before the old archive can confirm current closeout.
-        with self.assertRaisesRegex(RuntimeError, "does not cover intake"):
-            restored.read_session_closeout("saved")
+        # Recovery observations are temporary operational evidence, not another
+        # permanent acquisition interval. Partial preservation remains explicit.
+        self.assertFalse(restored.read_session_closeout("saved")["acquisition_preservation_eligible"])
         with self.assertRaises(RuntimeError):
             restored.release_session("saved")
 

@@ -2824,14 +2824,13 @@ The accepted Decision 457 Section 7 clarification requires lifetime-scoped
 protection, not durable historical reconstruction, for side-effect-free
 pre-admission collection rejections. Old attempts remain fenced to their original
 StorageManager instance; admitted/uncertain outcomes retain recovery obligations.
-Implementation has resumed but remains incomplete and unvalidated; native
-InterestPolicy is not yet enabled. Owner recovery qualification, bounded-state
-verification and integrated regression work remain implementation tasks, not new
-architectural questions or evidence of slice completion.
-Implementation planning and safe existing-installation transition remain pending;
-do not enable InterestPolicy before required interests and history-independent
-operations are established. Earlier implementation and validation records are not
-evidence of
+Developer integration now enables native InterestPolicy for new compatible streams,
+with durable required interests, recipient-specific results and current owner outcomes.
+Qualified checkpoints compact completed journal detail while retaining current
+authority, unconfirmed producer evidence and unresolved obligations; explicit archive
+integrity readback remains separate from ordinary startup. Independent validation
+and audit remain pending. Existing-installation transition is neither implemented
+nor authorized. Earlier implementation and validation records are not evidence of
 compliance with this later amendment. Q022 remains OPEN; no deployment reset or
 migration is authorized. Decision 453 remains deferred and Q035 remains unresolved.
 

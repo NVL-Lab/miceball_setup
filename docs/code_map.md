@@ -1,15 +1,16 @@
 # Code Map
 
-**Decisions 456-457 implementation in progress:** The uncommitted implementation
-is not ready for independent validation or deployment. The accepted pre-admission
-collection clarification is recorded in Decision 457 Section 7. Recipient-addressed
-results, shared reception and transient reads are being integrated with owner
-recovery changes. Checkpoint qualification/retirement, startup archive-verification
-costs and affected regression fixtures still require completion. Native
-InterestPolicy has deliberately not been enabled before those prerequisites pass.
-Descriptions below do not certify this unfinished implementation.
+**Decisions 456-457 developer integration:** New streams use native InterestPolicy;
+incompatible existing streams require a separate, unauthorized deployment transition.
+Recipient-addressed shared result reception, transient owner reads, instance-scoped
+collection rejection and durable actual collection outcomes are integrated with
+checkpoint-qualified operational recovery. Checkpoint publication precedes crash-safe
+journal replacement; ordinary continuation uses current required state rather than
+reconstructing permanent archive history. Explicit archive integrity readback remains.
+Focused developer verification has passed; independent validation, audit and closure
+are not established. No deployment conversion or historical-data migration is provided.
 
-**Accepted architecture awaiting implementation assessment (November 24, 2026):**
+**Historical architecture synchronization (November 24, 2026):**
 [Decision 456](architecture_decisions.md#decision-456-communication-retention-scientific-preservation-and-operational-recovery-have-distinct-lifetimes)
 removes permanent Ingestor intake-audit requirements, qualifies universal journaling
 and lifetime recovery reconstruction, and separates broker delivery retention from
@@ -18,14 +19,15 @@ is necessary for outstanding work and operational correctness, not completed
 history solely for recovery. Descriptions below of existing audit compilation,
 all-audit preservation checks, monthly-write verification and Decision 443
 checkpoints describe current/historical implementation, not compliance with the
-new amendment. No functions are changed.
+new amendment at that synchronization checkpoint; implementation status is above.
 [Decision 457](architecture_decisions.md#decision-457-native-delivery-interests-and-selective-evidence-retention-bound-operational-recovery)
 now settles the exact 14 persistent/six nonpersistent built-in assignments,
 InterestPolicy, durable responsibility-scoped service consumers/non-durable GUI
 consumers, recipient-addressed results, authoritative owner outcomes and removal
 of historical broker-delivery/audit checks. Current recovery state and crash-safe
 compaction use existing checkpoint boundaries; transient reads may use Core NATS.
-Implementation planning, concrete enforcement and validation remain pending.
+Implementation planning and enforcement were pending at synchronization; independent
+validation and audit remain pending after the developer integration described above.
 Decision 457 Section 7 now clarifies that side-effect-free pre-admission collection
 rejections use existing lifetime-scoped duplicate and instance protection, not
 durable rejection history. Admitted collection outcomes remain durable.
@@ -764,6 +766,7 @@ target arguments; no password flags or credential-bearing commands are generated
 - ExternalDependentMaintenanceTests.backend(participants=None, *, result_window_s=0.02): Composes the existing disk-backed paired maintenance fixture with explicit participant/readback timing for public dependency and concurrency workflows.
 - ExternalDependentRegistrationTransportTests.test_retained_controller_startup_recovers_maintenance_before_exact_claim_release(): Exercises real JetStream Controller/SynchronizationManager interruption at streams, SDK subscription creation and registration, then explicit local retirement, dependent confirmation and exact Controller claim release where applicable.
 - ExternalDependentMaintenanceTests: Adds configured-unused/partially registered node, ordinary restart, detected history damage, pending new registration and registration-versus-Stop coverage through existing public maintenance interfaces.
+- ExternalDependentMaintenanceTests.test_restart_before_maintenance_attachment_retains_unreleased_registration(): Preserves an offline registered node's blocker through pre-owner startup continuation without rereading qualified permanent archive history.
 - ServiceLauncherTests: Adds exact K/C, EOF/non-interactive retention, paired preparation/cancellation/Kill and remote-resolution-during-input coverage without live operator input.
 - ServiceStartupTests.test_partial_command_subscriptions_resume_without_duplicate_handlers(): Verifies resumable partial command installation with correlated operational-instance readback and no duplicate active handlers.
 
@@ -865,7 +868,7 @@ preservation/release/result windows and Decision 443 remain unchanged.
 
 - NodeInstallationTests: Covers explicit adapter configuration, invalid installations and successive Session use of the deployment baseline without physical hardware.
 - IndependentRoleCommandTests: Covers common CLI dispatch and explicit Controller node-registration requirements for the three independent roles.
-- RetainedCommandsBroker: Extends the existing durable-result broker with command-history delivery to exercise restart without replaying historical Stop requests.
+- RetainedCommandsBroker: Extends the shared transport double with retained command delivery so restart exercises existing instance fencing rather than depending on fresh-only subscriptions.
 - IndependentServiceTests: Covers authoritative remote producer preservation, unrelated intake, stale/incomplete confirmation, corruption, identity conflicts, idempotency, role composition, command freshness, startup interruption and remote retirement handling.
 - IndependentServiceTests.backend(): Attaches real shared-process evidence owners to the broker double.
 - IndependentServiceTests.service(kind, *, storage_id="storage"): Composes a real independent owner and launcher with an explicit expected remote StorageManager identity.
@@ -2225,26 +2228,26 @@ Session closeout archival or successful finalized Session completion. Normal
 recovery restores verified snapshot state and replays the suffix; ordinary
 framework continuation may reuse checkpoint-covered products. Explicit journal
 verification and archive-confirmation calls retain physical integrity checks.
-The snapshot retains operational deduplication, audit, finality and monthly-write
-proofs, not copies of archive products. No independent validation or closure is
+The snapshot retains current deduplication, finality, authority and outstanding-write
+proofs, not permanent intake auditing or copies of archive products. No independent validation or closure is
 claimed.
 
 - InMemoryIngestor._require_checkpoint_boundary(journal, checkpoint): Checks exact journal identity, safe ancestry, complete offset and a bounded boundary-content anchor without reading the historical prefix.
 - InMemoryIngestor._load_recovery_checkpoint(): Validates snapshot integrity, scope, recovery-state coverage and qualifying durable completion, falling back to ordinary journal recovery when invalid.
-- InMemoryIngestor._validate_recovery_finality(checkpoint, content): Shares Session finality, receipt and audit reconciliation between full journal replay and checkpoint restoration.
-- InMemoryIngestor._write_recovery_checkpoint(qualification): Atomically replaces and durably publishes the current operational recovery snapshot at an already confirmed boundary.
+- InMemoryIngestor._validate_recovery_finality(checkpoint, content): Reconciles Session finality with the exact accepted marker and durable receipt during replay and checkpoint restoration.
+- InMemoryIngestor._write_recovery_checkpoint(qualification): Durably publishes a qualified snapshot before replacing its journal with a self-contained recovery snapshot, preserving both interruption boundaries.
 - InMemoryIngestor._checkpoint_framework_recovery(partitions): Captures just-verified framework archival coverage linked to a durable monthly-write completion.
 
-- InMemoryIngestor.preserve_service_evidence(messages, source_id, acceptance_window_s): Verifies a unique producer-owned persistent boundary through journals and paired StorageManager guards, preserving current framework products without repairing corruption or rewriting Session archives.
+- InMemoryIngestor.preserve_service_evidence(messages, source_id, acceptance_window_s): Confirms durable acceptance of a mixed producer boundary and permanent preservation of only its persistent evidence through the paired storage owner.
 
 - InMemoryIngestor: Receives operational runtime evidence and manifests, journals/reconstructs the evidence view for a known Session, deduplicates evidence_id content, and compiles persistent evidence without scientific-observation intake.
 - InMemoryIngestor.__init__(storage_manager=None, *, session_id=None, recovery_journal_path=None, component_id="ingestor", recovery_journal_root=None, framework_recovery_journal_path=None, evidence_scope="session"): Checks deployment-local durable closed-Session admission before known-Session reconstruction and optionally creates a separate framework partition without a Session binding.
-- InMemoryIngestor.prepare_framework_evidence(recovery_journal_path): Configures framework journal-backed intake once, retaining accepted messages and original duplicate/rejected intake audit across recovery independently of Session release.
-- InMemoryIngestor.compile_framework_runtime_evidence(): Returns only producer-marked persistent framework messages and all framework intake audit records through the existing compilation mechanism.
+- InMemoryIngestor.prepare_framework_evidence(recovery_journal_path): Configures framework journal-backed operational intake independently of Session release.
+- InMemoryIngestor.compile_framework_runtime_evidence(): Returns currently retained producer-marked persistent framework messages without permanent intake auditing.
 - InMemoryIngestor.continue_framework_evidence_archive(): Verifies recovered framework compilation and paired historical-prefix continuation under one journal/preservation boundary, reusing the returned exact archive coverage before release restoration.
 - InMemoryIngestor.await_durable_runtime_evidence(evidence, timeout_s): Boundedly observes exact local journal-backed acceptance using futures, without polling, retrying, or equating JetStream publication with acceptance.
-- InMemoryIngestor.framework_preservation_guard(storage_manager, *, verify_journal=False): Holds framework intake and StorageManager preservation steady while checking current persistent-message/all-audit coverage, optionally verifying the physical framework journal before producer-copy retirement.
-- InMemoryIngestor._verify_framework_journal(): Checks physical journal acceptance, audit and typed write proofs, reusing only identical complete-envelope validation within each scan without weakening representation-sensitive conflicts.
+- InMemoryIngestor.framework_preservation_guard(storage_manager, *, verify_journal=False): Holds intake and storage steady while confirming current persistent obligations, optionally verifying the current journal suffix.
+- InMemoryIngestor._verify_framework_journal(): Reconciles the qualified snapshot and physical journal suffix with exact current evidence and outstanding typed writes.
 - InMemoryIngestor.framework_journal_guard(*, checkpoint_prefix=False): Holds paired intake locks and shares protected nested verification, permitting verified-prefix reuse only within ordinary continuation scopes while explicit default checks retain full physical verification.
 - InMemoryIngestor.read_framework_write_records(): Returns detached, verified typed monthly-write intent/completion records outside evidence and intake-audit compilation.
 - InMemoryIngestor.accept_framework_write_record(record): Validates and durably accepts a typed intent or exact correlated completion through the existing framework journal, with idempotent exact retries.
@@ -2270,7 +2273,7 @@ claimed.
 - InMemoryIngestor._read_saved_closeout: Selects permanent verification for closed Sessions with sufficient provenance, retaining the existing journal verifier for scopes still requiring it without rewriting archives.
 - InMemoryIngestor._read_permanent_closeout: Requires durable released closure and current StorageManager confirmation of terminal permanent products, reconstructing normal response provenance or explicit partial-Kill readback without opening a temporary journal.
 - InMemoryIngestor._read_journal_closeout: Verifies known saved journal evidence/checkpoints against current durable products without restoring a binding, preserving this verification for unclosed scopes and intact-journal retirement checks.
-- InMemoryIngestor.retire_recovery_journal(session_id) -> bool: Retires only a released closed Session's identified canonical temporary journal after independent permanent verification and intact matching-history checks, holding root/storage exclusion and revalidating proof on repeated calls.
+- InMemoryIngestor.retire_recovery_journal(session_id) -> bool: Retires a released terminal Session's isolated journal and checkpoint sidecar only after permanent verification and matching current closeout proof, retaining safe explicit retries.
 - InMemoryIngestor.preserve_terminal_session_record(session_id, session_record): Preserves Controller terminal lifecycle following verified acquisition preservation without changing acquisition evidence or replacing terminal history.
 - InMemoryIngestor._require_kill_handoff(session_id): Retains the matching binding's admitted Kill handoff obligation before shutdown suspension, independently of archival success.
 - InMemoryIngestor.has_durable_runtime_evidence(evidence): Confirms exact journal-backed message acceptance for a producer handoff, returning False for memory-only intake or uncertain journal state without claiming final archival.
@@ -2340,7 +2343,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication._request_command(..., admitted_stop=None): Executes the existing request lifecycle against either a newly admitted direct Stop or the exact already-admitted temporary-request token, checking ownership before promotion and return.
 - NatsControllerCommunication._join_runtime_request_step(task, *, propagate_cancellation=True): Joins owned runtime result-subscription setup or teardown through repeated caller cancellation, propagating cancellation after cleanup where required.
 - NatsControllerCommunication._observe_runtime_stop_result(subject, result): Retains canonical current or historical Stop resolutions and sticky conflict invalidation before temporary-request filtering, using the actual subject and complete admitted identity.
-- NatsControllerCommunication.subscribe_command_results(session_id, callback=None, *, new_only=False, result_filter=None, participant=None, command_type=None, invalid_result_callback=None): Preserves historical result consumption by default, optionally scopes current replies to an owner/operation, and optionally reports malformed or misaddressed results without accepting them.
+- NatsControllerCommunication.subscribe_command_results(session_id, callback=None, *, new_only=False, result_filter=None, participant=None, command_type=None, invalid_result_callback=None): Shares recipient-addressed result reception and applies current request/owner filters without retrieving acknowledged broker history.
 - NatsControllerCommunication.session_acquisition_completion(participant, session_id): Returns the retained scoped Stop confirmation unless a received same-attempt contradiction or identifiable malformed resolution invalidated it, never selecting a broad-history result or allowing duplicate or stale replies to restore confirmation.
 - NatsControllerCommunication._reject_malformed_stop_result(subject, envelope): Uses exact routing and request identity before full decoding to invalidate known current or historical malformed Stop resolutions while isolating unrelated or uncorrelatable traffic.
 - NatsControllerCommunication.confirm_session_health_processing(session_id, controller): Reads retained Session health publications against completed bound subscription callbacks, refusing unknown history or unfinished inputs without processing/replaying them.
@@ -2348,7 +2351,7 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsControllerCommunication.publish_evidence(message): Retains Controller-owned publication failures and requires the existing durable stream acknowledgment, rejecting conflicting retained identities.
 - NatsControllerCommunication.unpublished_session_evidence(session_id): Returns detached unconfirmed publication messages for only the requested Session.
 - NatsCommunicationBoundary.ensure_streams(): Provisions fixed five-/six-token filters on the three existing streams, narrows recognized legacy filters before adding missing coverage, and preserves stored messages, consumers, custom subjects, and unrelated settings without deleting/recreating streams; incompatible custom filters surface a broker error.
-- NatsCommunicationBoundary.subscribe_readiness_announcements(participant, callback): Subscribes the existing framework evidence subject with DeliverPolicy.NEW and AckPolicy.NONE so operational readiness never comes from retained history or redelivery; Ingestor's durable historical consumer is unchanged.
+- NatsCommunicationBoundary.subscribe_readiness_announcements(participant, callback): Observes current announcements on the existing Core NATS evidence subject without adding a broker-retention obligation.
 - NatsAcquisitionNodeCommunication.subscribe_commands(): Returns two addressed command subscriptions, publishing generated and retained scoped evidence before results so successful runtime completion confirms publication while keeping the handler reusable across bindings.
 - NatsAcquisitionNodeCommunication: Consumes targeted readiness, scientific-output preparation, or runtime commands, deduplicates by command_id, and publishes explicit outcomes without owning Experiment lifecycle.
 - NatsAcquisitionNodeCommunication.execute_command: Executes existing node commands and includes available owner diagnostics in readiness results while preserving readiness-only compatibility and scientific-output preparation behavior.
@@ -2418,7 +2421,7 @@ the reproduced scheduling mechanism, not confirmed attribution or resolution of 
 Ubuntu deployment incident.
 
 - tests.test_framework_intake_scheduling.FrameworkIntakeSchedulingTests: Exercises sequential framework intake with real journal durability, peer scheduling, duplicate/conflict handling and cancellation accounting.
-- FrameworkIntakeSchedulingTests.test_backlog_yields_after_durable_ack_without_reordering_or_losing_duplicate_audit: Verifies ready peer work runs between completed deliveries while every intake audit retains its order.
+- FrameworkIntakeSchedulingTests.test_backlog_yields_after_durable_ack_without_reordering: Verifies peer scheduling between completed durable deliveries without reappending identical evidence.
 - FrameworkIntakeSchedulingTests.test_conflict_and_durability_failure_remain_unacknowledged_and_pending: Preserves failed delivery accounting and fail-closed journal behavior.
 - FrameworkIntakeSchedulingTests.test_cancellation_during_ack_retains_durable_delivery_for_cleanup: Retains an incomplete delivery and verifies durable restart readback.
 - FrameworkIntakeSchedulingTests.test_cancellation_after_ack_does_not_retain_completed_delivery: Verifies cancellation at the new scheduling boundary cannot resurrect an already completed obligation.
@@ -2427,8 +2430,6 @@ Ubuntu deployment incident.
 - NatsIngestorCommunication._marker_acceptance_failure(marker): Separates invalid scope/identity, unavailable or failed journals and conflicting content from pending exact durable acceptance without waiting or proving completeness.
 - NatsIngestorCommunication._session_consumer_name(session_id): Derives a stable broker-safe durable consumer name from the Session identity without changing evidence identities.
 - NatsIngestorCommunication._receiving_history_intact(stream): Checks retained stream-origin coverage and missing/lost history using broker metadata, not producer evidence-count expectations.
-- NatsIngestorCommunication._validate_session_consumer(consumer, stream, session_id): Rejects mismatched durable identity, stream epoch, Session filter, delivery/ACK configuration, or receiving-origin metadata.
-- NatsIngestorCommunication._acknowledgment_progress_valid(consumer, last_sequence): Checks coherent stream/consumer ACK and delivery counters before treating broker progress as usable evidence.
 - NatsControllerCommunication.maintenance_requests: Returns detached administrative command intent (including survey and preparation), attempt identity, and authorization retained by the existing command issuer independently of received command results.
 - NatsServiceMaintenanceCommunication(boundary, maintenance, *, startup_participants=None, startup_result_window_s=None): Integrates existing startup/readiness communication, with Controller-only explicit remote observation scope (defaulting to configured dependencies) and an explicit positive result window for nonempty scopes.
 - NatsServiceMaintenanceCommunication.start(): Requires connected NATS, subscribes dependencies, announces startup/return, and automatically obtains Controller participant reconciliation through bounded readiness requests; fresh announcements still do not trigger redundant checks and no process is launched.
@@ -2490,7 +2491,7 @@ admission and other service roles unchanged.
 - ServiceMaintenanceInterface._record_dependent_state(registration, confirmation=None, *, conflicting=False): Persists callback acceptance/conflict state through existing framework evidence and archive ownership before confirmation.
 - ServiceMaintenanceInterface._receive_dependent_command(command): Preserves uncertain dependent state before cancellable owner readback and accepts release authority only from semantically valid, correlated current-owner proof.
 - ServiceMaintenanceInterface._read_operational_instance(command): Returns current owner identity and exact retained retirement or authorized Controller-release readback without admitting new work.
-- ServiceMaintenanceInterface.required_evidence(): Returns detached persistent evidence for the complete retained producer boundary, rejecting conflicting identities.
+- ServiceMaintenanceInterface.required_evidence(): Selects the producer's mixed persistent/operational boundary while retaining unconfirmed inputs, active attempt/authorization proof and current dependency release evidence.
 - ServiceMaintenanceInterface.evidence_preserved(message): Checks exact current local acceptance or authoritative remote coverage for one retained producer message, never a transport ACK.
 - ServiceMaintenanceInterface.execute_command(command): Serializes/deduplicates existing maintenance and concrete owner-specific recovery commands; prepared retirement still requires complete retained Ingestor evidence/all-audit coverage through commitment without invoking retired intake or repeating cleanup.
 - ServiceMaintenanceInterface._require_recovery_authorization: Requires exact obligation/operation/command/participant correlation and durable journal acceptance of an existing resume decision, rejecting a later matching drop.
@@ -2664,7 +2665,6 @@ GUI integration is not part of Package A.
 - PersistentStorageManager._require_session_record_writable(path): Resolves the complete target and configured storage root before identifying and protecting a managed final Session Record from generic or recovery writes after closure.
 - PersistentStorageManager._collection_outcome_path(session_id): Locates the temporary outcome message in the existing known-Session directory.
 - PersistentStorageManager._read_preservation_json(contents): Reads preservation JSON while rejecting duplicate fields and non-finite values.
-- PersistentStorageManager._require_complete_runtime_audit(audit): Validates all existing RuntimeEvidenceAuditRecord fields and intake ordering without inventing missing timestamps or reasons.
 - PersistentStorageManager._read_stage_b_baseline(session_id, pending=None, *, allow_handoff_refresh=False): Validates complete or explicitly partial Kill preservation, intake audit, Session associations, product coverage, manifests and available permanent receipt/acknowledgment provenance, with the refresh-only mismatch allowance unavailable to collection or closure.
 - PersistentStorageManager._handoff_collection_guard(session_id): Uses the unchanged final Session Record for nonblocking OS serialization of handoff refresh, collection, closure, and archive repair across StorageManager instances.
 - PersistentStorageManager._validate_collection_outcome(session_id, message): Validates the retained owner/Session/evidence identity and separate success, failure, or unknown collection outcomes.
@@ -2697,8 +2697,8 @@ GUI integration is not part of Package A.
 - PersistentStorageManager.get_session_preservation_confirmation(session_id): Canonically compares current archive products, including the retained complete compilation summary, and final Session Record with successful write inputs, returning detached confirmation including the summary or None; the snapshot alone does not guard commitment.
 - PersistentStorageManager._write_record_contents(path, serialized, *, newline=None): Writes serialized owner products with flush/fsync and directory durability, supporting explicit LF monthly serialization without changing existing Session newline behavior.
 - PersistentStorageManager._read_archive_products: Reads the existing evidence/audit/summary products for exact current-write confirmation, without interpreting evidence meaning.
-- PersistentStorageManager._framework_summary(evidence, audit): Builds the existing exact framework product counts and identities for partition or cumulative coverage.
-- PersistentStorageManager._read_framework_archive_history(*, excluded_target=None, checkpoint_prefix=False): Validates monthly coverage and products, optionally reusing a verified checkpoint prefix with matching owner/product identities during ordinary continuation while explicit default calls physically read history.
+- PersistentStorageManager._framework_summary(evidence): Describes exact persistent scientific framework coverage without intake-audit products.
+- PersistentStorageManager._read_framework_archive_history(*, excluded_target=None): Physically validates permanent monthly scientific products and coverage for explicit integrity readback, new archival writes and interrupted-write recovery.
 - PersistentStorageManager._framework_evidence_write_safe: Allows ordinary framework archival only for a pristine target with no rejected continuation or a currently confirmed archive, never implicit repair of unfinished or rejected history.
 - PersistentStorageManager._recover_archive_write: Uses existing journal-backed authorization/attempt admission to recover either legacy compiled archival or an identified durable Stage B outcome append without refetching scientific artifacts or requiring the old Session intake.
 - PersistentStorageManager._recover_archive_write_contents: Retains the existing repair contracts and partial Kill provenance for explicit interrupted-write recovery without refreshing a handoff or executing artifact transfer.
@@ -2706,17 +2706,17 @@ GUI integration is not part of Package A.
 - PersistentStorageManager._recover_artifact_transfer: Makes one authorized fresh complete transfer from the original failed collection and authoritative handoff through existing destination/source/verification mechanisms, retaining normal global collection evidence.
 - PersistentStorageManager.session_preservation_guard(session_id): Synchronous context manager yielding current confirmation while holding the archive/final-record write lock through the caller's release commit; callers must not await or acquire a new Ingestor intake lock while holding it.
 - PersistentStorageManager.write_framework_evidence_archive(compiled_runtime_evidence): Enforces framework write safety for every ordinary caller before writing and flushing/fsyncing existing products, without granting repair authority.
-- PersistentStorageManager._write_framework_evidence_archive(compiled_runtime_evidence, *, checkpoint_prefix=False): Appends journal-confirmed suffixes between durable intent/completion and exact product readback, then qualifies an Ingestor checkpoint, optionally reusing verified history for ordinary continuation.
+- PersistentStorageManager._write_framework_evidence_archive(compiled_runtime_evidence): Appends journal-confirmed scientific suffixes between durable intent/completion and exact product readback, reusing qualified unchanged coverage when no new scientific write is required.
 - PersistentStorageManager._framework_journal_guard(*, checkpoint_prefix=False): Obtains the paired Ingestor journal guard before storage locking, retaining physical default checks and permitting verified-prefix reuse for ordinary continuation.
 - PersistentStorageManager._framework_fingerprint(value): Computes a SHA-256 commitment to exact product bytes or canonical structured readback, avoiding a redundant retained full compilation cache.
-- PersistentStorageManager._framework_product_texts(products): Serializes reconstructable monthly evidence, intake audit and summary products with explicit LF line endings.
+- PersistentStorageManager._framework_product_texts(products): Serializes monthly scientific evidence and summary bytes consistently with the existing binary append and platform text writer for exact fingerprint verification.
 - PersistentStorageManager._complete_framework_write(intent): Verifies exact product fingerprints and directory durability before requesting durable correlated completion.
 - PersistentStorageManager._pending_framework_write(identity=None): Selects one uniquely identified incomplete durable write for this StorageManager/root, refusing completed or ambiguous attempts.
 - PersistentStorageManager._require_framework_product_paths(directory): Validates archive directory ancestry without following aliases and requires exclusively owned regular product files before monthly readback, writing, recovery or completion.
 - PersistentStorageManager._recover_monthly_write(intent, *, allow_incomplete): Reconstructs and verifies an identified write against journal boundaries, alias-safe paths and target bytes before authorized partial recovery or complete-but-unconfirmed reconciliation.
-- PersistentStorageManager._continue_framework_evidence_archive(compiled_runtime_evidence): Validates the historical prefix under the storage lock before continuation; the public entry point retains rejection and clears confirmation on failure.
+- PersistentStorageManager._continue_framework_evidence_archive(compiled_runtime_evidence): Restores qualified current coverage without historical archive reads, or reconciles outstanding writes through existing physical verification before checkpointing.
 - PersistentStorageManager.continue_framework_evidence_archive(compiled_runtime_evidence): Verifies intact historical evidence/audit prefixes and summary consistency before ordinary continuation, reconciling only exact complete-but-unconfirmed writes before returning current readback.
-- PersistentStorageManager.get_framework_preservation_confirmation(): Compares cumulative retained monthly/archive products with a compact commitment to the exact successful compilation, without requiring a Session Record or accepting missing, stale, duplicate or partial history.
+- PersistentStorageManager.get_framework_preservation_confirmation(*, checkpoint_prefix=False): Explicitly verifies permanent archive products by default, or returns the qualified current operational projection and checkpoint coverage without a completed-prefix reread.
 - PersistentStorageManager.framework_preservation_guard(*, require_closeout=False): Holds the existing storage lock through a synchronous preservation check and retirement commit, optionally requiring exact final Ingestor evidence/all-audit coverage retained before its retirement; archive rewrites do not replace that requirement.
 - PersistentStorageManager._retain_framework_closeout_compilation(compilation): Retains detached final Ingestor coverage within the existing confirmation mechanism without writing new archive products or interpreting evidence.
 - PersistentStorageManager.maintenance_blockers(ingestor, storage_manager): Reports failed persistence or unpreserved owned collection evidence, while active operations are separately tracked and future collections are not blockers.
@@ -3180,14 +3180,27 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - StageBCollectionTests.test_cross_session_historical_intake_cannot_confirm_baseline(): Checks historical saved-record validation without legacy writers, retaining conflicting bytes and blocking collection.
 - StageBCollectionTests.test_incomplete_historical_intake_cannot_confirm_preservation(): Checks missing historical audit fields block confirmation and collection without modifying saved data.
 
+## tests/test_ingestor_checkpoints.py
+
+- IngestorCheckpointTests: Exercises qualified framework archival, compact recovery, suffix replay, malformed snapshots, interrupted publication/replacement, exact conflicts and 100/1000-record startup measurements.
+- FrameworkOwnerPreservationTests: Confirms previously compacted persistent producer boundaries from exact permanent owner records without republishing evidence or weakening conflict detection.
+- SessionCheckpointTests: Exercises normal/partial Session preservation, checkpointed finality and safe journal/checkpoint retirement without permanent intake auditing.
+
 ## tests/test_delivery_responsibilities.py
 
-- DeliveryResponsibilityTests: Defines isolated-broker checks for native retention, shared recipient reception, durable disconnection/reconnection, ephemeral GUI interest and transient readback; full integrated verification remains pending.
+- DeliveryResponsibilityTests: Exercises native retention, shared recipient reception, durable reconnection, ephemeral GUI interest, transient reads and real-owner registration/release consumer retirement on isolated brokers.
+- DeliveryResponsibilityTests.test_registered_dependency_release_retires_consumers_not_disconnect(): Registers an independent synchronization owner, completes dependent release and paired retirement, and verifies native consumers are retired only at resolved lifecycle boundaries.
+- DeliveryResponsibilityTests.test_coordinated_controller_release_uses_current_owner_proof(): Exercises real-claim coordinated Controller release with a preserved administrator decision, native owner confirmation and resolved-consumer retirement.
+
+## tests/test_evidence_receipt_progress.py
+
+- EvidenceReceiptProgressTests: Exercises native Session delivery, receipt after acknowledged broker history disappears, restart from durable intake, pending deliveries, exact duplicates and fail-closed journal damage/write failure on isolated NATS.
+- EvidenceReceiptProgressTests.connect(kind, identity): Connects an isolated test participant with owned transport cleanup.
+- EvidenceReceiptProgressTests.evidence(identity, *, marker=False, payload=None): Produces persistent test events or nonpersistent completion markers through the public evidence contract.
+- EvidenceReceiptProgressTests.publish(message): Publishes evidence and observes durable intake plus native ACK completion independently of producer PubAck.
 
 ## tests/test_remote_saved_collection.py
 
-- CollectionBroker: Retains the existing historical transport fixture used by closeout tests that still require conversion.
-- run_storage_owner(url, root, files, ready, stop): Runs an isolated storage process for existing separate-process closure tests.
 - RemoteSavedCollectionTests: Exercises collection through isolated authenticated JetStream with real Controller claims, instance registration and disk-backed StorageManager outcomes.
 - RemoteSavedCollectionTests.new_boundary(kind, identity): Connects a test participant to its disposable broker with owned cleanup.
 - RemoteSavedCollectionTests.subscribe(storage): Replaces the test storage owner and installs existing authorization and command handlers.
@@ -3307,23 +3320,13 @@ automatic. Kill integration and overall closeout validation remain deferred.
 
 - RemoteArchiveClosureTests: Exercises explicit single saved-Session permanent closure through real Controller, NATS adapters and StorageManager guards without local Controller owner references.
 - RemoteArchiveClosureTests.asyncSetUp(): Reuses saved-Session collection fixtures with all cleanup owned by the active test case.
-- RemoteArchiveClosureTests.close(session="session"): Requests explicit permanent closure through the Controller public NATS API.
+- RemoteArchiveClosureTests.close(session="session", window=2): Requests explicit permanent closure through the Controller public NATS API.
 - RemoteArchiveClosureTests.test_explicit_closure_preserves_products_and_does_not_release_services(): Confirms collection alone leaves the archive open and explicit closure preserves history without Session completion or service release.
 - RemoteArchiveClosureTests.test_failed_collection_does_not_prevent_verified_closure(): Closes an archive containing durably preserved unsuccessful retrieval outcomes.
-- RemoteArchiveClosureTests.test_missing_and_unresolved_preservation_prevent_closure(): Rejects absent or pending preservation until existing authorized recovery succeeds.
-- RemoteArchiveClosureTests.test_rejected_attempt_remains_rejected_after_prerequisites_recover(): Preserves historical rejection across restart while permitting a fresh explicit request.
-- RemoteArchiveClosureTests.test_lost_reply_restart_and_overlapping_retries_do_not_rewrite_closure(): Reuses closed products after lost replies, owner restart and overlapping requests without rewrite.
-- RemoteArchiveClosureTests.test_closed_history_cannot_substitute_for_current_durable_archive(): Rejects historical success when current persisted closure is corrupted.
-- RemoteArchiveClosureTests.test_cancelled_result_publication_retains_closure_but_requires_current_readback(): Refuses cached success after publication cancellation and subsequent archive corruption.
-- RemoteArchiveClosureTests.test_failed_result_publication_can_retry_without_rewriting_closed_archive(): Retries an unpublished result without repeating closure publication.
-- RemoteArchiveClosureTests.test_stale_success_response_cannot_confirm_another_request(): Rejects a prior attempt's successful reply for a fresh request.
-- RemoteArchiveClosureTests.test_pending_closure_retry_rejects_malformed_history_without_rewrite(): Rejects cached closure success after failed reply publication when scoped history lacks a nonce, preserving archive and historical bytes.
-- RemoteArchiveClosureTests.test_pending_closure_retry_rejects_conflicting_resolution(): Rejects cached closure success when persisted history resolves the same attempt differently.
-- RemoteArchiveClosureTests.test_success_history_requires_matching_closed_summary(): Rejects malformed successful closure history without repairing archive or results.
-- RemoteArchiveClosureTests.test_corrupt_attempt_history_blocks_closure_without_repair(): Rejects conflicting identities, missing nonce and source mismatch before closure.
-- RemoteArchiveClosureTests.test_conflicting_tail_blocks_reuse_of_matching_resolution(): Validates conflicting records even after a matching closure resolution.
-- RemoteArchiveClosureTests.test_missing_service_and_invalid_closure_request_remain_unconfirmed(): Leaves missing owner replies and malformed operation identity unconfirmed.
-- RemoteArchiveClosureTests.test_separate_owner_restart_requires_explicit_closure_and_reuses_closed_archive(): Uses real local JetStream and a spawned shared Ingestor/StorageManager process to verify rejection, restart-only replay prevention, fresh closure and restart reuse.
+- RemoteArchiveClosureTests.test_missing_or_corrupt_preservation_prevents_closure_without_repair(): Refuses absent or physically damaged current owner products.
+- RemoteArchiveClosureTests.test_replacement_reads_durable_closure_without_broker_result_history(): Confirms replacement and overlapping explicit requests from durable owner products without historical result retrieval or archive rewrite.
+- RemoteArchiveClosureTests.test_mismatched_reply_is_unconfirmed_but_does_not_undo_owner_completion(): Separates invalid requester confirmation from actual durable closure and subsequent explicit readback.
+- RemoteArchiveClosureTests.test_closed_owner_outcome_cannot_hide_current_physical_corruption(): Refuses current corruption despite an earlier successful owner outcome.
 
 ## tests/test_finalized_intake.py
 

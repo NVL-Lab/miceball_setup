@@ -4,7 +4,6 @@ import asyncio
 from contextlib import AsyncExitStack
 from dataclasses import replace
 import json
-from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -15,61 +14,13 @@ from lab_sync_acquisition import (
     Controller, InMemoryIngestor, NatsCommunicationBoundary,
     NatsControllerCommunication, NatsServiceMaintenanceCommunication,
     NatsStorageManagerCommunication, RuntimeCommandResultMessage,
-    RuntimeParticipant, ServiceMaintenanceInterface, PersistentStorageManager, SshRetrievalEndpoint,
+    RuntimeParticipant, ServiceMaintenanceInterface,
 )
 from lab_sync_acquisition.communication import build_runtime_subject
 from tests import test_saved_session_selection as selection_fixtures
-from tests import test_artifact_retrieval as retrieval_fixtures
-from tests.test_session_launch import _Broker
-from tests.evidence_receipt_fixtures import EvidenceReceiptBroker
 from tests.nats_server_fixture import (
     CONTROLLER_AUTHORITY_SERVER_CONFIGURATION, NATS_SERVER, restartable_jetstream_server,
 )
-
-
-class CollectionBroker(_Broker):
-    """Historical transport fixture retained for not-yet-converted closeout tests."""
-    def __init__(self):
-        super().__init__()
-        self.result_history = EvidenceReceiptBroker()
-
-    async def stream_info(self, name):
-        if name == "LAB_COMMAND_RESULTS":
-            return await self.result_history.stream_info(name)
-        return await super().stream_info(name)
-
-    async def get_msg(self, stream, **options):
-        if stream == "LAB_COMMAND_RESULTS":
-            return await self.result_history.get_msg(stream, **options)
-        return await super().get_msg(stream, **options)
-
-    async def publish(self, subject, data, stream):
-        if stream == "LAB_COMMAND_RESULTS":
-            await self.result_history.publish(subject, data, stream)
-        return await super().publish(subject, data, stream)
-
-
-def run_storage_owner(url, root, files, ready, stop):
-    """Run an isolated storage owner for existing separate-process closure tests."""
-    async def run():
-        boundary = NatsCommunicationBoundary("storage_manager", "storage", servers=[url])
-        await boundary.connect()
-        try:
-            await boundary.ensure_streams()
-            storage = PersistentStorageManager(root, global_artifact_root=Path(root) / "global",
-                retrieval_endpoints={"node": SshRetrievalEndpoint("fake", "reader")})
-            InMemoryIngestor(storage_manager=storage)
-            subscriptions = await NatsStorageManagerCommunication(boundary, storage).subscribe_commands()
-            transport, _ = retrieval_fixtures.ArtifactRetrievalTests().ssh(retrieval_fixtures.SftpDouble(files))
-            with transport:
-                ready.send(True)
-                await asyncio.to_thread(stop.wait)
-            for subscription in subscriptions:
-                await subscription.unsubscribe()
-        finally:
-            await boundary.close()
-            ready.close()
-    asyncio.run(run())
 
 
 @unittest.skipUnless(NATS_SERVER, "isolated nats-server unavailable")

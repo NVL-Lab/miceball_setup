@@ -330,8 +330,46 @@ class ServiceMaintenanceInterface:
                 if release is not None:
                     release_evidence.extend(RuntimeEvidenceMessage.from_dict(m) for m in release["evidence"])
         messages = (*messages, *release_evidence)
+        pinned_ids = {m.evidence_id for m in (*current.values(),
+                      *self._dependent_state_messages.values(), *release_evidence)}
+        latest_readiness = next((m.evidence_id for m in reversed(messages)
+                                 if m.evidence_type == "service_readiness"
+                                 and m.source_id == self.participant.component_id), None)
+        latest_attempts = {}
+        latest_recoveries = {}
+        for message in messages:
+            if message.evidence_type == "service_maintenance_evidence" and message.payload.get("stop_attempt_id"):
+                latest_attempts[message.payload["stop_attempt_id"]] = message.evidence_id
+            elif message.evidence_type == "service_recovery_evidence" and message.payload.get("command_id"):
+                latest_recoveries[message.payload["command_id"]] = message
         unique = {}
         for message in messages:
+            # Unconfirmed submissions are obligations in their own right. Only
+            # confirmed, superseded operational detail is eligible for retirement.
+            confirmed = self.evidence_preserved(message)
+            if confirmed and message.is_persistent and self._framework_communication is None:
+                archive = self.storage_manager.get_framework_preservation_confirmation(checkpoint_prefix=True)
+                confirmed = archive is not None and any(
+                    row == message.to_dict() for row in archive["runtime_evidence"])
+            if confirmed and message.evidence_id not in pinned_ids:
+                payload = message.payload
+                if message.evidence_type == "service_readiness" and message.evidence_id != latest_readiness:
+                    continue
+                if message.evidence_type == "service_maintenance_evidence" and payload.get("stop_attempt_id"):
+                    identity = payload["stop_attempt_id"]
+                    attempt = self._attempts.get(identity)
+                    if (attempt is not None and attempt.get("outcome") in {"cancelled", "completed"}
+                            and message.evidence_id != latest_attempts[identity]):
+                        continue
+                if message.evidence_type == "service_recovery_evidence" and payload.get("command_id"):
+                    latest = latest_recoveries[payload["command_id"]]
+                    if (message is not latest or latest.payload.get("actual_outcome") == "succeeded"):
+                        continue
+                if message.evidence_type == "administrator_decision":
+                    recovery = latest_recoveries.get(payload.get("details", {}).get("command_id"))
+                    if (recovery is not None and recovery.payload.get("actual_outcome") == "succeeded"
+                            and self.evidence_preserved(recovery)):
+                        continue
             if (current and "dependent_maintenance" in message.payload
                     and message.evidence_id not in current_ids | pending_ids
                     and self.ingestor.has_durable_runtime_evidence(message)):
@@ -451,7 +489,7 @@ class ServiceMaintenanceInterface:
                         elif not self.storage_manager._framework_evidence_write_safe():
                             self._verified_initial_dependent_history = None
                             return
-                        elif self.storage_manager.get_framework_preservation_confirmation() is None:
+                        elif self.storage_manager.get_framework_preservation_confirmation(checkpoint_prefix=True) is None:
                             # This owner already verified genuine empty initialization.
                             # Unrelated accepted startup records need an initial write,
                             # not historical continuation or recovery authorization.
@@ -517,8 +555,8 @@ class ServiceMaintenanceInterface:
     def _require_dependent_instance_authority(self, participant, instance):
         """Reject superseded identities using current preserved chronological history."""
         with self.ingestor.framework_journal_guard():
-            # Broker replay adds durable intake audit after startup confirmation.
-            # Verify/continue the intact prefix before requiring current equality.
+            # Reconcile current accepted obligations before assessing the owner;
+            # a qualified checkpoint already establishes completed prefix coverage.
             self.ingestor.continue_framework_evidence_archive()
             with self.ingestor.framework_preservation_guard(self.storage_manager, verify_journal=True) as archive:
                 instances, _, _, histories = self._dependent_history(
@@ -565,11 +603,17 @@ class ServiceMaintenanceInterface:
             if prior_registration is not None and json.dumps(registration, sort_keys=True) != json.dumps(prior_registration, sort_keys=True):
                 raise ValueError("Controller release lacks its matching preserved registration")
             self._validate_controller_release(registration, release, self.participant)
-            archived = self.storage_manager.get_framework_preservation_confirmation()
+            archived = self.storage_manager.get_framework_preservation_confirmation(checkpoint_prefix=True)
             preserved = {(m["session_id"], m["evidence_id"]): json.dumps(m, sort_keys=True)
                          for m in archived["runtime_evidence"]} if archived else {}
-            if (not archived or any(m["is_persistent"] and json.dumps(m, sort_keys=True) != preserved.get((m["session_id"], m["evidence_id"]))
-                    or not self.ingestor.has_durable_runtime_evidence(RuntimeEvidenceMessage.from_dict(m))
+            if any(m["is_persistent"] and json.dumps(m, sort_keys=True) != preserved.get((m["session_id"], m["evidence_id"]))
+                   for m in release["evidence"]):
+                archived = self.storage_manager.get_framework_preservation_confirmation()
+                preserved = {(m["session_id"], m["evidence_id"]): json.dumps(m, sort_keys=True)
+                             for m in archived["runtime_evidence"]} if archived else {}
+            if (not archived or any(
+                    (json.dumps(m, sort_keys=True) != preserved.get((m["session_id"], m["evidence_id"])))
+                    if m["is_persistent"] else not self.ingestor.has_durable_runtime_evidence(RuntimeEvidenceMessage.from_dict(m))
                     for m in release["evidence"])):
                 raise RuntimeError("Controller release evidence is not durably preserved")
         else:
@@ -1360,11 +1404,6 @@ class ServiceMaintenanceInterface:
                             or self._dependent_conflicts):
                         raise RuntimeError("Dependent publication, delivery or conflict remains outstanding")
                     compiled = self.ingestor.compile_framework_runtime_evidence()
-                    # Canonical equality also distinguishes contradictory boolean/numeric values.
-                    for name in ("runtime_evidence",):
-                        if json.dumps(archive[name], sort_keys=True) != json.dumps(
-                                [m.to_dict() for m in compiled[name]], sort_keys=True):
-                            raise RuntimeError("Framework preservation differs from accepted history")
                     instances, confirmations, conflicts, histories = self._dependent_history(compiled, archive)
                     if (instances != self._dependent_instances or conflicts != self._dependent_conflicts
                             or any(json.dumps(confirmations[p], sort_keys=True) != json.dumps(
@@ -1953,7 +1992,7 @@ class ServiceMaintenanceInterface:
                     await self.evidence_publisher(required)
             if status is not None:
                 status["publication_confirmed"] = True
-            if not archive:
+            if not archive and any(m.is_persistent for m in boundary):
                 raise RuntimeError("Archival is unconfirmed; remote recovery is not automatic")
             result = await self._framework_communication.request_persistence_command(
                 self._framework_ingestor, "preserve_service_evidence", None,
@@ -1967,6 +2006,8 @@ class ServiceMaintenanceInterface:
                 raise RuntimeError("Authoritative producer evidence preservation is unconfirmed")
             with self._admission_lock:
                 self._remote_preserved_evidence = {(m.session_id, m.evidence_id): m.to_dict() for m in boundary}
+                retained = {(m.session_id, m.evidence_id) for m in boundary}
+                self._evidence = [m for m in self._evidence if (m.session_id, m.evidence_id) in retained]
             if status is not None:
                 status.update(acceptance_confirmed=True,
                               archival_confirmed=result.payload.get("archival_confirmed") is True)
@@ -1988,6 +2029,8 @@ class ServiceMaintenanceInterface:
         if status is not None:
             status["acceptance_confirmed"] = True
         if not archive:
+            if not message.is_persistent:
+                return
             raise RuntimeError("Archival not attempted while current preservation is unconfirmed")
         if self.storage_manager is None:
             raise RuntimeError("Framework StorageManager is unavailable")
@@ -2001,7 +2044,9 @@ class ServiceMaintenanceInterface:
             with self.ingestor.framework_preservation_guard(self.storage_manager):
                 pass
         if status is not None:
-            status["archival_confirmed"] = True
+            status["archival_confirmed"] = message.is_persistent
+        retained = {(m.session_id, m.evidence_id) for m in self.required_evidence()}
+        self._evidence = [m for m in self._evidence if (m.session_id, m.evidence_id) in retained]
 
     def _result(self, command, outcome, reason, attempt=None, *, prepared=False):
         return RuntimeCommandResultMessage(uuid4().hex, command.command_id, None, self.participant.component_id,

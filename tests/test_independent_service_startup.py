@@ -22,20 +22,19 @@ from lab_sync_acquisition import (
 from lab_sync_acquisition.service_launcher import ServiceLauncher, main
 from lab_sync_acquisition.service_startup import load_acquisition_node, launch_independent_service
 from tests.fakes import ReadyFakeAdapter
-from tests.test_session_launch import _Boundary
-from tests.test_remote_saved_collection import CollectionBroker
+from tests.test_session_launch import _Boundary, _Broker
 
 
-class RetainedCommandsBroker(CollectionBroker):
+class RetainedCommandsBroker(_Broker):
     """Replay command history unless the real adapter explicitly requests fresh delivery."""
     def __init__(self):
         super().__init__()
         self.history = []
 
-    async def publish(self, subject, data, stream):
+    async def publish(self, subject, data, stream=None, reply=""):
         if stream == "LAB_COMMANDS":
             self.history.append((subject, data))
-        return await super().publish(subject, data, stream)
+        return await super().publish(subject, data, stream, reply=reply)
 
     async def subscribe(self, subject, cb, **kwargs):
         subscription = await super().subscribe(subject, cb, **kwargs)
@@ -275,7 +274,8 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any("Ingestor registration confirmed" in r for r in self.reports))
             status = [json.loads(r) for r in self.reports if r.startswith("{") and "startup" in json.loads(r)]
             self.assertEqual(status[0]["target"], {"component_type": "synchronization_manager", "component_id": "sync"})
-            self.assertTrue(status[0]["startup"]["archival_confirmed"])
+            self.assertTrue(status[0]["startup"]["acceptance_confirmed"])
+            self.assertFalse(status[0]["startup"]["archival_confirmed"])
             self.assertTrue(await launcher.stop_locally("operator"))
             return 0
 
@@ -303,7 +303,7 @@ class IndependentServiceTests(unittest.IsolatedAsyncioTestCase):
         self.storage = PersistentStorageManager(self.root, component_id="storage")
         self.intake = InMemoryIngestor(self.storage, component_id="intake",
             framework_recovery_journal_path=self.root / "framework.jsonl")
-        self.broker = CollectionBroker()
+        self.broker = _Broker()
         self.reports = []
 
     async def backend(self):

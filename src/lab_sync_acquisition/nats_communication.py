@@ -817,12 +817,15 @@ class NatsCommunicationBoundary:
                 info = await jetstream.stream_info(name)
             except NotFoundError:
                 await jetstream.add_stream(config=StreamConfig(
-                    name=name, subjects=subjects, storage=StorageType.FILE))
+                    name=name, subjects=subjects, storage=StorageType.FILE,
+                    retention=RetentionPolicy.INTEREST))
                 continue
             if set(info.config.subjects or ()) != set(subjects):
                 raise RuntimeError(f"{name} requires explicit existing-installation transition")
             if info.config.storage != StorageType.FILE:
                 raise RuntimeError(f"{name} requires persistent storage")
+            if info.config.retention != RetentionPolicy.INTEREST:
+                raise RuntimeError(f"{name} requires explicit existing-installation transition to InterestPolicy")
 
     async def publish_command(
         self,
@@ -2995,7 +2998,9 @@ class NatsIngestorCommunication:
             if session_id is not None and (not audit.accepted
                     or not self._ingestor.has_durable_runtime_evidence(evidence)):
                 raise ValueError("Session evidence was not durably accepted")
-            if callback is not None and audit.accepted and audit.reason != "already_accepted":
+            # Durable acceptance does not prove that an earlier callback finished.
+            # Consumers must tolerate identical redelivery, including after restart.
+            if callback is not None and audit.accepted:
                 await callback(evidence)
             if session_id is None:
                 await message.ack()
@@ -3011,7 +3016,7 @@ class NatsIngestorCommunication:
                 return
             # Keep failed/cancelled deliveries, not just active SDK queue work:
             # nats-py considers even a failed callback finished during drain.
-            identity = id(message)
+            identity = (message.subject, message.data)
             framework_state["pending"][identity] = message
             await receive_evidence(message)
             framework_state["pending"].pop(identity)

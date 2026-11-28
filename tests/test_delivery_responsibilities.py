@@ -2,13 +2,15 @@
 
 import asyncio
 from contextlib import AsyncExitStack
+from pathlib import Path
+import tempfile
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
-from nats.js.api import RetentionPolicy
+from nats.js.api import RetentionPolicy, KeyValueConfig, StorageType
 
 from lab_sync_acquisition import (
-    NatsCommunicationBoundary, NatsControllerCommunication,
+    Controller, NatsCommunicationBoundary, NatsControllerCommunication,
     NatsServiceMaintenanceCommunication, NatsSynchronizationManagerCommunication,
     RuntimeCommandResultMessage, RuntimeParticipant, ServiceMaintenanceInterface, SynchronizationManager,
 )
@@ -18,6 +20,7 @@ from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server
 @unittest.skipUnless(NATS_SERVER, "isolated nats-server unavailable")
 class DeliveryResponsibilityTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        self.enterContext(patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value=None)))
         self.stack = AsyncExitStack()
         self.addAsyncCleanup(self.stack.aclose)
         self.url = await self.stack.enter_async_context(temporary_jetstream_server())
@@ -120,3 +123,98 @@ class DeliveryResponsibilityTests(unittest.IsolatedAsyncioTestCase):
         result = await NatsControllerCommunication(observer).request_runtime_command(
             RuntimeParticipant("acquisition_node", "absent"), "get_inventory", None, {}, .1)
         self.assertIsNone(result)
+
+    async def test_registered_dependency_release_retires_consumers_not_disconnect(self):
+        from lab_sync_acquisition.service_launcher import ServiceLauncher, launch_storage_services
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        reports = []
+        async def capture(launcher, *, startup):
+            for boundary in launcher.boundaries:
+                self.stack.push_async_callback(boundary.close)
+            try:
+                await asyncio.wait_for(startup(), 5)
+            except TimeoutError as error:
+                raise AssertionError(reports) from error
+            return launcher
+        with patch.object(ServiceLauncher, "run", capture):
+            pair = await launch_storage_services(servers=(self.url,), ingestor_id="intake", storage_id="store",
+                storage_root=root / "storage", recovery_journal_root=root / "sessions",
+                framework_journal=root / "framework.jsonl", preservation_window_s=2,
+                operational_dependents={}, external_dependents=(RuntimeParticipant("synchronization_manager", "sync"),),
+                result_window_s=2, controller_claim_account="$G", controller_claim_bucket="UNUSED",
+                controller_claim_key="controller", report=reports.append)
+        service = SynchronizationManager()
+        owner = ServiceMaintenanceInterface(service, RuntimeParticipant("synchronization_manager", "sync"),
+            ingestor=None, storage_manager=None, preservation_window_s=2, registration_window_s=3,
+            close_resources=AsyncMock(return_value=True), evidence_publisher=self.producer.publish_evidence,
+            framework_communication=NatsControllerCommunication(self.producer),
+            framework_ingestor=RuntimeParticipant("ingestor", "intake"),
+            framework_storage=RuntimeParticipant("storage_manager", "store"))
+        NatsServiceMaintenanceCommunication(self.producer, owner)
+        await NatsSynchronizationManagerCommunication(self.producer, service).subscribe_commands()
+        await owner.register_ingestor_dependency()
+        self.assertTrue(pair.maintenance[0].operational_dependents[owner.participant]())
+        launcher = ServiceLauncher((owner,), (self.producer,), report=reports.append)
+        self.assertTrue(await asyncio.wait_for(launcher.stop_locally("operator"), 5), reports)
+        self.assertFalse(pair.maintenance[0].operational_dependents[owner.participant]())
+        remaining = await self.js.consumers_info("LAB_COMMANDS")
+        self.assertFalse(any("synchronization_manager.sync" in (c.config.filter_subject or "") for c in remaining))
+        self.assertTrue(await asyncio.wait_for(pair.stop_locally("operator"), 5), reports)
+        for stream in ("LAB_COMMANDS", "LAB_COMMAND_RESULTS", "LAB_EVIDENCE"):
+            self.assertEqual(await self.js.consumers_info(stream), [])
+
+    async def test_coordinated_controller_release_uses_current_owner_proof(self):
+        from lab_sync_acquisition.service_launcher import ServiceLauncher, launch_storage_services
+        await self.js.create_key_value(KeyValueConfig(bucket="AUTHORITY", storage=StorageType.FILE))
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        scope = dict(account="$G", bucket="AUTHORITY", key="controller", timeout_s=3)
+        controller_participant = RuntimeParticipant("controller", "control")
+        sync_participant = RuntimeParticipant("synchronization_manager", "sync")
+        reports = []
+        async def capture(launcher, *, startup):
+            for boundary in launcher.boundaries:
+                self.stack.push_async_callback(boundary.close)
+            await asyncio.wait_for(startup(), 5)
+            return launcher
+        with patch.object(ServiceLauncher, "run", capture):
+            pair = await launch_storage_services(servers=(self.url,), ingestor_id="intake", storage_id="store",
+                storage_root=root / "storage", recovery_journal_root=root / "sessions",
+                framework_journal=root / "framework.jsonl", preservation_window_s=3,
+                operational_dependents={}, external_dependents=(controller_participant, sync_participant),
+                result_window_s=3, controller_claim_account="$G", controller_claim_bucket="AUTHORITY",
+                controller_claim_key="controller", report=reports.append)
+        control = Controller(component_id="control")
+        control_boundary = await self.connect("controller", "control")
+        interfaces = []
+        for service, participant, boundary in (
+                (SynchronizationManager(), sync_participant, self.producer),
+                (control, controller_participant, control_boundary)):
+            owner = ServiceMaintenanceInterface(service, participant, ingestor=None, storage_manager=None,
+                preservation_window_s=3, registration_window_s=5, close_resources=AsyncMock(return_value=True),
+                evidence_publisher=boundary.publish_evidence, framework_communication=NatsControllerCommunication(boundary),
+                framework_ingestor=RuntimeParticipant("ingestor", "intake"),
+                framework_storage=RuntimeParticipant("storage_manager", "store"))
+            boundary.configure_controller_authority(**scope)
+            communication = NatsServiceMaintenanceCommunication(boundary, owner)
+            if participant.component_type == "controller":
+                await owner.acquire_controller_authority(boundary, **scope)
+                await communication.subscribe_commands()
+            else:
+                await NatsSynchronizationManagerCommunication(boundary, service).subscribe_commands()
+            await owner.register_ingestor_dependency()
+            if participant.component_type == "controller":
+                decision = await owner.record_administrator_decision("operator", "resume", {})
+                self.assertTrue(decision["evidence"]["is_persistent"])
+            interfaces.append(owner)
+        participants = (controller_participant, sync_participant, *(owner.participant for owner in pair.maintenance))
+        result = await asyncio.wait_for(control.shutdown_framework(participants,
+            communication=NatsControllerCommunication(control_boundary), stop_attempt_id="coordinated",
+            administrator_id="operator", result_window_s=3), 20)
+        self.assertTrue(result.succeeded, (result.error, result.details))
+        self.assertTrue(all(owner.terminated for owner in (*interfaces, *pair.maintenance)))
+        tasks = [task for boundary in (self.producer, control_boundary, *pair.boundaries)
+                 for task in boundary._maintenance_delivery_tasks.values()]
+        if tasks:
+            await asyncio.wait_for(asyncio.gather(*tasks), 5)
+        for stream in ("LAB_COMMANDS", "LAB_COMMAND_RESULTS", "LAB_EVIDENCE"):
+            self.assertEqual(await self.js.consumers_info(stream), [])

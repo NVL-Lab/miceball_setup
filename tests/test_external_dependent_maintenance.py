@@ -26,7 +26,7 @@ from tests.nats_server_fixture import NATS_SERVER, restartable_jetstream_server,
 
 
 class ExternalDependentConfigurationTests(unittest.TestCase):
-    def test_repeated_framework_envelopes_preserve_complete_audit_and_content(self):
+    def test_repeated_framework_envelopes_preserve_content_without_permanent_intake_audit(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             storage = PersistentStorageManager(root / "storage")
@@ -40,7 +40,7 @@ class ExternalDependentConfigurationTests(unittest.TestCase):
                 storage.write_framework_evidence_archive(intake.compile_framework_runtime_evidence())
             with intake.framework_preservation_guard(storage) as archive:
                 self.assertEqual(archive["runtime_evidence"], [evidence.to_dict()])
-                self.assertEqual(len(archive["ingest_audit"]), 30)
+                self.assertNotIn("ingest_audit", archive)
 
     def test_changed_or_malformed_duplicate_cannot_authorize_preservation(self):
         for value in (True, 1.0, None, [1], {"nested": float("nan")}):
@@ -777,13 +777,29 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.payload["ready"])
         self.assertIn("Operational dependency: acquisition_node/used", result.payload["blockers"])
         self.assertNotIn("Operational dependency: acquisition_node/unused", result.payload["blockers"])
-        self.assertTrue(await launcher.stop_locally("operator"))
+        reports = []
+        launcher._report = reports.append
+        self.assertTrue(await launcher.stop_locally("operator"), reports)
         for subscription in self.broker.subscriptions:
             await subscription.unsubscribe()
         await self.backend(participants=nodes)
         result = await self.status()
         self.assertTrue(result.payload["ready"], result.payload)
         self.assertTrue(await self.pair.stop_locally("operator"))
+
+    async def test_restart_before_maintenance_attachment_retains_unreleased_registration(self):
+        nodes = (RuntimeParticipant("acquisition_node", "used"), RuntimeParticipant("acquisition_node", "unused"))
+        await self.backend(participants=nodes)
+        await self.producer("acquisition_node", "used")
+        for subscription in self.broker.subscriptions:
+            await subscription.unsubscribe()
+        with patch.object(PersistentStorageManager, "_read_framework_archive_history",
+                          side_effect=AssertionError("qualified startup reread permanent history")):
+            await self.backend(participants=nodes)
+        result = await self.status()
+        self.assertFalse(result.payload["ready"])
+        self.assertIn("Operational dependency: acquisition_node/used", result.payload["blockers"])
+        self.assertNotIn("Operational dependency: acquisition_node/unused", result.payload["blockers"])
 
     def setUp(self):
         terminal = patch("lab_sync_acquisition.service_launcher._read_terminal_choice", AsyncMock(return_value=None))
@@ -2289,7 +2305,7 @@ class ExternalDependentMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(interface, "_deliver_dependency_confirmation", record):
             result = await controller.shutdown_framework(scope, communication=NatsControllerCommunication(boundary),
                 stop_attempt_id="framework", administrator_id="operator", result_window_s=0.1)
-        self.assertTrue(result.succeeded, result.error)
+        self.assertTrue(result.succeeded, (result.error, result.details))
         self.assertEqual(released_while_operational, [True])
         self.assertTrue(interface.terminated)
         self.assertTrue(self.intake_interface.terminated)

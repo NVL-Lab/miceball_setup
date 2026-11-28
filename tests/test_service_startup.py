@@ -186,22 +186,25 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
         for kind, service in services.items():
             participant = RuntimeParticipant(kind, "node" if kind == "acquisition_node" else kind)
             interface = self.interface(service, participant)
+            if kind == "controller":
+                from tests.nats_server_fixture import acquire_test_controller_authority
+                await acquire_test_controller_authority(self, interface)
             status = await self.communication(interface).start()
             self.assertTrue(status["publication_confirmed"])
             self.assertTrue(status["acceptance_confirmed"])
-            self.assertTrue(status["archival_confirmed"], status["preservation_warning"])
+            self.assertFalse(status["archival_confirmed"])
             message = RuntimeEvidenceMessage.from_dict(status["evidence"])
             self.assertIsNone(message.session_id)
-            self.assertTrue(message.is_persistent)
+            self.assertFalse(message.is_persistent)
+            self.assertTrue(self.ingestor.has_durable_runtime_evidence(message))
             self.assertEqual(message.payload["participant"], participant.to_dict())
             self.assertEqual(message.payload["service_readiness"]["component_id"], participant.component_id)
             self.assertTrue(message.payload["service_readiness"]["ready"])
         archive = self.storage.get_framework_preservation_confirmation()
         announcements = [message for message in archive["runtime_evidence"]
                          if message["evidence_type"] == "service_readiness"]
-        self.assertEqual(len(announcements), 5)
-        self.assertEqual(len(archive["runtime_evidence"]), 6)
-        self.assertEqual(len(archive["ingest_audit"]), 6)
+        self.assertEqual(announcements, [])
+        self.assertNotIn("ingest_audit", archive)
 
     async def test_direct_announcements_update_readiness_without_redundant_queries_or_relay(self):
         controller, observer, communication = self.observer_pair()
@@ -373,7 +376,9 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
         result = await interface.execute_command(command)
         self.assertTrue(result.success, result.reason)
         archived = self.storage.get_framework_preservation_confirmation()["runtime_evidence"]
-        self.assertIn(status["evidence"], archived)
+        self.assertNotIn(status["evidence"], archived)
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(
+            RuntimeEvidenceMessage.from_dict(status["evidence"])))
 
     async def test_administrator_resume_drop_records_choice_without_executing_or_clearing_work(self):
         sync = SynchronizationManager()
@@ -452,8 +457,10 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
         finally:
             finish.set()
             status = await task
-        self.assertTrue(status["archival_confirmed"])
-        self.assertIn(status["evidence"], self.storage.get_framework_preservation_confirmation()["runtime_evidence"])
+        self.assertTrue(status["acceptance_confirmed"])
+        self.assertFalse(status["archival_confirmed"])
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(
+            RuntimeEvidenceMessage.from_dict(status["evidence"])))
 
     async def test_cancellation_retains_producer_obligation_and_service_binding(self):
         interface = self.interface(SynchronizationManager(), self.source)
@@ -701,14 +708,15 @@ class ServiceStartupTests(unittest.IsolatedAsyncioTestCase):
                 startup_result_window_s=0.01 if participant.component_type == "controller" else None)
             self.addAsyncCleanup(communication.close)
             status = await communication.start()
-            self.assertTrue(status["archival_confirmed"])
+            self.assertTrue(status["acceptance_confirmed"])
+            self.assertFalse(status["archival_confirmed"])
             announcements.append(status["evidence"])
         result = await framework.shutdown()
         self.assertTrue(result.succeeded, result.error)
         self.assertEqual(result.details["outcome"], "completed")
         archive = framework.storage.get_framework_preservation_confirmation()
         for message in announcements:
-            self.assertIn(message, archive["runtime_evidence"])
+            self.assertNotIn(message, archive["runtime_evidence"])
         self.assertTrue(all(interface.terminated for interface in framework.interfaces.values()))
 
     async def test_failed_subscription_cleanup_blocks_return_until_confirmed(self):

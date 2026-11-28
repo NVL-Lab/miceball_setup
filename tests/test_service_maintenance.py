@@ -48,6 +48,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         interface, _ = self.target("synchronization_manager")
         status = await interface.announce_readiness(startup=True)
         self.assertTrue(status["acceptance_confirmed"], status)
+        self.assertFalse(status["archival_confirmed"])
         message = RuntimeEvidenceMessage.from_dict(status["evidence"])
         self.assertFalse(message.is_persistent)
         self.assertTrue(self.ingestor.has_durable_runtime_evidence(message))
@@ -56,6 +57,42 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         decision = await interface.record_administrator_decision("operator", "resume", {})
         self.assertTrue(decision["evidence"]["is_persistent"])
         self.assertIn(decision["evidence"], self.storage.get_framework_preservation_confirmation()["runtime_evidence"])
+
+    async def test_readiness_retains_latest_observation_and_unconfirmed_publication(self):
+        interface, _ = self.target("synchronization_manager")
+        first = await interface.announce_readiness(startup=True)
+        interface.evidence_publisher = AsyncMock(side_effect=ConnectionError("unavailable"))
+        with self.assertLogs("lab_sync_acquisition.service_maintenance", level="WARNING"):
+            pending = await interface.announce_readiness(startup=True)
+        interface.evidence_publisher = None
+        current = await interface.announce_readiness(startup=True)
+        required = {m.evidence_id for m in interface.required_evidence()}
+        self.assertEqual(required, {pending["evidence"]["evidence_id"], current["evidence"]["evidence_id"]})
+        self.assertNotIn(first["evidence"]["evidence_id"], required)
+        self.assertTrue(self.ingestor.has_durable_runtime_evidence(
+            RuntimeEvidenceMessage.from_dict(current["evidence"])))
+
+    async def test_completed_stop_retires_recovery_detail_but_keeps_duplicate_result(self):
+        interface, close = self.target("synchronization_manager")
+        command = self.command(interface)
+        result = await interface.execute_command(command)
+        self.assertTrue(result.success, result.reason)
+        required = interface.required_evidence()
+        self.assertEqual(len(required), 1)
+        self.assertEqual(required[0].payload["checkpoint"], "ready_for_retirement")
+        self.assertEqual(await interface.execute_command(command), result)
+        close.assert_awaited_once_with(False)
+
+    async def test_blocked_stop_retains_latest_attempt_and_unconfirmed_evidence(self):
+        self.node.reserve("session-a")
+        interface, _ = self.target("acquisition_node")
+        blocked = await interface.execute_command(self.command(interface))
+        self.assertEqual(blocked.payload["outcome"], "blocked")
+        cancelled = await interface.execute_command(self.command(interface, "cancel", identity="cancel-1"))
+        self.assertFalse(cancelled.success)
+        required = interface.required_evidence()
+        self.assertTrue(any(m.payload["outcome"] == "failed" for m in required))
+        self.assertTrue(all("Outstanding Session reservation" in m.payload["blockers"] for m in required))
 
     async def test_orderly_stop_retains_operational_checkpoint_not_permanent_history(self):
         interface, close = self.target("synchronization_manager")
@@ -99,7 +136,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                 close.assert_awaited_once_with(False)
                 confirmation = self.storage.get_framework_preservation_confirmation()
                 self.assertIsNotNone(confirmation)
-                checkpoint = confirmation["runtime_evidence"][-1]["payload"]
+                checkpoint = interface.evidence[-1].payload
                 self.assertEqual(checkpoint["checkpoint"], "ready_for_retirement")
                 self.assertIsNone(checkpoint["outcome"])
                 self.assertIn("orderly_resources_closed", checkpoint["actions"])
@@ -275,7 +312,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                            "acquisition_node": lambda: NatsAcquisitionNodeCommunication(boundary, self.node)}.get(
                                kind, lambda: NatsServiceMaintenanceCommunication(boundary, interface))()
                 await handler.subscribe_commands()
-                admin = NatsControllerCommunication(_Boundary("administrator", "administrator", broker))
+                admin = NatsControllerCommunication(_Boundary("terminal", "administrator", broker))
                 await admin.subscribe_command_results(None)
                 result = await admin.request_command(interface.participant, "stop", None,
                          {"stop_attempt_id": "broker-attempt", "administrator_id": "operator"}, 1.0)
@@ -376,7 +413,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         interface, close = self.target()
         broker = _Broker()
         await NatsServiceMaintenanceCommunication(_Boundary("controller", "controller", broker), interface).subscribe_commands()
-        admin = NatsControllerCommunication(_Boundary("administrator", "administrator", broker))
+        admin = NatsControllerCommunication(_Boundary("terminal", "administrator", broker))
         await admin.subscribe_command_results(None)
         result = await admin.request_command(interface.participant, "stop", None,
                      {"stop_attempt_id": "unaccepted", "administrator_id": "operator"}, 1.0)
@@ -384,10 +421,12 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         close.assert_not_awaited()
 
     async def test_controller_bound_session_blocks_without_mutating_lifecycle(self):
+        from tests.nats_server_fixture import acquire_test_controller_authority
+        interface, close = self.target()
+        await acquire_test_controller_authority(self, interface)
         config = SessionConfig([], str(self.root), None, str(self.root / "errors"), session_id="session-a")
         self.assertTrue(self.controller.create_session(config).succeeded)
         before = self.controller.get_status()
-        interface, close = self.target()
         result = await interface.execute_command(self.command(interface))
         self.assertEqual(result.payload["outcome"], "blocked")
         self.assertEqual(self.controller.get_status(), before)
@@ -405,7 +444,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             calls.append("cleanup")
             self.assertFalse(force)
             self.assertTrue(subscription.active)
-            initial = self.storage.get_framework_preservation_confirmation()["runtime_evidence"][-1]
+            initial = interface.evidence[-1].to_dict()
             self.assertEqual(initial["payload"]["checkpoint"], "initial")
             self.assertEqual(initial["payload"]["actions"], [])
             return True
@@ -413,8 +452,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         async def retire(force):
             calls.append("retire")
             self.assertFalse(force)
-            confirmation = self.storage.get_framework_preservation_confirmation()
-            checkpoints = [item["payload"] for item in confirmation["runtime_evidence"]]
+            checkpoints = [message.payload for message in interface.evidence]
             self.assertEqual([item["checkpoint"] for item in checkpoints],
                              ["initial", "cleanup_confirmed", "ready_for_retirement"])
             self.assertIn("orderly_resources_closed", checkpoints[-1]["actions"])
@@ -427,7 +465,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
 
         interface, _ = self.target("ingestor", close=cleanup, retire=retire)
         await handler.subscribe_commands()
-        admin = NatsControllerCommunication(_Boundary("administrator", "administrator", broker))
+        admin = NatsControllerCommunication(_Boundary("terminal", "administrator", broker))
         await admin.subscribe_command_results(None)
         result = await admin.request_command(interface.participant, "stop", None,
                  {"stop_attempt_id": "real-closeout", "administrator_id": "operator"}, 1.0)
@@ -440,8 +478,8 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         # No post-retirement self-intake is needed or claimed.
         self.assertEqual(len(interface.evidence), 3)
         journal = [json.loads(line) for line in (self.root / "journal" / "framework.jsonl").read_text().splitlines()]
-        self.assertEqual(len(journal), 3)
-        self.assertEqual(self.storage.get_framework_preservation_confirmation()["compilation_summary"]["runtime_evidence_count"], 3)
+        self.assertTrue(journal)
+        self.assertEqual(self.storage.get_framework_preservation_confirmation()["compilation_summary"]["runtime_evidence_count"], 0)
 
     async def test_storage_preserves_cleanup_before_retiring_archive_writer(self):
         writer_available = True
@@ -461,8 +499,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         async def retire(force):
             nonlocal writer_available
             calls.append("retire")
-            confirmation = self.storage.get_framework_preservation_confirmation()
-            self.assertEqual(confirmation["runtime_evidence"][-1]["payload"]["checkpoint"], "ready_for_retirement")
+            self.assertEqual(interface.evidence[-1].payload["checkpoint"], "ready_for_retirement")
             self.assertFalse(interface.terminated)
             writer_available = False
             return True
@@ -475,7 +512,8 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(interface.terminated)
         self.assertEqual(len(interface.evidence), 3)
         archived = self.storage.get_framework_preservation_confirmation()["runtime_evidence"]
-        self.assertEqual(archived, [message.to_dict() for message in interface.evidence])
+        self.assertEqual(archived, [])
+        self.assertTrue(all(self.ingestor.has_durable_runtime_evidence(m) for m in interface.evidence))
 
     async def test_orderly_cleanup_failure_preserves_failure_and_skips_retirement(self):
         retire = AsyncMock(return_value=True)
@@ -484,7 +522,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.payload["outcome"], "failed")
         self.assertFalse(interface.terminated)
         retire.assert_not_awaited()
-        archived = self.storage.get_framework_preservation_confirmation()["runtime_evidence"][-1]["payload"]
+        archived = interface.evidence[-1].payload
         self.assertEqual(archived["outcome"], "failed")
         self.assertIn("ordinary cleanup failed", archived["failures"])
         self.assertEqual(archived["remaining_obligations"], [])
@@ -493,12 +531,12 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
     async def test_post_cleanup_preservation_failure_prevents_final_retirement(self):
         retire = AsyncMock(return_value=True)
         interface, close = self.target(retire=retire)
-        write = self.storage.write_framework_evidence_archive
-        def fail_after_initial(compiled):
-            if len(compiled["runtime_evidence"]) > 1:
+        receive = self.ingestor.receive_runtime_evidence
+        def fail_after_initial(message):
+            if message.payload.get("checkpoint") != "initial":
                 raise OSError("post-cleanup disk failure")
-            return write(compiled)
-        with patch.object(self.storage, "write_framework_evidence_archive", side_effect=fail_after_initial):
+            return receive(message)
+        with patch.object(self.ingestor, "receive_runtime_evidence", side_effect=fail_after_initial):
             result = await interface.execute_command(self.command(interface))
         close.assert_awaited_once_with(False)
         retire.assert_not_awaited()
@@ -584,7 +622,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first.payload["outcome"], "blocked")
         missing = interface.evidence
         self.assertTrue(missing)
-        self.assertTrue(all(m.is_persistent for m in missing))
+        self.assertTrue(all(not m.is_persistent for m in missing))
         cancelled = await interface.execute_command(self.command(interface, "cancel", identity="cancel-a"))
         self.assertEqual(cancelled.payload["outcome"], "failed")
         self.assertEqual(interface.evidence[:len(missing)], missing)
@@ -608,7 +646,8 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(third.success, third.reason)
         close.assert_awaited_once_with(False)
         archived = self.storage.get_framework_preservation_confirmation()["runtime_evidence"]
-        self.assertTrue(all(m.to_dict() in archived for m in interface.evidence))
+        self.assertTrue(all(self.ingestor.has_durable_runtime_evidence(m) for m in interface.evidence))
+        self.assertTrue(all(m.to_dict() not in archived for m in interface.evidence))
 
     async def test_dependency_becoming_operational_during_cleanup_blocks_retirement(self):
         entered, proceed = asyncio.Event(), asyncio.Event()
@@ -635,7 +674,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(True, checks)
         self.assertFalse(interface.terminated)
         retire.assert_not_awaited()
-        archived = self.storage.get_framework_preservation_confirmation()["runtime_evidence"]
+        archived = [m.to_dict() for m in interface.evidence]
         cleanup_checkpoint = next(item["payload"] for item in archived if item["payload"].get("checkpoint") == "cleanup_confirmed")
         self.assertIn("Operational dependency: acquisition_node/node", cleanup_checkpoint["remaining_obligations"])
         self.assertEqual(archived[-1]["payload"]["outcome"], "failed")
@@ -699,7 +738,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("forced_resources_closed", kill.payload["attempt"]["actions"])
             self.assertIn("Unfinished service operations", kill.payload["attempt"]["remaining_obligations"])
             self.assertEqual(interface.evidence[0].to_dict(), original)
-            evidence = storage.get_framework_preservation_confirmation()["runtime_evidence"]
+            evidence = [m.to_dict() for m in interface.evidence]
             attempt = [message["payload"] for message in evidence
                        if message["payload"]["stop_attempt_id"] == "attempt-1"]
             self.assertNotIn("completed", [item["outcome"] for item in attempt])
@@ -720,8 +759,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         async def retire(force):
             self.assertTrue(force)
             self.assertFalse(interface.terminated)
-            confirmation = self.storage.get_framework_preservation_confirmation()
-            checkpoint = confirmation["runtime_evidence"][-1]["payload"]
+            checkpoint = interface.evidence[-1].payload
             self.assertEqual(checkpoint["checkpoint"], "cleanup_confirmed")
             self.assertIsNone(checkpoint["outcome"])
             self.assertIn("forced_resources_closed", checkpoint["actions"])
@@ -745,7 +783,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(subscription.active)
         cleanup.assert_awaited_once_with(True)
         self.assertEqual(interface.evidence[0].to_dict(), original)
-        archived = self.storage.get_framework_preservation_confirmation()["runtime_evidence"]
+        archived = [m.to_dict() for m in interface.evidence]
         self.assertEqual(archived, [message.to_dict() for message in interface.evidence])
         self.assertEqual([item["payload"]["outcome"] for item in archived], ["blocked", None])
         self.assertEqual(await interface.execute_command(command), result)
@@ -757,7 +795,7 @@ class ServiceMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         broker = _Broker()
         await NatsIngestorCommunication(_Boundary("ingestor", "intake", broker), self.ingestor).subscribe_evidence(None)
         await NatsServiceMaintenanceCommunication(_Boundary("controller", "controller", broker), interface).subscribe_commands()
-        admin = NatsControllerCommunication(_Boundary("administrator", "administrator", broker))
+        admin = NatsControllerCommunication(_Boundary("terminal", "administrator", broker))
         await admin.subscribe_command_results(None)
         broker.drop_results.add(("controller", "stop"))
         result = await admin.request_command(interface.participant, "stop", None,

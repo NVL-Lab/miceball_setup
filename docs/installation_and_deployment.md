@@ -10,12 +10,13 @@ obligations resolve. The final accepted
 specifies the exact 14 persistent/six nonpersistent assignments, InterestPolicy,
 durable required service consumers/non-durable GUI consumers, recipient-addressed
 results, history-independent delivery/owner outcomes and crash-safe compaction at
-existing checkpoint boundaries. Implementation, validation and safe treatment of
-existing data remain pending. Do not enable InterestPolicy before required
-interests exist and acknowledged-history dependencies are removed. In-place
-conversion is reported supported, not validated; no conversion or migration is
-authorized here. Existing journal/audit/checkpoint descriptions
-below document current or historical behavior, not compliance with the amendment.
+existing checkpoint boundaries. Developer integration now creates new streams with
+InterestPolicy and refuses incompatible existing streams instead of converting them.
+Required native interests precede publication and retire at confirmed responsibility
+boundaries; ordinary qualified recovery no longer rereads permanent archive history.
+Independent validation/audit and safe treatment of existing deployments remain
+pending. No conversion, reset, historical deletion or migration is authorized here.
+Existing journal/audit/checkpoint descriptions below retain their historical scopes.
 Do not change JetStream, delete state or bypass preservation checks on this basis.
 The [destructive test-reset record](deployment_test_reset.md) remains historical
 evidence, not an implementation or migration procedure for Decision 456.

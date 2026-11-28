@@ -34,7 +34,7 @@ class CloseoutFixture:
             self.intake.receive_runtime_evidence(RuntimeEvidenceMessage(
                 identity, "saved", "health", "node", {}, persistent))
         marker = RuntimeEvidenceMessage(
-            "marker", "saved", "acquisition_evidence_completion", "controller", {}, True)
+            "marker", "saved", "acquisition_evidence_completion", "controller", {}, False)
         if kill:
             self.intake.admit_kill_closeout("saved")
         else:
@@ -106,11 +106,11 @@ class PermanentCloseoutTests(CloseoutFixture, unittest.TestCase):
         with self.assertRaises((RuntimeError, OSError)):
             self.intake.read_session_closeout("saved")
 
-    def test_acknowledgment_floor_before_marker_cannot_confirm_permanent_receipt(self):
+    def test_unconfirmed_durable_receipt_cannot_confirm_permanent_closeout(self):
         self.preserve()
         self.unavailable()
         self.change_summary(lambda s: s["acquisition_evidence_completion"]["receipt"].update(
-            acknowledged_stream_sequence=2))
+            durable_receipt_confirmed=False))
         with self.assertRaises(RuntimeError):
             self.intake.read_session_closeout("saved")
 
@@ -121,12 +121,11 @@ class PermanentCloseoutTests(CloseoutFixture, unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.intake.read_session_closeout("saved")
 
-    def test_incomplete_intake_audit_rejects_readback(self):
+    def test_permanent_closeout_does_not_require_removed_intake_audit(self):
         self.preserve()
         self.unavailable()
-        (self.directory / "evidence" / "ingest_audit.jsonl").write_bytes(b"")
-        with self.assertRaises(RuntimeError):
-            self.intake.read_session_closeout("saved")
+        self.assertFalse((self.directory / "evidence" / "ingest_audit.jsonl").exists())
+        self.assertTrue(self.intake.read_session_closeout("saved")["preservation_confirmed"])
 
     def test_nonterminal_record_cannot_establish_post_release_closeout(self):
         self.preserve()
@@ -151,11 +150,12 @@ class PermanentCloseoutTests(CloseoutFixture, unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.intake.read_session_closeout("saved")
 
-    def test_older_archive_keeps_journal_backed_readback_without_rewriting(self):
+    def test_missing_permanent_receipt_cannot_be_repaired_by_journal_readback(self):
         self.preserve()
         self.change_summary(lambda s: s["acquisition_evidence_completion"].pop("receipt"))
         before = self.summary.read_bytes()
-        self.assertTrue(self.intake.read_session_closeout("saved")["preservation_confirmed"])
+        with self.assertRaises(RuntimeError):
+            self.intake.read_session_closeout("saved")
         self.assertEqual(self.summary.read_bytes(), before)
 
 

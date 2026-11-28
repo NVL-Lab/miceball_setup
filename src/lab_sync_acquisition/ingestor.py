@@ -389,9 +389,18 @@ class InMemoryIngestor:
         intake = self._framework_ingestor
         if storage is None or intake is None:
             raise RuntimeError("Framework journal and paired StorageManager are required")
+        def covered(message, archive):
+            return archive is not None and any(
+                PersistentStorageManager._framework_fingerprint(row)
+                == PersistentStorageManager._framework_fingerprint(message.to_dict())
+                for row in archive["runtime_evidence"])
+        archived_framework = (storage.get_framework_preservation_confirmation()
+                              if any(m.session_id is None and m.is_persistent for m in messages) else None)
         for message in messages:
             if message.evidence_type == "scientific_original_deletion":
                 validate_deletion_evidence(message)
+            if message.session_id is None and message.is_persistent and covered(message, archived_framework):
+                continue
             if message.session_id is None or message.session_id == self._session_id:
                 if not await self.await_durable_runtime_evidence(message, acceptance_window_s):
                     raise RuntimeError("Producer evidence lacks journal-backed acceptance")
@@ -403,16 +412,20 @@ class InMemoryIngestor:
                 raise RuntimeError("Nonpersistent Session evidence requires its live acceptance scope")
         persistent = tuple(m for m in messages if m.is_persistent)
         with self._intake_lock, intake._intake_lock, storage._preservation_lock:
-            if any(not self.has_durable_runtime_evidence(m) for m in messages if m.session_id is None):
+            if any(m.session_id is None and m.is_persistent for m in messages):
+                archived_framework = storage.get_framework_preservation_confirmation()
+            if any(not self.has_durable_runtime_evidence(m) and not (m.is_persistent and covered(m, archived_framework))
+                   for m in messages if m.session_id is None):
                 raise RuntimeError("Framework acceptance changed during boundary verification")
-            if any(m.session_id is None for m in persistent):
+            if any(m.session_id is None and not covered(m, archived_framework) for m in persistent):
                 if not storage._framework_evidence_write_safe():
                     raise RuntimeError("Framework archive requires authorized recovery")
                 storage.write_framework_evidence_archive(self.compile_framework_runtime_evidence())
+                archived_framework = storage.get_framework_preservation_confirmation()
             for message in persistent:
-                saved = (storage.get_framework_preservation_confirmation() if message.session_id is None else
+                saved = (archived_framework if message.session_id is None else
                          storage.get_persisted_session_preservation_confirmation(message.session_id))
-                if saved is None or message.to_dict() not in saved["runtime_evidence"]:
+                if not covered(message, saved):
                     raise RuntimeError("Scientific preservation does not cover the producer boundary")
             return {"acceptance_confirmed": True, "archival_confirmed": bool(persistent),
                     "evidence": [m.to_dict() for m in messages],
@@ -774,7 +787,8 @@ class InMemoryIngestor:
                     raise RuntimeError("Partial Kill preservation is unconfirmed")
                 return deepcopy({"session_id": session_id, "storage_id": storage._component_id,
                     "preservation_confirmed": True, "acquisition_preservation_eligible": normal,
-                    "finalized_intake": self._finalized_intake,
+                    "finalized_intake": ({k: v for k, v in self._finalized_intake.items() if k != "evidence_ids"}
+                                         if self._finalized_intake is not None else None),
                     "runtime_evidence": current["runtime_evidence"],
                     "compilation_summary": summary, "session_record": current["session_record"],
                     "artifact_collection_handoff": current["artifact_collection_handoff"]})
@@ -866,7 +880,23 @@ class InMemoryIngestor:
                 before = os.fstat(journal.fileno())
                 for line in journal:
                     data = json.loads(line)
-                    if "ingestor_checkpoint" in data:
+                    if "recovery_snapshot" in data:
+                        if set(data) != {"recovery_snapshot"}:
+                            raise ValueError("Saved recovery snapshot contains unrelated journal content")
+                        envelope = data["recovery_snapshot"]
+                        state = envelope["state"]
+                        if (messages or finality is not None or state["scope"] != "session"
+                                or state["session_id"] != session_id
+                                or PersistentStorageManager._framework_fingerprint(state) != envelope["sha256"]
+                                or state["qualification"].get("preservation_confirmed") is not True):
+                            raise ValueError("Saved recovery snapshot is inconsistent")
+                        for identity, content in state["content"]:
+                            evidence = RuntimeEvidenceMessage.from_dict(json.loads(content))
+                            if identity != evidence.evidence_id or evidence.session_id != session_id or identity in messages:
+                                raise ValueError("Saved snapshot evidence is inconsistent")
+                            messages[identity] = evidence.to_dict()
+                        finality, kill = state["finality"], state["kill_required"]
+                    elif "ingestor_checkpoint" in data:
                         checkpoint = data["ingestor_checkpoint"]
                         if checkpoint.get("session_id") != session_id:
                             raise ValueError("Saved checkpoint Session mismatch")
@@ -907,7 +937,8 @@ class InMemoryIngestor:
                 raise RuntimeError("Saved partial Kill obligation is unconfirmed")
             return deepcopy({"session_id": session_id, "storage_id": self._storage_manager._component_id,
                 "preservation_confirmed": True, "acquisition_preservation_eligible": finality is not None,
-                "finalized_intake": finality, "compilation_summary": summary,
+                "finalized_intake": ({k: v for k, v in finality.items() if k != "evidence_ids"}
+                                     if finality is not None else None), "compilation_summary": summary,
                 "runtime_evidence": current["runtime_evidence"], "session_record": current["session_record"],
                 "artifact_collection_handoff": current["artifact_collection_handoff"]})
 
@@ -938,6 +969,13 @@ class InMemoryIngestor:
                            ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_mode", "st_nlink")):
                         raise RuntimeError("Journal changed before retirement")
                     path.unlink()
+                checkpoint = path.with_suffix(path.suffix + ".checkpoint.json")
+                if os.path.lexists(checkpoint):
+                    metadata = checkpoint.lstat()
+                    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1
+                            or checkpoint.resolve().parent != self._recovery_journal_root.resolve()):
+                        raise RuntimeError("Retirement checkpoint is not an isolated local file")
+                    checkpoint.unlink()
                 # A retry after unlink but failed synchronization must reverify
                 # all permanent proof before confirming the already-absent file.
                 self._sync_closed_session_directory(self._recovery_journal_root)
@@ -961,7 +999,8 @@ class InMemoryIngestor:
                 if (old["final_session_status"] != status or old["session_lifecycle_evidence"] != lifecycle):
                     raise RuntimeError("Terminal Session history cannot be replaced")
                 if status["state"] == "completed" and self._session_id == session_id and self._finalized_intake is not None:
-                    self._write_recovery_checkpoint({"session_id": session_id, "state": "completed"})
+                    self._write_recovery_checkpoint({"session_id": session_id, "preservation_confirmed": True,
+                        "summary": before["compilation_summary"]})
                 return before
             if not before["acquisition_preservation_eligible"]:
                 raise RuntimeError("Partial Kill terminal history is immutable")
@@ -978,7 +1017,8 @@ class InMemoryIngestor:
             self._storage_manager.write_final_session_record(session_id, **record)
             result = self.read_session_closeout(session_id)
             if status["state"] == "completed" and self._session_id == session_id and self._finalized_intake is not None:
-                self._write_recovery_checkpoint({"session_id": session_id, "state": "completed"})
+                self._write_recovery_checkpoint({"session_id": session_id, "preservation_confirmed": True,
+                    "summary": result["compilation_summary"]})
             return result
 
     @service_operation()
@@ -1197,6 +1237,10 @@ class InMemoryIngestor:
         candidates = []
         if path.exists():
             try:
+                info = path.lstat()
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                        or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+                    raise ValueError("Aliased recovery checkpoint")
                 candidates.append(PersistentStorageManager._read_preservation_json(path.read_bytes()))
             except (OSError, ValueError):
                 pass
@@ -1204,7 +1248,8 @@ class InMemoryIngestor:
             first = journal.readline()
         embedded = None
         try:
-            embedded = json.loads(first).get("recovery_snapshot")
+            entry = json.loads(first)
+            embedded = entry.get("recovery_snapshot") if set(entry) == {"recovery_snapshot"} else None
             if embedded is not None:
                 candidates.append(embedded)
         except (ValueError, AttributeError):
@@ -1234,13 +1279,37 @@ class InMemoryIngestor:
                 for record in data["writes"]:
                     self._validate_framework_write_record(records, record)
                     records.append(record)
+                qualification = data["qualification"]
+                if self._evidence_scope == "framework":
+                    completion = qualification["completion"]
+                    if (qualification["kind"] != "framework_archive"
+                            or set(completion) != {"kind", "write_attempt_id", "storage_id", "products"}
+                            or completion["kind"] != "completion"
+                            or not isinstance(completion["write_attempt_id"], str) or not completion["write_attempt_id"]
+                            or qualification["storage_id"] != completion["storage_id"]
+                            or not isinstance(qualification["storage_root"], str)
+                            or not isinstance(qualification["target_month"], str)
+                            or re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", qualification["target_month"]) is None
+                            or set(completion["products"]) != {"runtime_evidence.jsonl", "compilation_summary.json"}
+                            or any(not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+                                   for value in completion["products"].values())
+                            or set(qualification["product_identities"]) != set(completion["products"])
+                            or any(len(identity) != 4 or any(type(n) is not int for n in identity)
+                                   for identity in qualification["product_identities"].values())
+                            or not isinstance(qualification["archive_fingerprint"], str)
+                            or re.fullmatch(r"[0-9a-f]{64}", qualification["archive_fingerprint"]) is None):
+                        raise ValueError("Snapshot lacks qualifying durable archival completion")
+                elif (qualification.get("session_id") != self._session_id
+                      or not (qualification.get("preservation_confirmed") is True
+                              and isinstance(qualification.get("summary"), dict))):
+                    raise ValueError("Snapshot lacks confirmed Session preservation")
                 if self._evidence_scope == "session" and data["finality"] is not None:
                     self._validate_recovery_finality(data["finality"], dict(data["content"]))
                 if self._evidence_scope == "framework" and (data["finality"] is not None or data["kill_required"]):
                     raise ValueError("Framework snapshot contains Session finality")
                 self._recovery_checkpoint = data
                 return data, restored, []
-            except (OSError, ValueError, TypeError, KeyError, IndexError):
+            except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError):
                 continue
         self._recovery_checkpoint = None
         return None
@@ -1325,17 +1394,63 @@ class InMemoryIngestor:
             completed = {r["write_attempt_id"] for r in records if r["kind"] == "completion"}
             if any(r["kind"] == "intent" and r["write_attempt_id"] not in completed for r in records):
                 return
+            completion = next((r for r in reversed(records) if r["kind"] == "completion"), None)
+            if completion is None:
+                confirmed = self._storage_manager.get_framework_preservation_confirmation(checkpoint_prefix=True)
+                if confirmed is None or "checkpoint_coverage" not in confirmed:
+                    return
+                qualification = confirmed["checkpoint_coverage"]
+            else:
+                intent = next(r for r in records if r["kind"] == "intent"
+                              and r["write_attempt_id"] == completion["write_attempt_id"])
+                directory = self._storage_manager._storage_root / "framework/evidence" / intent["target_month"]
+                qualification = {"kind": "framework_archive", "completion": deepcopy(completion),
+                    "storage_id": intent["storage_id"], "storage_root": intent["storage_root"],
+                    "target_month": intent["target_month"],
+                    "archive_fingerprint": self._storage_manager._framework_archive_confirmation,
+                    "product_identities": {name: [getattr((directory / name).stat(), key) for key in
+                        ("st_dev", "st_ino", "st_size", "st_mtime_ns")] for name in intent["products"]}}
             interface = getattr(self, "_maintenance", None)
-            required = interface.required_evidence() if interface is not None else ()
+            storage_interface = getattr(self._storage_manager, "_maintenance", None)
+            interfaces = tuple(owner for owner in (interface, storage_interface) if owner is not None)
+            required = tuple(message for owner in interfaces for message in owner.required_evidence())
             keep = {(m.session_id, m.evidence_id) for m in required}
+            owned = {self._component_id, intake._component_id, *(owner.participant.component_id for owner in interfaces)}
+            if interface is None:
+                # Startup continuation precedes maintenance reconstruction. Only
+                # that owner can retire its dependency/authorization state.
+                if intake._recovery_checkpoint is not None:
+                    keep.update((None, identity) for identity, _ in intake._recovery_checkpoint["content"])
+                keep.update((m.session_id, m.evidence_id) for m in intake._accepted_runtime_evidence
+                            if not m.is_persistent and m.source_id in owned
+                            and m.evidence_type != "ingestor_recovery_evidence")
+            released = {participant.component_id for participant, confirmation in
+                        (interface._dependent_confirmations.items() if interface is not None else ())
+                        if confirmation is not None and participant not in interface._dependent_conflicts}
+            # Unknown or still-active producers may retain operational proof that
+            # their owner has not yet released. Archival alone cannot retire it.
+            keep.update((m.session_id, m.evidence_id) for m in intake._accepted_runtime_evidence
+                        if not m.is_persistent and m.source_id not in owned | released)
             retained = tuple(m for m in intake._accepted_runtime_evidence if (m.session_id, m.evidence_id) in keep)
+            identities = {m.evidence_id for m in retained}
+            missing = {m.evidence_id: m for m in required if m.is_persistent and m.evidence_id not in identities}
+            if missing:
+                archive = self._storage_manager.get_framework_preservation_confirmation()
+                if archive is None or any(not any(
+                        PersistentStorageManager._framework_fingerprint(m.to_dict())
+                        == PersistentStorageManager._framework_fingerprint(row)
+                        for row in archive["runtime_evidence"]) for m in missing.values()):
+                    return
+                retained += tuple(missing.values())
             old_messages, old_content, old_writes = (intake._accepted_runtime_evidence,
                 intake._accepted_evidence_content, intake._framework_write_records)
             intake._accepted_runtime_evidence = retained
             intake._accepted_evidence_content = {m.evidence_id: intake._evidence_content(m) for m in retained}
             intake._framework_write_records = []
             try:
-                intake._write_recovery_checkpoint({"preservation_confirmed": True})
+                intake._write_recovery_checkpoint(qualification)
+                for owner in interfaces:
+                    owner._evidence = [m for m in owner._evidence if (m.session_id, m.evidence_id) in keep]
             except BaseException:
                 intake._accepted_runtime_evidence, intake._accepted_evidence_content, intake._framework_write_records = (
                     old_messages, old_content, old_writes)

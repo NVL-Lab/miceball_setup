@@ -57,34 +57,32 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         self.assertEqual(prior, self.snapshot(december))
         rows = [json.loads(line) for line in (january / "runtime_evidence.jsonl").read_text().splitlines()]
         self.assertEqual(rows, [last.to_dict()])
-        with self.intake.framework_preservation_guard(self.storage) as saved:
-            self.assertEqual(saved["runtime_evidence"], [first.to_dict(), last.to_dict()])
-            self.assertEqual({m["payload"]["stop_attempt_id"] for m in saved["runtime_evidence"]}, {"same-operation"})
+        saved = self.storage.get_framework_preservation_confirmation()
+        self.assertEqual(saved["runtime_evidence"], [first.to_dict(), last.to_dict()])
+        self.assertEqual({m["payload"]["stop_attempt_id"] for m in saved["runtime_evidence"]}, {"same-operation"})
 
     def test_exact_utc_boundary_uses_write_time_not_event_or_receipt(self):
         self.now.return_value = self.stamp(2026, 3) - 0.001
         self.accept("before")
         self.assertEqual(self.archive()["runtime_evidence"].parent.name, "2026-02")
         delayed = self.accept("delayed")
-        audit = self.intake.compile_framework_runtime_evidence()["ingest_audit"][-1].to_dict()
         self.now.return_value = self.stamp(2026, 3)
         path = self.archive()["runtime_evidence"]
         self.assertEqual(path.parent.name, "2026-03")
         self.assertEqual(json.loads(path.read_text()), delayed.to_dict())
-        self.assertEqual(json.loads(path.with_name("ingest_audit.jsonl").read_text()), audit)
+        self.assertFalse(path.with_name("ingest_audit.jsonl").exists())
 
-    def test_repeated_restart_archives_new_recovery_evidence_only_in_current_month(self):
+    def test_repeated_restart_does_not_permanently_archive_recovery_observations(self):
         original = self.accept("old")
         december = self.archive()["runtime_evidence"].parent
         prior = self.snapshot(december)
         for month in (1, 2, 3):
             self.now.return_value = self.stamp(2026, month)
             saved = self.restart()
-            self.assertEqual(saved["runtime_evidence"][0], original.to_dict())
-            self.assertEqual(len(saved["runtime_evidence"]), month + 1)
-            self.assertEqual(saved["runtime_evidence"][-1]["evidence_type"], "ingestor_recovery_evidence")
+            self.assertEqual(saved["runtime_evidence"], [])
+            self.assertEqual(self.storage.get_framework_preservation_confirmation()["runtime_evidence"], [original.to_dict()])
             self.assertEqual(prior, self.snapshot(december))
-        self.assertEqual(len(self.intake.compile_framework_runtime_evidence()["runtime_evidence"]), 4)
+        self.assertEqual(self.intake.compile_framework_runtime_evidence()["runtime_evidence"], ())
 
     def test_month_is_sampled_after_historical_validation_before_new_write(self):
         self.accept("old")
@@ -96,7 +94,7 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         def advance_during_validation(path, *args, **kwargs):
             if path == old_path and kwargs.get("encoding") == "utf-8":
                 reads.append(path)
-                if len(reads) == 2:
+                if len(reads) == 1:
                     self.now.return_value = self.stamp(2026, 1)
             return original(path, *args, **kwargs)
 
@@ -108,13 +106,12 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         december = self.archive()["runtime_evidence"].parent
         prior = self.snapshot(december)
         self.now.return_value = self.stamp(2026, 1)
-        self.assertEqual(self.intake.receive_runtime_evidence(message).reason, "already_accepted")
+        self.assertTrue(self.intake.receive_runtime_evidence(message).accepted)
         paths = self.archive()
-        self.assertEqual(paths["runtime_evidence"].read_bytes(), b"")
+        self.assertEqual(paths, {})
         self.assertEqual(prior, self.snapshot(december))
-        again = self.snapshot(paths["runtime_evidence"].parent)
         self.archive()
-        self.assertEqual(again, self.snapshot(paths["runtime_evidence"].parent))
+        self.assertEqual(prior, self.snapshot(december))
         self.assertEqual(len(self.storage.get_framework_preservation_confirmation()["runtime_evidence"]), 1)
 
     def test_clock_failure_and_invalid_values_retain_journal_and_allow_retry(self):
@@ -161,8 +158,8 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
                 pass
         self.now.return_value = self.stamp(2026, 1)
         self.archive()
-        with self.intake.framework_preservation_guard(self.storage) as saved:
-            self.assertEqual(saved["compilation_summary"]["runtime_evidence_count"], 2)
+        with self.intake.framework_preservation_guard(self.storage):
+            self.assertEqual(self.storage.get_framework_preservation_confirmation()["compilation_summary"]["runtime_evidence_count"], 2)
 
     def test_partial_write_blocks_retry_and_restart_without_mutating_prior_month(self):
         self.accept("confirmed")
@@ -170,14 +167,7 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         prior = self.snapshot(december)
         self.now.return_value = self.stamp(2026, 1)
         self.accept("unconfirmed")
-        original = Path.open
-
-        def fail_summary(path, *args, **kwargs):
-            if path.name == "compilation_summary.json" and args and args[0] == "w":
-                raise OSError("interrupted summary write")
-            return original(path, *args, **kwargs)
-
-        with patch.object(Path, "open", fail_summary), self.assertRaises(OSError):
+        with patch.object(self.storage, "_publish_preservation_summary", side_effect=OSError("interrupted summary write")), self.assertRaises(OSError):
             self.archive()
         self.assertIsNone(self.storage.get_framework_preservation_confirmation())
         self.now.return_value = self.stamp(2026, 2)
@@ -204,10 +194,10 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         prior = self.snapshot(directory)
         self.now.return_value = self.stamp(2026, 1)
         saved = self.restart()
-        self.assertEqual([r["evidence_id"] for r in saved["runtime_evidence"]].count("once"), 1)
+        self.assertEqual([r["evidence_id"] for r in self.storage.get_framework_preservation_confirmation()["runtime_evidence"]].count("once"), 1)
         self.assertEqual(prior, self.snapshot(directory))
 
-    def test_missing_historical_partition_retains_operational_journal_and_blocks_confirmation(self):
+    def test_explicit_integrity_detects_missing_history_without_replaying_qualified_prefix(self):
         message = self.accept("unfinished")
         directory = self.archive()["runtime_evidence"].parent
         self.now.return_value = self.stamp(2026, 1)
@@ -217,9 +207,8 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
             path.unlink()
         directory.rmdir()
         self.assertIsNone(self.storage.get_framework_preservation_confirmation())
-        with self.assertRaises(ValueError):
-            self.restart()
-        self.assertTrue(self.intake.has_durable_runtime_evidence(message))
+        self.assertIsNotNone(self.restart())
+        self.assertIsNone(self.storage.get_framework_preservation_confirmation())
         self.assertTrue(self.journal.exists())
 
     def test_corrupted_historical_products_fail_closed_without_repair(self):
@@ -235,7 +224,7 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.archive()
 
-    def test_nonpersistent_and_rejected_audit_remain_complete_across_months(self):
+    def test_nonpersistent_and_rejected_intake_do_not_create_permanent_audit(self):
         self.accept("transient", persistent=False)
         self.archive()
         self.now.return_value = self.stamp(2026, 1)
@@ -243,16 +232,16 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         self.assertFalse(self.intake.receive_runtime_evidence(bad).accepted)
         self.accept("persistent")
         self.archive()
-        with self.intake.framework_preservation_guard(self.storage) as saved:
-            self.assertEqual(saved["compilation_summary"]["ingest_audit_count"], 3)
-            self.assertEqual(saved["compilation_summary"]["runtime_evidence_ids"], ["persistent"])
+        saved = self.storage.get_framework_preservation_confirmation()
+        self.assertNotIn("ingest_audit_count", saved["compilation_summary"])
+        self.assertEqual(saved["compilation_summary"]["runtime_evidence_ids"], ["persistent"])
 
     def test_empty_new_month_does_not_rewrite_or_duplicate_history(self):
         self.accept("one")
         paths = self.archive()
         before = self.snapshot(paths["runtime_evidence"].parent)
         self.now.return_value = self.stamp(2026, 1)
-        self.assertEqual(paths, self.archive())
+        self.assertEqual({}, self.archive())
         self.assertEqual(before, self.snapshot(paths["runtime_evidence"].parent))
 
     def test_existing_shared_archive_is_read_only_prefix_not_republished_history(self):
@@ -261,7 +250,7 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         summary_path = directory / "compilation_summary.json"
         summary = json.loads(summary_path.read_text())
         for name in ("framework_archive_month", "framework_evidence_start", "framework_audit_start"):
-            del summary[name]
+            summary.pop(name, None)
         summary_path.write_text(json.dumps(summary))
         for path in directory.iterdir():
             path.rename(directory.parent / path.name)
@@ -272,9 +261,7 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         self.assertEqual(saved["runtime_evidence"][0], message.to_dict())
         for name, content in prior.items():
             self.assertEqual((directory.parent / name).read_bytes(), content)
-        new_rows = (directory.parent / "2026-01/runtime_evidence.jsonl").read_text().splitlines()
-        self.assertEqual(len(new_rows), 1)
-        self.assertEqual(json.loads(new_rows[0])["evidence_type"], "ingestor_recovery_evidence")
+        self.assertFalse((directory.parent / "2026-01").exists())
 
     def test_failed_reconciliation_fsync_cannot_confirm_or_rewrite_history(self):
         self.accept("original")
@@ -290,18 +277,11 @@ class MonthlyFrameworkArchiveTests(unittest.TestCase):
         self.assertEqual(prior, self.snapshot(directory))
         with self.assertRaises(RuntimeError):
             self.archive()
-        self.assertIsNotNone(self.intake.continue_framework_evidence_archive())
+        self.assertIsNotNone(self.restart())
 
     def test_cancellation_during_write_requires_reconciliation_without_false_success(self):
         self.accept("pending")
-        original = Path.open
-
-        def cancel_summary(path, *args, **kwargs):
-            if path.name == "compilation_summary.json" and args and args[0] == "w":
-                raise asyncio.CancelledError()
-            return original(path, *args, **kwargs)
-
-        with patch.object(Path, "open", cancel_summary), self.assertRaises(asyncio.CancelledError):
+        with patch.object(self.storage, "_publish_preservation_summary", side_effect=asyncio.CancelledError), self.assertRaises(asyncio.CancelledError):
             self.archive()
         self.assertIsNone(self.storage.get_framework_preservation_confirmation())
         self.assertTrue(self.intake.has_durable_runtime_evidence(
