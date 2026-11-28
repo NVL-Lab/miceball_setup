@@ -88,6 +88,7 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
             authority = await acquire_test_controller_authority(self, maintenance)
             # Workflow traffic remains scheduled by the controlled broker; authority uses real KV/account readback.
             authority._require_jetstream = lambda: self.broker
+            authority._require_client = lambda: self.broker
             self.communication = NatsControllerCommunication(authority)
             for handler, owner in ((self.sync_handler, self.sync), (self.ingestor_handler, self.ingestor),
                     (self.storage_handler, storage), (self.handler, self.node)):

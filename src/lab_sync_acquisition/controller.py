@@ -623,8 +623,6 @@ class Controller:
                     self._acquisition_marker_confirmed = False
             for message in messages:
                 await communication.publish_evidence(message)
-            if not await communication.confirm_session_health_processing(session.session_id, self):
-                raise RuntimeError("Controller Session health processing is unconfirmed")
             with self._service_operation_lock:
                 if self._session is not session:
                     raise RuntimeError("Controller Session binding changed during publication")

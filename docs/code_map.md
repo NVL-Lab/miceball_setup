@@ -3374,6 +3374,47 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - DistributedSessionCloseoutTests.test_unconfirmed_release_readback_allows_explicit_verified_retry: Requires a fresh confirmed readback after a missing response and releases without rewriting archive products.
 - DistributedSessionCloseoutTests.test_cancelled_release_retries_with_fresh_verified_preservation: Retains Controller state after cancellation at final readback and verifies preservation again on explicit retry.
 - DistributedSessionCloseoutTests.test_normal_stop_quiesces_sustained_recording_before_finalized_intake: Requires sustained local collection to stop before complete Stage A preservation and independent Session release.
+- DistributedSessionCloseoutTests._normal_stop_with_delayed_controller_ack: Reuses real closeout owners and the controlled broker to exercise immediate or explicitly continued Normal Stop while Controller-only evidence ACK accounting is deferred.
+- DistributedSessionCloseoutTests.test_normal_stop_does_not_wait_for_its_own_nonhealth_ack: Requires complete preserved closeout without mistaking its own non-health delivery obligation for unfinished health processing.
+- DistributedSessionCloseoutTests.test_health_processing_then_explicit_stop_continuation_preserves_science: Refuses unfinished health processing, then verifies explicit continuation preserves finalized scientific bytes and accepted evidence.
+- DistributedSessionCloseoutTests.test_release_retains_native_consumer_until_controller_evidence_ack: Uses a real JetStream recipient to verify public Session release refuses an outstanding ACK and retires the consumer only after confirmation.
+
+### Bounded Normal Stop race correction (2026-11-28; developer verification only)
+
+Against baseline `7762abab87a27e1c6cce34e2620034f7c86bebe1`,
+`Controller.publish_acquisition_evidence_completion()` removes only its second
+native health-processing check, after Controller-owned evidence publication.
+Initial producer/health confirmation, locked admission cutoff, fatal accounting,
+exact evidence coverage, stable marker, owner preservation and native consumer
+retirement checks remain. No public API, subscription, wait or retry is added.
+Independent validation and separate audit of this correction remain pending;
+this is not Decision 395 or milestone closure.
+
+Both deterministic race/continuation regressions failed with the exact health
+processing error before the production correction and passed afterward. The new
+real-JetStream release regression also passed. The reused distributed timing
+fixture now routes transient Core requests through the same controlled broker as
+its JetStream workflow traffic (real KV authority remains unchanged), and
+`CloseoutBroker.publish()` accepts/forwards existing Core reply arguments.
+
+Selected developer verification: 22 tests, 12 passed and 10 existing tests failed
+(17 failing assertions/subtests). All 10 failing tests reproduced their failures
+with the original Controller implementation and the same fixtures: six producer
+publication tests lack a configured StorageManager; one receipt test expects an
+unconfirmed result but receives success; two integrity tests have unreached
+injection/cancellation hooks; one synchronization-operation test expects Stopping
+but remains Running. These are not passing coverage and were not repaired here.
+Passing checks cover all three new workflows, fatal publication/acceptance and
+cleanup accounting, cutoff/redelivery, preservation failure, late-health rejection
+and contradictory producer confirmation. No full suite or acquisition rerun.
+
+Environment: Windows, Python 3.12.14, nats-py 2.16.0, NATS Server 2.14.3.
+Set `PYTHONPATH` to this checkout's `src` before execution: the shared Python
+runtime otherwise resolves an unrelated editable checkout. New regressions:
+
+```text
+python -B -m unittest -v tests.test_distributed_session_closeout.DistributedSessionCloseoutTests.test_normal_stop_does_not_wait_for_its_own_nonhealth_ack tests.test_distributed_session_closeout.DistributedSessionCloseoutTests.test_health_processing_then_explicit_stop_continuation_preserves_science tests.test_distributed_session_closeout.DistributedSessionCloseoutTests.test_release_retains_native_consumer_until_controller_evidence_ack
+```
 
 ## tests/test_sustained_acquisition.py
 

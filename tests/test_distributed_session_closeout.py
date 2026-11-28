@@ -38,10 +38,10 @@ class CloseoutBroker(PublicationBroker):
             return await self.result_history.get_msg(stream, **options)
         return await super().get_msg(stream, **options)
 
-    async def publish(self, subject, data, stream):
+    async def publish(self, subject, data, stream=None, reply=""):
         if stream == "LAB_COMMAND_RESULTS":
             await self.result_history.publish(subject, data, stream)
-        return await super().publish(subject, data, stream)
+        return await super().publish(subject, data, stream, reply=reply)
 
 
 class ReleaseSubscription:
@@ -111,6 +111,146 @@ class DistributedSessionCloseoutTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.controller._launch_subscriptions = subscriptions
         self.assertGreaterEqual(len(subscriptions), 2)
         return subscriptions
+
+    async def _normal_stop_with_delayed_controller_ack(self, *, pending_health):
+        await self.running()
+        f = self.fixture
+        self.assertTrue((await f.controller.stop_launched_experiment("experiment")).succeeded)
+        health = next(s for s in f.controller._launch_subscriptions
+                      if "subscribe_health_interpretation_evidence" in s.callback.__qualname__)
+        receive = health.callback
+        deferred_acks = []
+        entered, resume = asyncio.Event(), asyncio.Event()
+
+        async def delay_ack(message):
+            kind = json.loads(message.data)["evidence_type"]
+            acknowledge = message.ack
+            if kind == "controller_action_decision":
+                async def defer():
+                    deferred_acks.append(acknowledge)
+                message.ack = defer
+            elif pending_health and kind == "health_interpretation":
+                async def wait_for_processing():
+                    entered.set()
+                    await resume.wait()
+                    await acknowledge()
+                message.ack = wait_for_processing
+            await receive(message)
+
+        health.callback = delay_ack
+        local = f.node.local_storage_manager
+        warning = RuntimeEvidenceMessage("closeout-warning", f.sid, "health_interpretation",
+                                        "node", interpretation().to_dict(), True)
+        delivery = asyncio.create_task(f.handler._boundary.publish_evidence(warning))
+        try:
+            if pending_health:
+                await asyncio.wait_for(entered.wait(), 2)
+                failed = await self.stop()
+                self.assertFalse(failed.succeeded)
+                self.assertIn("Controller Session health processing is unconfirmed", failed.error)
+                self.assertEqual(f.controller.get_status()["session_state"], "stopping")
+                self.assertIsNone(f.ingestor.finalized_acquisition_intake(f.sid))
+                self.assertFalse(any(data.get("evidence_type") == "acquisition_evidence_completion"
+                                     for _, data in f.broker.events))
+                resume.set()
+            await delivery
+            self.assertTrue(await f.communication.confirm_session_health_processing(f.sid, f.controller))
+            manifest, = local.manifests
+            path = Path(manifest.local_storage_path)
+            scientific_bytes = path.read_bytes()
+            accepted = {m.evidence_id: m.to_dict() for m in f.ingestor.accepted_runtime_evidence}
+
+            # The callback returns, but native ACK accounting remains outstanding.
+            # Initial processing is clear; only Controller publication creates it.
+            result = await self.stop()
+            self.assertTrue(result.succeeded, result.error)
+            self.assertTrue(deferred_acks)
+            self.assertGreater((await health.consumer_info()).num_ack_pending, 0)
+            self.assertTrue(health.active)
+            self.assertEqual(f.controller.get_status()["session_state"], "completed")
+            self.assertTrue(result.details["preservation_confirmed"])
+            self.assertTrue(result.details["acquisition_preservation_eligible"])
+            self.assertTrue(result.details["compilation_summary"]["stage_a_complete"])
+            marker, = [data for _, data in f.broker.events
+                       if data.get("evidence_type") == "acquisition_evidence_completion"]
+            self.assertIsNotNone(f.ingestor.finalized_acquisition_intake(f.sid))
+            saved = f.ingestor.read_session_closeout(f.sid)
+            self.assertTrue(saved["preservation_confirmed"])
+            self.assertEqual(path.read_bytes(), scientific_bytes)
+            actual = {m.evidence_id: m.to_dict() for m in f.ingestor.accepted_runtime_evidence}
+            self.assertTrue(all(actual.get(key) == value for key, value in accepted.items()))
+            decision, = f.controller.controller_action_decision_evidence
+            self.assertIn(decision.to_dict(), result.details["runtime_evidence"])
+            for acknowledge in deferred_acks:
+                await acknowledge()
+            self.assertEqual((await health.consumer_info()).num_ack_pending, 0)
+            released = await f.controller.release_session(communication=f.communication, result_window_s=.05)
+            self.assertTrue(released.succeeded, released.error)
+            self.assertFalse(health.active)
+            self.assertFalse(any(data.get("evidence_type") == "acquisition_evidence_completion"
+                                 and data != marker for _, data in f.broker.events))
+        finally:
+            resume.set()
+            await delivery
+
+    async def test_normal_stop_does_not_wait_for_its_own_nonhealth_ack(self):
+        await self._normal_stop_with_delayed_controller_ack(pending_health=False)
+
+    async def test_health_processing_then_explicit_stop_continuation_preserves_science(self):
+        await self._normal_stop_with_delayed_controller_ack(pending_health=True)
+
+    async def test_release_retains_native_consumer_until_controller_evidence_ack(self):
+        from nats.js.errors import NotFoundError
+
+        await self.running()
+        f = self.fixture
+        warning = RuntimeEvidenceMessage("release-warning", f.sid, "health_interpretation",
+                                        "node", interpretation().to_dict(), True)
+        await f.handler._boundary.publish_evidence(warning)
+        decision, = f.controller.controller_action_decision_evidence
+        # Reuse the fixture's disposable authority server, with a real evidence
+        # recipient so release exercises the SDK/native consumer retirement guard.
+        url = f.communication._boundary._client.connected_url.geturl()
+        boundary = NatsCommunicationBoundary("controller", "controller", (url,))
+        await boundary.connect()
+        self.addAsyncCleanup(boundary.close)
+        await boundary.ensure_streams()
+        pending, received = [], asyncio.Event()
+        subscribe = boundary._subscribe_jetstream
+
+        async def defer_ack(subject, callback, **options):
+            async def receive(message):
+                async def defer():
+                    pending.append(message)
+                    received.set()
+                message.ack = defer
+                await callback(message)
+            return await subscribe(subject, receive, **options)
+
+        with patch.object(boundary, "_subscribe_jetstream", side_effect=defer_ack):
+            subscription = await NatsControllerCommunication(boundary).subscribe_health_interpretation_evidence(
+                f.sid, f.controller)
+        f.controller._launch_subscriptions += (subscription,)
+        await boundary.publish_evidence(decision)
+        await asyncio.wait_for(received.wait(), 2)
+        info = await subscription.consumer_info()
+        self.assertEqual(info.num_ack_pending, 1)
+        stopped = await self.stop()
+        self.assertTrue(stopped.succeeded, stopped.error)
+        self.assertTrue(stopped.details["preservation_confirmed"])
+        refused = await f.controller.release_session(communication=f.communication, result_window_s=.05)
+        self.assertFalse(refused.succeeded)
+        self.assertIn("Session consumer still has unresolved deliveries", refused.error)
+        self.assertEqual(f.controller.get_status()["session_id"], f.sid)
+        js = boundary._require_jetstream()
+        self.assertEqual((await js.consumer_info("LAB_EVIDENCE", info.name)).num_ack_pending, 1)
+        await pending[0].ack_sync()
+        self.assertEqual((await subscription.consumer_info()).num_ack_pending, 0)
+        released = await f.controller.release_session(communication=f.communication, result_window_s=.05)
+        self.assertTrue(released.succeeded, released.error)
+        self.assertIsNone(f.controller.get_status()["session_id"])
+        with self.assertRaises(NotFoundError):
+            await js.consumer_info("LAB_EVIDENCE", info.name)
 
     async def test_normal_stop_preserves_science_and_releases_independent_services(self):
         await self.running()
