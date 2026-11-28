@@ -1308,9 +1308,12 @@ retry/replay, or recovery of uncertain and unpublished messages.
 
 Decision 395's [accepted clarification](architecture_decisions.md#accepted-clarification-scientific-acquisition-does-not-await-evidence-publication)
 requires admitted scientific acquisition, timestamping and local storage to
-progress without awaiting NATS evidence publication. Developer implementation is
-present; independent validation/audit and physical outage verification remain
-pending. Existing G2/G3 and Phase 16 closures are unchanged. The implementation
+progress without awaiting NATS evidence publication. The bounded software scope is
+CLOSED after ICC independent validation and separate audit PASS at
+`c182587cebee3e62d93659db7dd0ed8fc9c3cfa1`; see
+[the evidence and limitations](validated_workflows.md#decision-395---publication-independent-acquisition-software-closure).
+Distributed physical outage verification remains pending. Existing G2/G3 and
+Phase 16 closures are unchanged. The implementation
 uses existing RAM retention for finite Experiments and temporary interruptions,
 without indefinite-outage guarantees, new queues or configurable limits. Existing
 resource-exhaustion failure, including crash, is accepted without monitoring or
@@ -1321,7 +1324,9 @@ durable outbox or restart-durable recovery contract. Q011 remains OPEN.
 
 ### Current direction
 
-Do not infer recovery behavior from JetStream durability. Publication recovery remains a separate future architecture decision.
+Do not infer recovery behavior from JetStream durability. Beyond the bounded
+Decision 395 software scope above, remaining publication-recovery policy is a
+separate architectural question; Q011 remains OPEN.
 
 Decision 423 specifies automatic nats-py reconnection for running services, using
 bounded backoff with no fixed overall retry-count or elapsed-time limit.

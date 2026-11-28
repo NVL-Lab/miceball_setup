@@ -2363,7 +2363,10 @@ deduplication, and Session-wide consumption/finalization remains open (Q019).
 - NatsAcquisitionNodeCommunication.stop_acquisition_execution(): Disables scheduling and cancels/joins the owned execution task without claiming device cleanup or scientific finalization.
 - NatsAcquisitionNodeCommunication.acquisition_execution_active: Reports whether an unfinished sustained execution task is still owned by the adapter.
 
-**Developer implementation; independent validation/audit pending:** Decision 395's
+**Bounded software scope CLOSED:** ICC independent validation and separate audit
+PASS at `c182587cebee3e62d93659db7dd0ed8fc9c3cfa1`; see the
+[evidence and limitations](validated_workflows.md#decision-395---publication-independent-acquisition-software-closure).
+Decision 395's
 [acquisition-independence clarification](architecture_decisions.md#accepted-clarification-scientific-acquisition-does-not-await-evidence-publication)
 separates scientific iteration from remote publication using one adapter-owned
 publisher, a coalesced notification and existing evidence/cursors. Explicit flushes
@@ -3379,7 +3382,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - DistributedSessionCloseoutTests.test_health_processing_then_explicit_stop_continuation_preserves_science: Refuses unfinished health processing, then verifies explicit continuation preserves finalized scientific bytes and accepted evidence.
 - DistributedSessionCloseoutTests.test_release_retains_native_consumer_until_controller_evidence_ack: Uses a real JetStream recipient to verify public Session release refuses an outstanding ACK and retires the consumer only after confirmation.
 
-### Bounded Normal Stop race correction (2026-11-28; developer verification only)
+### Bounded Normal Stop race correction (2026-11-28)
 
 Against baseline `7762abab87a27e1c6cce34e2620034f7c86bebe1`,
 `Controller.publish_acquisition_evidence_completion()` removes only its second
@@ -3387,8 +3390,10 @@ native health-processing check, after Controller-owned evidence publication.
 Initial producer/health confirmation, locked admission cutoff, fatal accounting,
 exact evidence coverage, stable marker, owner preservation and native consumer
 retirement checks remain. No public API, subscription, wait or retry is added.
-Independent validation and separate audit of this correction remain pending;
-this is not Decision 395 or milestone closure.
+Subsequent ICC independent validation and separate audit PASS at
+`c182587cebee3e62d93659db7dd0ed8fc9c3cfa1` complete the bounded Decision 395 software
+closure; [the closure record](validated_workflows.md#decision-395---publication-independent-acquisition-software-closure)
+distinguishes retained earlier checks, final-revision executions and limitations.
 
 Both deterministic race/continuation regressions failed with the exact health
 processing error before the production correction and passed afterward. The new
@@ -3463,9 +3468,10 @@ Expanded legacy checks retain 19 unrelated errors reproduced against an untouche
 HEAD archive (authority/configuration fixtures and obsolete test doubles); they
 are not passing or skipped coverage. Two directly affected baseline fixture
 problems were corrected to exercise Controller disconnection and maintenance.
-Independent validation/audit, deployed SDK 2.16.0 and physical Ubuntu-Jetson outage
-continuity remain unverified. No closure or indefinite-disconnection guarantee is
-claimed.
+At that developer handoff, independent validation/audit and SDK 2.16.0 verification
+were pending. They have since completed within the bounded software closure linked
+above. Physical Ubuntu-Jetson outage continuity remains unverified; no
+indefinite-disconnection guarantee is claimed.
 
 Exact developer commands (the first ran before the final retry test was added;
 the second covers that addition and its three directly affected controls):

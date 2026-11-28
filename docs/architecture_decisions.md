@@ -11947,7 +11947,10 @@ neither authorizes acquisition Stop nor establishes node failure.
 separates acquisition and publication tasks, shares serialized finite-prefix
 publication with explicit flushes, resumes pending publication on SDK reconnect,
 and removes preserved unbound producer prefixes without full-history copying.
-Independent validation, audit and physical outage verification remain pending.
+ICC independent validation and separate Codex audit are complete at
+`c182587cebee3e62d93659db7dd0ed8fc9c3cfa1`; the bounded software scope is CLOSED.
+See [validation, correction history and limits](validated_workflows.md#decision-395---publication-independent-acquisition-software-closure).
+Physical distributed outage verification remains pending; G2/Phase 16 are unchanged.
 Source inspection at
 `39a24611cec2e777c67b537b74afb70b8b6c1966` found publication awaited inside
 `NatsAcquisitionNodeCommunication._run_acquisition()`, allowing remote delays to

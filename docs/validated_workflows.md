@@ -6918,6 +6918,103 @@ substantive checks do not include a claim that the original cleanup passed.
 
 ---
 
+# Decision 395 - Publication-Independent Acquisition Software Closure
+
+**Status:** CLOSED within the bounded software scope at
+`c182587cebee3e62d93659db7dd0ed8fc9c3cfa1`. ICC accepted the independent audit and
+authorized documentation closure. Existing G2/G3 and Phase 16 closures are unchanged;
+this does not close broader deployment, synchronization, recovery or hardware work.
+
+## Implementation and developer evidence
+
+AcquisitionNode scientific collection, timestamping, local storage and captured
+deadline finalization progress independently of evidence publication. Existing
+serialized publication retains exact identities/content across uncertainty;
+receiving-owner acceptance, preservation and delivery retirement remain distinct.
+The earlier 35 distinct passing developer checks are retained in
+[the code map](code_map.md), not counted as
+independent validation.
+
+ICC validation exposed a timing-dependent Normal Stop race: publication of retained
+Controller action-decision evidence created a native ACK obligation in the broad
+Session health consumer. The redundant second health-processing check could observe
+that obligation; explicit continuation could republish the same evidence and
+recreate the race. The bounded correction removed only that second check. Initial
+health-processing confirmation, atomic admission cutoff, fatal accounting, exact
+publication coverage, producer confirmations, stable marker, preservation and
+retirement guards remain intact. Deterministic developer regressions reproduced
+the original error and passed after correction; a real-JetStream release check
+retained the consumer until its outstanding ACK resolved.
+
+The correction's selected developer verification ran 22 tests: 12 passed and ten
+existing tests failed (17 assertions/subtests), also failing with the original
+Controller implementation and the same fixtures. They remain missing regression
+coverage, not passing results or confirmed regressions introduced by this correction.
+Details and reproduction commands remain in the
+[correction record](code_map.md#bounded-normal-stop-race-correction-2026-11-28).
+
+## ICC independent validation
+
+All ten substantive requirements passed. The six earlier successful checks below
+were retained because the bounded Controller correction did not change acquisition
+or publication execution; the other four were executed at the final audited
+revision. They are separate evidence sources, not ten fresh executions at that revision.
+
+| Requirement | Result | Evidence timing |
+| --- | --- | --- |
+| V395-01 Autonomous acquisition | PASS | Earlier successful execution retained |
+| V395-02 Continued acquisition during blocked publication | PASS | Earlier successful execution retained |
+| V395-03 Scientific data and timestamp integrity | PASS | Earlier successful execution retained |
+| V395-04 Local Experiment expiry | PASS | Earlier successful execution retained |
+| V395-05 Publication restoration and exact receiving-owner acceptance | PASS | Earlier successful execution retained |
+| V395-06 Uncertain ACK retry: identical evidence attempts, one compiled persistent owner record | PASS | Final audited revision |
+| V395-07 Preservation before delivery-responsibility retirement | PASS | Final audited revision |
+| V395-08 Local scientific finalization independent of publication | PASS | Earlier successful execution retained |
+| V395-09 Genuine outstanding health processing blocks Stop; corrected explicit continuation succeeds with outstanding non-health ACK and preserved science | PASS | Final audited revision |
+| V395-10 Subsequent Session recording, preservation and release without service restarts | PASS | Final audited revision |
+
+Authority, current registration, native InterestPolicy and fixture cleanup also
+passed. The software environment used an isolated real NATS broker, five framework
+services, simulated camera acquisition and actual HDF5 scientific recording.
+Developer/diagnostic version details are recorded separately in the code map.
+No physical camera or distributed Ubuntu-Jetson verification is implied.
+
+Three validation-harness defects were corrected for successful independent
+executions: assuming frame indices reset between Experiments, failing to reopen a
+released simulated camera, and incorrectly counting compiled RuntimeEvidenceMessage
+objects. These are distinct from the production Normal Stop race.
+
+## Separate independent audit
+
+| Audit area | Result |
+| --- | --- |
+| A. Acquisition independence | PASS |
+| B. Local expiry and finalization | PASS |
+| C. Retry and preservation | PASS |
+| D. Corrected Normal Stop | PASS |
+| E. Release and Session isolation | PASS |
+| F. Implementation complexity | PASS |
+
+Overall PASS, with no confirmed P0-P3 findings and no architectural clarification
+required. The audit independently inspected source, supported by ICC integration
+evidence. No additional runtime checks were required or executed during the audit.
+The ten failing developer tests were considered missing coverage; the inspected
+enforcement and independent integration evidence resolved the material questions
+within this bounded scope.
+
+## Remaining limitations
+
+Outstanding distributed operational verification is retained. This record does not
+verify physical camera timing or sustained hardware acquisition performance,
+distributed Ubuntu-Jetson communication interruption/recovery, process-crash or
+power-loss recovery of unpublished in-memory evidence, or indefinite disconnected
+operation. Existing finite-Experiment RAM retention and accepted resource-exhaustion
+behavior remain; no restart-durable outbox or broader recovery guarantee is added.
+Decision 394's later estimation clarification, Decisions 458-459 and broader open
+questions/milestones retain their separate statuses.
+
+---
+
 # Future Workflows
 
 The following workflows are expected to be added as the framework evolves.

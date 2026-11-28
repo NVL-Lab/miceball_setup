@@ -1802,6 +1802,27 @@ scheduling behavior. Runtime duration extension remains deferred. G3 and prior
 validated history remain unchanged; G4/G5 are not completed here.
 Q022, Q024, M015 and Phase 16 remain OPEN.
 
+## Decision 395 Publication Independence - Bounded Software Completion
+
+**Status:** CLOSED at `c182587cebee3e62d93659db7dd0ed8fc9c3cfa1` after ICC independent
+validation and separate audit PASS without confirmed P0-P3 findings. Six earlier
+successful validation requirements were retained; four were executed at the final
+revision, completing V395-01 through V395-10. The audit used independent source
+inspection supported by ICC integration evidence, with no additional runtime checks.
+The bounded Normal Stop race correction preserves initial health confirmation,
+admission/accounting, publication, preservation and retirement guards.
+
+See [the closure record](validated_workflows.md#decision-395---publication-independent-acquisition-software-closure)
+for the production correction, distinct harness defects and ten existing failing
+developer tests, which remain missing coverage. Validation used an isolated real
+broker, five services, simulated camera input and actual HDF5 storage. Physical
+timing/performance, distributed Ubuntu-Jetson interruption/recovery, unpublished
+in-memory evidence recovery after crash/power loss and indefinite disconnection
+are not verified. Distributed operational verification remains outstanding.
+G2/G3 and Phase 16 retain their existing closures. No broader deployment,
+synchronization, recovery or hardware milestone is closed; Decisions 458-459
+retain their separate pending implementation statuses.
+
 ## Completed Sustained Acquisition Execution (G3)
 
 **Status:** CLOSED - bounded software scope after implementation verification
