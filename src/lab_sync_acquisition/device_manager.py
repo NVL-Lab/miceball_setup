@@ -49,10 +49,12 @@ class DeviceCollectionResult:
 class _PartialDeviceCollectionError(RuntimeError):
     """Preserve completed device collections alongside their original failure."""
 
-    def __init__(self, original_error: Exception, partial_results: tuple[DeviceCollectionResult, ...]) -> None:
+    def __init__(self, original_error: Exception, partial_results: tuple[DeviceCollectionResult, ...],
+                 failures: tuple[tuple[str, Exception], ...]) -> None:
         super().__init__(f"{type(original_error).__name__}: {original_error}")
         self.original_error = original_error
         self.partial_results = partial_results
+        self.failures = failures
 
 
 class DeviceManager:
@@ -144,6 +146,7 @@ class DeviceManager:
         if ids - {a.device_id for a in self._adapters} or set(products_by_device) - ids:
             raise ValueError("Product selection references a nonparticipating or unknown device")
         results = []
+        failures = []
         for adapter in self._adapters:
             if adapter.device_id not in ids:
                 continue
@@ -159,11 +162,16 @@ class DeviceManager:
                     combined = ExceptionGroup(
                         f"{error.original_error}; invalid partial product result: {invalid}",
                         [error.original_error, invalid])
-                    raise _PartialDeviceCollectionError(combined, tuple(results)) from error
-                results.append(partial)
-                raise _PartialDeviceCollectionError(error.original_error, tuple(results)) from error
+                    failures.append((adapter.device_id, combined))
+                else:
+                    results.append(partial)
+                    failures.append((adapter.device_id, error.original_error))
             except Exception as error:
-                raise _PartialDeviceCollectionError(error, tuple(results)) from error
+                failures.append((adapter.device_id, error))
+        if failures:
+            error = failures[0][1] if len(failures) == 1 else ExceptionGroup(
+                "Device collection failed", [error for _, error in failures])
+            raise _PartialDeviceCollectionError(error, tuple(results), tuple(failures)) from error
         return tuple(results)
 
     def _product_collection_result(self, adapter, products, collected) -> DeviceCollectionResult:

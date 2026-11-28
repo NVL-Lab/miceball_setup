@@ -15804,8 +15804,10 @@ software-scope closure is recorded above, without authorizing existing-data tran
 ## Decision 458: Confirmed acquisition and recording failures follow actual Experiment participation
 
 **Status:** Accepted by the project owner through LLC; synchronized 2026-11-28.
-Implementation and independent verification are pending. G2 and Phase 16 remain
-CLOSED within their previously validated scopes.
+Implemented with targeted developer verification; independent validation and audit
+remain pending. See the Decision 458 implementation record in
+[code_map.md](code_map.md#decision-458-implementation-status).
+G2 and Phase 16 remain CLOSED within their previously validated scopes.
 
 For confirmed inability to acquire or store scientific data, reuse the existing
 mandatory/optional classification of the actual Experiment-participating device.

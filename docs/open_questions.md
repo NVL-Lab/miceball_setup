@@ -1357,7 +1357,9 @@ producer messages. It does not resolve this publication-recovery question.
 [Decision 458](architecture_decisions.md#decision-458-confirmed-acquisition-and-recording-failures-follow-actual-experiment-participation)
 requires automatic actual-participant mandatory/optional consequences for confirmed
 acquisition/recording failures, without configured health mappings. Implementation
-and independent verification are pending. Earlier bounded Q013/G4 validation is
+and targeted developer verification are complete; independent validation and audit
+remain pending (see the Decision 458 implementation record in code_map.md).
+Earlier bounded Q013/G4 validation is
 preserved; G2 and Phase 16 remain CLOSED. No remote crash detector or new
 publication/restart-recovery scope is introduced.
 

@@ -1815,9 +1815,12 @@ class Controller:
         nodes = ({p.component_id for p in self._experiment_nodes(session, experiment_id)} if self._launch_communication is not None
                  else {self._acquisition_node.node_id})
         deadline = self._experiment_deadlines.get((session.session_id, experiment_id, message.source_id))
+        finalized = payload.get("finalization_confirmed") is True
+        failed_finalization = (payload.get("finalization_confirmed") is False
+                               and isinstance(payload.get("error"), str) and bool(payload["error"]))
         if (descriptor is None or descriptor.configuration is None or start is None or message.source_id not in nodes
                 or deadline is None or any(payload.get(k) != value for k, value in deadline.items())
-                or message.is_persistent is not True or payload.get("finalization_confirmed") is not True
+                or message.is_persistent is not True or not (finalized or failed_finalization)
                 or payload.get("duration_s") != descriptor.configuration.duration_s
                 or payload.get("experiment_start_session_time_s") != start.session_time_s
                 or payload.get("session_deadline_s") != start.session_time_s + descriptor.configuration.duration_s
@@ -1829,13 +1832,20 @@ class Controller:
                 or not isinstance(payload.get("artifact_manifest_ids"), list)
                 or any(not isinstance(value, str) or not value for value in payload["artifact_manifest_ids"])
                 or len(set(payload["artifact_manifest_ids"])) != len(payload["artifact_manifest_ids"])
-                or len(payload["artifact_manifest_ids"]) != sum(
+                or len(payload["artifact_manifest_ids"]) > sum(
+                    output.source_node_id == message.source_id for output in descriptor.scientific_outputs)
+                or finalized and len(payload["artifact_manifest_ids"]) != sum(
                     output.source_node_id == message.source_id for output in descriptor.scientific_outputs)):
             raise ValueError("Incomplete, stale or conflicting Experiment expiry proof")
         key = (session.session_id, experiment_id, message.source_id)
         previous = self._experiment_expiry_evidence.get(key)
         if previous is not None and previous.to_dict() != message.to_dict():
             raise ValueError("Conflicting node expiry evidence")
+        if failed_finalization:
+            # A scoped negative owner report is processed, not successful expiry
+            # proof. Confirmed scientific failure uses the health-action path;
+            # the independent Ingestor interest preserves this original report.
+            return False
         self._experiment_expiry_evidence[key] = deepcopy(message)
         if self._experiment_operation_lock.locked():
             return False
@@ -1893,13 +1903,24 @@ class Controller:
                     or session.current_state != SessionState.RUNNING
                     or self._active_experiment_id != experiment_id):
                 raise RuntimeError("Requested Experiment is not active in this running Session")
+            evidence = None
+            if event_type == "experiment_fail" and (details or {}).get("acquisition_health_policy") == "decision_458":
+                # Confirmed scientific failure is canonical even when subsequent
+                # cleanup or timing readback cannot be confirmed. Existing fatal
+                # accounting still requires owner finalization before safe ACK.
+                evidence = session.record_experiment_lifecycle(experiment_id, event_type, None,
+                    {**details, "timing_unconfirmed": True})
+                self._active_experiment_id = None
+                self._active_experiment_runtime_health_mapping = ()
             await self._finalize_launched_experiment_outputs(session, experiment_id)
-            clock = await asyncio.wait_for(self._request_launched_runtime(
-                self._synchronization_participant(), "read_session_time", {}), self._launch_result_window_s)
+            if evidence is None:
+                clock = await asyncio.wait_for(self._request_launched_runtime(
+                    self._synchronization_participant(), "read_session_time", {}), self._launch_result_window_s)
             if session.current_state != SessionState.RUNNING:
                 raise RuntimeError("Session ended during Experiment finalization")
-            evidence = session.record_experiment_lifecycle(experiment_id, event_type,
-                                                           clock.payload["session_time_s"], details)
+            if evidence is None:
+                evidence = session.record_experiment_lifecycle(experiment_id, event_type,
+                                                               clock.payload["session_time_s"], details)
             self._active_experiment_id = None
             self._active_experiment_runtime_health_mapping = ()
             return self._record_successful_command(name, evidence.to_dict())
@@ -1971,6 +1992,28 @@ class Controller:
             "experiment_failure": "experiment_fail",
             "session_failure": "session_fail",
         }
+        consequence = decision_by_interpretation[evidence.interpretation_label]
+        historical_failure = False
+        if (evidence.acquisition_health_policy == "decision_458"
+                and evidence.observation_type in {"scientific_collection_failed", "scientific_recording_failed"}):
+            descriptor = next((d for d in session.experiment_descriptors
+                               if d.experiment_id == evidence.experiment_id), None)
+            node_id = original.get("source_id")
+            participants = (descriptor.configuration.participating_devices or {}) if descriptor and descriptor.configuration else {}
+            actual = participants.get(node_id, ()) if node_id is not None else tuple(
+                identity for devices in participants.values() for identity in devices)
+            device = next((d for d in session.configuration.selected_devices if d.device_id == evidence.live_source_id), None)
+            if (device is None or evidence.live_source_id not in actual
+                    or evidence.expected_participant_id != evidence.live_source_id
+                    or evidence.required is not device.required
+                    or evidence.interpretation_label != ("experiment_failure" if device.required else "warning")):
+                raise ValueError("Confirmed scientific failure conflicts with accepted Experiment participation")
+            previous = next((m for m in self._controller_action_decision_evidence
+                             if identity is not None and m.evidence_id == identity), None)
+            historical_failure = (bool(previous.payload.get("details", {}).get("historical_scientific_failure"))
+                                  if previous is not None else self._active_experiment_id != evidence.experiment_id)
+            if historical_failure:
+                consequence = "record_only"
         decision = ControllerActionDecision(
             originating_observation_id=evidence.originating_observation_id,
             session_id=session.session_id,
@@ -1978,14 +2021,13 @@ class Controller:
             live_source_id=evidence.live_source_id,
             acquisition_health_policy=evidence.acquisition_health_policy,
             interpretation_label=evidence.interpretation_label,
-            controller_decision=decision_by_interpretation[
-                evidence.interpretation_label
-            ],
+            controller_decision=consequence,
             decision_time_s=None,
             details={
                 "expected_participant_id": evidence.expected_participant_id,
                 "required": evidence.required,
                 "interpretation": original,
+                **({"historical_scientific_failure": True} if historical_failure else {}),
             },
         )
         message = self._accept_action_payload(session, decision.to_dict(), identity=identity, decision=decision)

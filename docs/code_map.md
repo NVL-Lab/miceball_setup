@@ -1751,7 +1751,9 @@ guarantee remain deferred. M014/W034 retain completed Slice 27 scope and status.
 - AcquisitionNode.stop_runtime: Serializes cleanup with preparation and acquisition under the reservation lock, closes runtime admission and retains persistent Session-stop evidence and explicit cleanup uncertainty.
 - AcquisitionNode._stop_runtime: Stops only currently running adapters and retries existing shutdown/finalization obligations from authoritative adapter and stream states without repeating completed device Stop transitions.
 - AcquisitionNode.run_one_iteration(): Attempts local preservation of all completed scientific collections before operational intake, aggregating collection, persistence and evidence failures without replay or scientific-envelope intake.
-- AcquisitionNode._persist_product_collection: Validates selected product and observation provenance and attempts each scientific row through LocalStorageManager with its complete metadata/timing, retaining errors while continuing other writable rows and products.
+- AcquisitionNode._persist_product_collection: Validates selected product and observation provenance and returns saved-row counts plus identified recording errors while continuing other writable rows and products.
+- AcquisitionNode._failed_scientific_devices: Derives isolated devices for an Experiment from retained Session-scoped Decision 458 health evidence.
+- AcquisitionNode._record_scientific_failure: Stops and cleans up an identified failed participant, preserves available partial artifacts and cleanup uncertainty, and retains mandatory/optional observation and interpretation evidence through existing publication mechanisms.
 - AcquisitionNode.runtime_evidence: Returns the retained append-order operational messages for durable publication and retry.
 - AcquisitionNode._retain_runtime_evidence: Retains an immutable producer snapshot with identity/conflict checks before optional local operational-evidence acceptance.
 - AcquisitionNode._record_acquisition_failure: Records the actual acquisition error as persistent operational evidence and prevents further iterations until existing recovery/preparation permits reuse.
@@ -2215,7 +2217,7 @@ the historical FAILED-only expectations in the preceding Alternative B report.
 - DeviceReadinessSummary: Aggregates shared readiness records across already-created adapters and can be passed to Session initialization.
 - DeviceManager: Coordinates already-created adapters and their lifecycle, readiness, status and explicit product selections without creating adapters or envelopes.
 - DeviceManager.collect_products(products_by_device, *, session_id, experiment_id, acquisition_node_id): Calls each adapter once with explicit declarations or an empty selection and retains completed partial results when a later device fails.
-- _PartialDeviceCollectionError: Retains earlier valid source-identified collections even when a later adapter's partial result is invalid, preserving original and validation errors for node-local persistence/reporting.
+- _PartialDeviceCollectionError: Retains valid source-identified collections and every identified collection failure while permitting all participating adapters to be collected.
 - DeviceManager._product_collection_result: Checks the explicit product/operational result structure and rejects unselected products before source-identified collection results reach the node.
 
 ## src/lab_sync_acquisition/experiment_runtime.py
@@ -3893,3 +3895,47 @@ consumer refuses retained administrative overrides without rewriting templates.
 - CatalogTests: Exercise durable catalog restart, sharing, revision races, relationships, immutable definitions, owner edits, interrupted updates, corruption refusal and stopped-store backup/restoration.
 - CatalogHttpTests: Exercise bounded origin-protected mutations, shared readback and backend information without a broker.
 - CatalogBrowserTests: Exercise existing catalog forms and protocol authoring across two browser pages, stale-draft retention, project filtering, backend Services rendering, themes and narrow layout against real local persistence.
+
+
+## Decision 458 implementation status
+
+Developer implementation and verification completed 2026-11-28; independent
+validation and audit remain pending. No closure is claimed.
+
+DeviceManager.collect_products retains every identified failure and valid partial
+collection while continuing other participants. AcquisitionNode isolates confirmed
+failed sources using existing retained health evidence, finalizes their available
+outputs and emits actual-participant mandatory/optional interpretations without
+requiring configured health mappings. Controller validates participation, fails the
+affected active Experiment without failing its Session, and accounts for historical
+evidence without terminating a subsequent Experiment. Cleanup uncertainty remains
+unconfirmed even after canonical Experiment failure. Valid negative expiry reports
+are processed without becoming affirmative finalization proof. Existing native
+delivery, fatal accounting and preservation/retirement guards remain in force.
+Public constructor and method signatures are unchanged.
+
+### tests/test_confirmed_acquisition_failures.py
+
+- FaultingScientificAdapter: Supplies deterministic collection and partial-result failures through the existing Device Adapter API.
+- ConfirmedAcquisitionFailureTests: Exercises public distributed Experiment workflows with real disposable NATS transport, temporary scientific storage and controlled collection, recording, timing and publication failures.
+- ConfirmedAcquisitionFailureTests.workflow: Prepares the existing authorized distributed workflow with selected participating devices and optional additional node.
+- ConfirmedAcquisitionFailureTests.until: Waits within a bounded window for an observable workflow condition.
+- ConfirmedAcquisitionFailureTests.iteration: Executes one node collection through the existing runtime command transport.
+- ConfirmedAcquisitionFailureTests.confirm_health: Confirms processing through the existing Controller health-processing interface.
+- ConfirmedAcquisitionFailureTests.rows: Reads flushed scientific event records for a selected source.
+
+Developer verification: 14 new workflow tests and 10 directly affected existing
+regressions passed (24/24), covering collection order, required/optional and shared
+failures, partial JSONL/HDF5 preservation, recording/finalization uncertainty,
+negative expiry, historical evidence, policy precedence, multiple nodes, blocked
+publication, timing provenance, fatal accounting and native closeout obligations.
+Regression-first probes reproduced the optional node-wide failure, suppressed
+mandatory Experiment failure under finalization uncertainty, and unacknowledged
+negative expiry report before their respective corrections.
+
+Three selected legacy AcquisitionHealthTests fail during scientific-output fixture
+preparation, with subsequent cleanup errors. The identical failures were reproduced
+using the starting revision 575ca052b009fb9f7a3ee07cd8645581fe5d9194 production
+package; these tests are not passing coverage and were not repaired in this scope.
+No hardware, deployment, restart-durable unpublished-evidence or remote crash
+detection validation is claimed. Decision 459 is not implemented here.

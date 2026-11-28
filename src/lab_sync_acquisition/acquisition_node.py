@@ -801,7 +801,8 @@ class AcquisitionNode:
                 manifests = self.finalize_experiment_scientific_outputs(deadline["experiment_id"])
             except Exception as error:
                 failure = error
-                self._record_acquisition_failure(error)
+                if not self._failed_scientific_devices(deadline["experiment_id"]):
+                    self._record_acquisition_failure(error)
             evidence = RuntimeEvidenceMessage(
                 f"experiment-expiry-{self._session_id}-{self._node_id}-{deadline['experiment_id']}",
                 self._session_id, "experiment_duration_expired", self._node_id,
@@ -821,6 +822,7 @@ class AcquisitionNode:
     @service_operation()
     def finalize_experiment_scientific_outputs(self, experiment_id: str) -> tuple[ArtifactManifest, ...]:
         """Attempt every prepared stream, preserving artifacts and reporting all failures."""
+        context = self._active_experiment_runtime_context
         self._ended_experiment_ids.add(experiment_id)
         if (self._active_experiment_runtime_context is not None
                 and self._active_experiment_runtime_context.experiment_id == experiment_id):
@@ -829,7 +831,7 @@ class AcquisitionNode:
             self.clear_experiment_runtime_health_mapping()
         manifests = []
         failures = []
-        for (owner_experiment_id, _, _), storage_id in self._scientific_output_storage_ids.items():
+        for (owner_experiment_id, source_device_id, _product_id), storage_id in self._scientific_output_storage_ids.items():
             if owner_experiment_id != experiment_id:
                 continue
             try:
@@ -838,6 +840,10 @@ class AcquisitionNode:
                 self._record_artifact_manifest(manifest)
             except Exception as error:
                 failures.append(f"{storage_id}: {type(error).__name__}: {error}")
+                if (context is not None and context.experiment_id == experiment_id
+                        and source_device_id not in self._failed_scientific_devices(experiment_id)):
+                    # A stream failure identifies its source, not every node device.
+                    self._record_scientific_failure(experiment_id, source_device_id, "recording", error)
         if failures:
             self._last_error = "; ".join(failures)
             raise RuntimeError(f"Scientific stream finalization failed: {self._last_error}")
@@ -1211,23 +1217,31 @@ class AcquisitionNode:
             product = next(p for p in device.scientific_products if p.data_product_id == output.data_product_id)
             products_by_device.setdefault(device.device_id, []).append(product)
         collection_error = None
+        excluded = self._failed_scientific_devices(context.experiment_id) if context else set()
+        products_by_device = {identity: products for identity, products in products_by_device.items()
+                              if identity not in excluded}
         try:
             results = self._runtime_device_manager.collect_products(products_by_device,
                 session_id=self._session_id, experiment_id=context.experiment_id if context else None,
                 acquisition_node_id=self._node_id or "acquisition_node",
                 device_ids=tuple(a.device_id for a in self._experiment_adapters(
-                    self._experiment_configurations[context.experiment_id])) if context else ())
+                    self._experiment_configurations[context.experiment_id]) if a.device_id not in excluded) if context else ())
         except _PartialDeviceCollectionError as error:
             collection_error = error
             results = error.partial_results
-        failures = [collection_error.original_error] if collection_error is not None else []
+        scientific_failures = [(identity, "collection", error)
+                               for identity, error in collection_error.failures] if collection_error else []
+        failures = []
         count = 0
         # Attempt all completed scientific collections before handling operational intake.
         for result in results:
-            try:
-                count += self._persist_product_collection(result, outputs)
-            except Exception as error:
-                failures.append(error)
+            saved, errors = self._persist_product_collection(result, outputs)
+            count += saved
+            if errors:
+                error = errors[0] if len(errors) == 1 else ExceptionGroup("Scientific recording failed", list(errors))
+                scientific_failures.append((result.source_device_id, "recording", error))
+        for identity, stage, error in scientific_failures:
+            self._record_scientific_failure(context.experiment_id, identity, stage, error)
         for result in results:
             for message in result.operational_evidence:
                 try:
@@ -1244,7 +1258,7 @@ class AcquisitionNode:
                 failures.append(error)
         if failures:
             if len(failures) == 1:
-                error = collection_error if collection_error is not None else failures[0]
+                error = failures[0]
             else:
                 details = "; ".join(f"{type(failure).__name__}: {failure}" for failure in failures)
                 error = ExceptionGroup(f"Acquisition failed: {details}", failures)
@@ -1260,7 +1274,7 @@ class AcquisitionNode:
 
     def _persist_product_collection(
         self, result: DeviceCollectionResult, outputs: tuple[ScientificOutputSelection, ...],
-    ) -> int:
+    ) -> tuple[int, tuple[Exception, ...]]:
         context = self._active_experiment_runtime_context
         failures = []
         count = 0
@@ -1295,12 +1309,63 @@ class AcquisitionNode:
                     self._observe_acquisition_health_records(result.source_device_id, product.product_type, (timed,))
                 except Exception as error:
                     failures.append(error)
-        if len(failures) == 1:
-            raise failures[0]
-        if failures:
-            details = "; ".join(f"{type(failure).__name__}: {failure}" for failure in failures)
-            raise ExceptionGroup(f"Scientific preservation failed: {details}", failures)
-        return count
+        return count, tuple(failures)
+
+    def _failed_scientific_devices(self, experiment_id: str) -> set[str]:
+        """Derive isolated devices from retained, Session-scoped confirmed failure evidence."""
+        return {m.payload["live_source_id"] for m in self._health_runtime_evidence
+                if m.session_id == self._session_id and m.payload.get("experiment_id") == experiment_id
+                and m.payload.get("acquisition_health_policy") == "decision_458"}
+
+    def _record_scientific_failure(self, experiment_id: str, device_id: str, stage: str, error: Exception) -> None:
+        """Contain one confirmed scientific failure and retain its existing health interpretation."""
+        declaration = next(d for d in self._device_declarations if d.device_id == device_id)
+        adapter = next(a for a in self._runtime_device_manager.adapters if a.device_id == device_id)
+        manager = DeviceManager((adapter,))
+        cleanup = []
+        if adapter.state == DeviceAdapterState.RUNNING:
+            cleanup.extend(manager.stop_all())
+        cleanup.extend(manager.shutdown_all())
+        finalization_errors = []
+        for (experiment, source, _), storage_id in self._scientific_output_storage_ids.items():
+            if experiment == experiment_id and source == device_id:
+                try:
+                    self._record_artifact_manifest(self._local_storage_manager.finalize_stream(storage_id))
+                except Exception as failure:
+                    finalization_errors.append(f"{storage_id}: {type(failure).__name__}: {failure}")
+        try:
+            session_time = self._session_time()
+        except Exception:
+            session_time = None  # Unknown Session Time is not fabricated acquisition time.
+        observation = ExperimentScopedHealthObservation(
+            observation_id=f"health-observation-{self._next_health_observation_id}",
+            experiment_id=experiment_id, live_source_id=device_id,
+            expected_participant_id=device_id, expected_contribution="scientific_data",
+            acquisition_health_policy="decision_458", observation_type=f"scientific_{stage}_failed",
+            required=declaration.required, session_time_s=session_time,
+            details={"error": f"{type(error).__name__}: {error}", "failure_stage": stage,
+                     "errors": [repr(item) for item in getattr(error, "exceptions", (error,))],
+                     "acquisition_node_local_time_s": monotonic(),
+                     "device_cleanup": [asdict(r) for r in cleanup],
+                     "finalization_errors": finalization_errors})
+        self._next_health_observation_id += 1
+        self._experiment_scoped_health_observations.append(observation)
+        interpretation = HealthInterpretationEvidence(
+            observation.observation_id, experiment_id, device_id, device_id,
+            observation.observation_type, "decision_458",
+            "experiment_failure" if declaration.required else "warning", declaration.required,
+            session_time, dict(observation.details))
+        self._health_interpretation_evidence.append(interpretation)
+        envelope = RuntimeEvidenceMessage(
+            f"health-interpretation-{self._session_id}-{self._node_id}-{observation.observation_id}",
+            self._session_id, "health_interpretation", self._node_id, interpretation.to_dict(), True)
+        self._health_runtime_evidence.append(envelope)
+        self._retain_runtime_evidence(RuntimeEvidenceMessage(
+            f"health-observation-{self._session_id}-{self._node_id}-{observation.observation_id}",
+            self._session_id, "event", self._node_id,
+            {"event_category": "acquisition_health", **observation.to_dict()}, True))
+        self._retain_runtime_evidence(envelope)
+        self._last_error = observation.details["error"]
 
     @property
     def runtime_evidence(self) -> tuple[RuntimeEvidenceMessage, ...]:
@@ -1605,7 +1670,6 @@ class AcquisitionNode:
             local = row.get("acquisition_node_local_time_s", monotonic()) if remote else monotonic()
             if type(local) not in (int, float) or not isfinite(local):
                 raise ValueError("Observation local time must be finite")
-            mapped = self._session_time(local)
             if remote:
                 activations = [a for a in self._mapping_activation_history if a["session_id"] == self._session_id
                                and a["activated_local_time_s"] <= local]
@@ -1615,6 +1679,8 @@ class AcquisitionNode:
                 mapped = mapping["session_time_anchor_s"] + mapping["scale"] * (local - mapping["local_time_anchor_s"])
                 if "session_time_s" in row and row["session_time_s"] != mapped:
                     raise ValueError("Observation Session Time conflicts with authorized mapping")
+            else:
+                mapped = self._session_time(local)
             timestamped_row.update(
                 session_time_s=mapped,
                 acquisition_node_local_time_s=local,
@@ -1635,11 +1701,15 @@ class AcquisitionNode:
             return
         quality = self._synchronization_quality
         interpretation = quality["configuration"]["quality_interpretation"] if quality else "uninterpreted"
+        try:
+            session_time = self._session_time(local_time_s)
+        except RuntimeError:
+            session_time = None
         self._retain_runtime_evidence(RuntimeEvidenceMessage(
             f"timing-degraded-{self._session_id}-{self._node_id}-{len(self._runtime_evidence)}",
             self._session_id, "timing_quality_interpretation", self._node_id,
             {"experiment_id": self._active_experiment_id, "interpretation_label": interpretation,
-             "acquisition_node_local_time_s": local_time_s, "session_time_s": self._session_time(local_time_s),
+             "acquisition_node_local_time_s": local_time_s, "session_time_s": session_time,
              "quality": deepcopy(quality), "condition": "synchronization_degraded"}, True))
         self._timing_quality_reported = True
 
@@ -1722,11 +1792,14 @@ class AcquisitionNode:
             or not self._active_experiment_runtime_health_mapping
         ):
             return
-        current_session_time_s = (
-            self._session_time()
-        )
+        try:
+            current_session_time_s = self._session_time()
+        except RuntimeError:
+            return  # Missing timing authority does not establish a scientific failure.
         for mapping in self._active_experiment_runtime_health_mapping:
             source_device_id = mapping.live_source_id
+            if source_device_id in self._failed_scientific_devices(self._active_experiment_id):
+                continue
             policy_name = mapping.acquisition_health_policy
             if source_device_id in self._acquisition_health_observations_recorded:
                 continue
