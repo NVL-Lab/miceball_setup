@@ -2,18 +2,20 @@
 
 import asyncio
 from contextlib import AsyncExitStack
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from nats.js.api import RetentionPolicy, KeyValueConfig, StorageType
+from nats.js.api import DiscardPolicy, RetentionPolicy, KeyValueConfig, StorageType
 
 from lab_sync_acquisition import (
     Controller, NatsCommunicationBoundary, NatsControllerCommunication,
     NatsServiceMaintenanceCommunication, NatsSynchronizationManagerCommunication,
     RuntimeCommandResultMessage, RuntimeParticipant, ServiceMaintenanceInterface, SynchronizationManager,
 )
+from lab_sync_acquisition.nats_communication import DurablePublicationError
 from tests.nats_server_fixture import NATS_SERVER, temporary_jetstream_server
 
 
@@ -41,6 +43,97 @@ class DeliveryResponsibilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_streams_use_native_interests(self):
         for stream in ("LAB_COMMANDS", "LAB_COMMAND_RESULTS", "LAB_EVIDENCE"):
             self.assertEqual((await self.js.stream_info(stream)).config.retention, RetentionPolicy.INTEREST)
+
+    async def test_existing_stream_limits_preserve_outstanding_delivery(self):
+        cases = (
+            (True, {}),
+            (True, dict(discard=DiscardPolicy.NEW)),
+            (False, dict(max_msgs=1)),
+            (False, dict(max_bytes=4096)),
+            (False, dict(max_msgs_per_subject=1)),
+            (False, dict(discard=DiscardPolicy.NEW, max_msgs_per_subject=1)),
+            (False, dict(max_age=600)),
+            (False, dict(discard=DiscardPolicy.NEW, max_age=600)),
+            (True, dict(discard=DiscardPolicy.NEW, max_msgs=1)),
+            (True, dict(discard=DiscardPolicy.NEW, max_bytes=4096)),
+            (True, dict(discard=DiscardPolicy.NEW, max_msgs_per_subject=1,
+                        discard_new_per_subject=True)),
+            (True, dict(max_msg_size=1024)),
+            (False, dict(discard=DiscardPolicy.NEW, max_msgs=10, max_msgs_per_subject=1)),
+        )
+        for stream in ("LAB_COMMANDS", "LAB_COMMAND_RESULTS", "LAB_EVIDENCE"):
+            baseline = (await self.js.stream_info(stream)).config
+            try:
+                for accepted, changes in cases:
+                    with self.subTest(stream=stream, changes=changes):
+                        await self.js.update_stream(config=replace(baseline, **changes))
+                        before = (await self.js.stream_info(stream)).config.as_dict()
+                        if accepted:
+                            await self.producer.ensure_streams()
+                        else:
+                            with self.assertRaisesRegex(RuntimeError, "unacknowledged"):
+                                await self.producer.ensure_streams()
+                        self.assertEqual((await self.js.stream_info(stream)).config.as_dict(), before)
+            finally:
+                await self.js.update_stream(config=baseline)
+
+    async def test_bounded_result_capacity_refuses_publication_without_losing_old_result(self):
+        for changes in (dict(max_msgs=1), dict(max_bytes=700),
+                        dict(max_msgs_per_subject=1, discard_new_per_subject=True)):
+            with self.subTest(changes=changes):
+                baseline = (await self.js.stream_info("LAB_COMMAND_RESULTS")).config
+                receiver = await self.connect("ingestor", "intake")
+                await NatsControllerCommunication(receiver).subscribe_command_results(None)
+                await receiver.close()
+                await self.js.update_stream(config=replace(baseline, discard=DiscardPolicy.NEW, **changes))
+                try:
+                    await self.producer.ensure_streams()
+                    first = self.result("intake", "first")
+                    if "max_bytes" in changes:
+                        first = replace(first, payload={**first.payload, "padding": "x" * 200})
+                    await self.producer.publish_command_result(first, "confirm_dependent_release")
+                    before = (await self.js.stream_info("LAB_COMMAND_RESULTS")).state
+                    with self.assertRaises(DurablePublicationError):
+                        await self.producer.publish_command_result(
+                            replace(first, result_id="second"), "confirm_dependent_release")
+                    after = (await self.js.stream_info("LAB_COMMAND_RESULTS")).state
+                    self.assertEqual((after.messages, after.first_seq, after.last_seq),
+                                     (before.messages, before.first_seq, before.last_seq))
+                    replacement = await self.connect("ingestor", "intake")
+                    received = asyncio.get_running_loop().create_future()
+                    async def observe(result):
+                        if not received.done():
+                            received.set_result(result)
+                    handle = await NatsControllerCommunication(replacement).subscribe_command_results(None, observe)
+                    try:
+                        self.assertEqual((await asyncio.wait_for(received, 2)).to_dict(), first.to_dict())
+                        async with asyncio.timeout(2):
+                            while (await self.js.stream_info("LAB_COMMAND_RESULTS")).state.messages:
+                                await asyncio.sleep(0)
+                    finally:
+                        await handle.unsubscribe()
+                        await replacement.close()
+                finally:
+                    await self.js.update_stream(config=baseline)
+
+    async def test_per_message_expiry_is_not_compatible(self):
+        for stream in ("LAB_COMMANDS", "LAB_COMMAND_RESULTS", "LAB_EVIDENCE"):
+            baseline = (await self.js.stream_info(stream)).config
+            if not hasattr(baseline, "allow_msg_ttl"):
+                self.skipTest("SDK does not support per-message TTL")
+            # TTL enablement is creation-only on supported servers. These fixture
+            # streams are empty and have no consumers; no deployment is involved.
+            await self.js.delete_stream(stream)
+            await self.js.add_stream(config=replace(baseline, allow_msg_ttl=True))
+            before = (await self.js.stream_info(stream)).config.as_dict()
+            if not before.get("allow_msg_ttl"):
+                self.skipTest("Server does not support per-message TTL")
+            with self.subTest(stream=stream):
+                with self.assertRaisesRegex(RuntimeError, "unacknowledged"):
+                    await self.producer.ensure_streams()
+                self.assertEqual((await self.js.stream_info(stream)).config.as_dict(), before)
+            await self.js.delete_stream(stream)
+            await self.js.add_stream(config=baseline)
 
     async def test_recipient_interests_are_independent_and_reused(self):
         a = await self.connect("controller", "a")

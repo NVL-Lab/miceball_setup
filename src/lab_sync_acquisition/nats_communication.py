@@ -17,7 +17,7 @@ from uuid import uuid4
 from nats.aio.client import Client as NATS
 from nats.aio.subscription import Subscription
 from nats.errors import ConnectionReconnectingError, NoRespondersError
-from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, Header, RetentionPolicy, StorageType, StreamConfig
+from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, DiscardPolicy, Header, RetentionPolicy, StorageType, StreamConfig
 from nats.js.client import JetStreamContext
 from nats.js.errors import NotFoundError, KeyWrongLastSequenceError
 
@@ -826,6 +826,17 @@ class NatsCommunicationBoundary:
                 raise RuntimeError(f"{name} requires persistent storage")
             if info.config.retention != RetentionPolicy.INTEREST:
                 raise RuntimeError(f"{name} requires explicit existing-installation transition to InterestPolicy")
+            config = info.config
+            # InterestPolicy does not override expiry or discard-old limits.
+            bounded = any((getattr(config, field, None) or 0) > 0
+                          for field in ("max_msgs", "max_bytes"))
+            per_subject = (config.max_msgs_per_subject or 0) > 0
+            if ((config.max_age or 0) > 0 or getattr(config, "allow_msg_ttl", False)
+                    or bounded and config.discard != DiscardPolicy.NEW
+                    or per_subject and (config.discard != DiscardPolicy.NEW
+                                        or not config.discard_new_per_subject)):
+                raise RuntimeError(f"{name} requires explicit existing-installation transition: "
+                                   "retention limits can discard unacknowledged messages")
 
     async def publish_command(
         self,
