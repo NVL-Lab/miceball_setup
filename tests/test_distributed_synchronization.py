@@ -183,9 +183,10 @@ class DistributedSynchronizationTests(unittest.IsolatedAsyncioTestCase):
         self.sync_handler = NatsSynchronizationManagerCommunication(boundaries["sync"], self.sync)
         self.addAsyncCleanup(self.sync_handler.close)
         self.ingestor_handler = NatsIngestorCommunication(boundaries["ingestor"], self.ingestor)
+        self.transport_handler = NatsAcquisitionNodeCommunication(boundaries["node"], self.node)
         for handler in (self.sync_handler, self.ingestor_handler,
                 NatsStorageManagerCommunication(boundaries["storage"], storage),
-                NatsAcquisitionNodeCommunication(boundaries["node"], self.node)):
+                self.transport_handler):
             await handler.subscribe_commands()
         self.config["synchronization_configuration"] = configuration(
             **{"assessment_interval_s": 60, **settings})

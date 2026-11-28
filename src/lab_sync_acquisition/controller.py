@@ -1905,13 +1905,16 @@ class Controller:
                 raise RuntimeError("Requested Experiment is not active in this running Session")
             evidence = None
             if event_type == "experiment_fail" and (details or {}).get("acquisition_health_policy") == "decision_458":
-                # Confirmed scientific failure is canonical even when subsequent
-                # cleanup or timing readback cannot be confirmed. Existing fatal
-                # accounting still requires owner finalization before safe ACK.
-                evidence = session.record_experiment_lifecycle(experiment_id, event_type, None,
-                    {**details, "timing_unconfirmed": True})
-                self._active_experiment_id = None
-                self._active_experiment_runtime_health_mapping = ()
+                interpretation = (details.get("details") or {}).get("interpretation", {})
+                observation = interpretation.get("payload", interpretation)
+                if observation.get("observation_type") in {
+                        "scientific_collection_failed", "scientific_recording_failed"}:
+                    # Only confirmed scientific failure bypasses finalization for
+                    # canonical accounting; a configured policy may share the name.
+                    evidence = session.record_experiment_lifecycle(experiment_id, event_type, None,
+                        {**details, "timing_unconfirmed": True})
+                    self._active_experiment_id = None
+                    self._active_experiment_runtime_health_mapping = ()
             await self._finalize_launched_experiment_outputs(session, experiment_id)
             if evidence is None:
                 clock = await asyncio.wait_for(self._request_launched_runtime(

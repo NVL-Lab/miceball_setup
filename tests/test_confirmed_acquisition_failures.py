@@ -144,6 +144,73 @@ class ConfirmedAcquisitionFailureTests(unittest.IsolatedAsyncioTestCase):
         manager.flush(manifest.storage_id)
         return [json.loads(line) for line in Path(manifest.local_storage_path).read_text().splitlines()]
 
+    async def test_colliding_warning_policies_keep_sustained_scientific_collection(self):
+        for label in ("warning", "informational"):
+            with self.subTest(label=label):
+                policy = AcquisitionHealthPolicy("decision_458",
+                    {"first_evidence": {"record_kind": "event", "grace_window_s": 0}},
+                    {"expected_acquisition_evidence_missing": label})
+                f, adapters, _, _, _ = await self.workflow(health_policies=(policy,))
+                f.node.activate_experiment_runtime_health_mapping("experiment", (
+                    ExperimentRuntimeHealthMapping("fault", "fault", "decision_458", False, "event"),))
+                adapter = adapters[1]
+                collect = adapter.collect_products
+                def initially_empty(products, **context):
+                    if adapter.collections == 0:
+                        adapter.collections += 1
+                        return {"scientific_products": {p.data_product_id: () for p in products},
+                                "operational_evidence": ()}
+                    return collect(products, **context)
+                transport = f.transport_handler
+                self.addAsyncCleanup(transport._finish_evidence_publication)
+                self.addAsyncCleanup(transport.stop_acquisition_execution)
+                with patch.object(adapter, "collect_products", side_effect=initially_empty):
+                    await transport.start_acquisition_execution()
+                    try:
+                        await self.until(lambda: adapters[0].collections >= 5)
+                    finally:
+                        await transport.stop_acquisition_execution()
+                self.assertGreaterEqual(adapter.collections, 2)
+                recorded = self.rows(f.node, "fault")
+                self.assertTrue(recorded)
+                self.assertEqual(recorded[0]["value"], 2)
+                self.assertTrue(all(row["experiment_id"] == "experiment" for row in recorded))
+                self.assertFalse(adapter.get_status().shutdown)
+                await transport.publish_new_runtime_evidence()
+                await self.confirm_health(f)
+                interpretation, = f.node.health_runtime_evidence
+                self.assertEqual(interpretation.payload["observation_type"], "expected_acquisition_evidence_missing")
+                self.assertEqual(interpretation.payload["interpretation_label"], label)
+                self.assertEqual(f.controller.get_status()["active_experiment_id"], "experiment")
+
+    async def test_colliding_configured_fatal_policy_keeps_existing_finalization_order(self):
+        policy = AcquisitionHealthPolicy("decision_458",
+            {"first_evidence": {"record_kind": "event", "grace_window_s": 0}},
+            {"expected_acquisition_evidence_missing": "experiment_failure"})
+        f, adapters, _, _, _ = await self.workflow(health_policies=(policy,))
+        f.node.activate_experiment_runtime_health_mapping("experiment", (
+            ExperimentRuntimeHealthMapping("fault", "fault", "decision_458", False, "event"),))
+        with patch.object(adapters[1], "collect_products", return_value={
+                "scientific_products": {"events": ()}, "operational_evidence": ()}):
+            f.node.run_one_iteration()
+        message, = f.node.health_runtime_evidence
+        decision = f.controller.process_health_interpretation(message)
+        self.assertEqual(decision.controller_decision, "experiment_fail")
+        manager = f.node.local_storage_manager
+        target = next(m.storage_id for m in manager.manifests if m.source_component_id == "fault")
+        finalize = manager.finalize_stream
+        def unavailable(identity):
+            if identity == target:
+                raise OSError("configured health finalization remains unconfirmed")
+            return finalize(identity)
+        with patch.object(manager, "finalize_stream", side_effect=unavailable):
+            outcome = await f.controller.execute_launched_controller_action_decision(decision)
+            self.assertFalse(outcome.succeeded)
+            status = f.controller.get_status()
+            self.assertEqual(status["active_experiment_id"], "experiment")
+            self.assertFalse(any(e.event_type == "experiment_fail"
+                                 for e in status["experiment_lifecycle_evidence"]))
+
     async def test_optional_failure_preserves_healthy_devices_in_both_orders(self):
         f, adapters, _, _, _ = await self.workflow()
         adapters[1].failure = OSError("optional read failed")

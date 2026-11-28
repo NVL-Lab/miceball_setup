@@ -1315,7 +1315,9 @@ class AcquisitionNode:
         """Derive isolated devices from retained, Session-scoped confirmed failure evidence."""
         return {m.payload["live_source_id"] for m in self._health_runtime_evidence
                 if m.session_id == self._session_id and m.payload.get("experiment_id") == experiment_id
-                and m.payload.get("acquisition_health_policy") == "decision_458"}
+                and m.payload.get("acquisition_health_policy") == "decision_458"
+                and m.payload.get("observation_type") in {
+                    "scientific_collection_failed", "scientific_recording_failed"}}
 
     def _record_scientific_failure(self, experiment_id: str, device_id: str, stage: str, error: Exception) -> None:
         """Contain one confirmed scientific failure and retain its existing health interpretation."""

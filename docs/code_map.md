@@ -3315,7 +3315,7 @@ automatic. Kill integration and overall closeout validation remain deferred.
 - DistributedSynchronizationTests: Exercises measured startup, Experiment lifecycle, affine mapping/provenance, scoped health context, degraded quality, cancellation, retries, publication failures and release safety through real owners and broker adapters.
 - DistributedSynchronizationTests.collect_buffered: Delivers controlled buffered scientific observations through the public iteration command for acquisition-time mapping/quality and local artifact checks.
 - DistributedSynchronizationTests.advance_local_clock: Waits for a strictly later representable local clock tick so buffered-observation transition tests do not depend on platform timer granularity.
-- DistributedSynchronizationTests._use_authorized_transport: Reuses disk-backed fixture owners with a disposable authority-configured JetStream broker for current Controller admission and synchronization cancellation/publication workflows.
+- DistributedSynchronizationTests._use_authorized_transport: Reuses disk-backed fixture owners with a disposable authority-configured JetStream broker, retaining its actual AcquisitionNode transport handler for sustained-execution workflows alongside existing fixture references.
 - MeasuredClockBoundsTests: Verifies causal offset bounds under asymmetric delay/variability, explicit configuration rejection and detached stable timing evidence readback.
 - run_participant(role, url, directory, ready, stop): Runs a test node or synchronization owner in a spawned process, with harness-only startup/shutdown signaling and NATS-only framework communication.
 - CrossProcessTimingTests: Exercises independent node/clock processes against optional real local JetStream, checking scientific timing and finalized local output without shared service owners.
@@ -3899,8 +3899,26 @@ consumer refuses retained administrative overrides without rewriting templates.
 
 ## Decision 458 implementation status
 
-Developer implementation and verification completed 2026-11-28; independent
-validation and audit remain pending. No closure is claimed.
+Initial developer implementation and verification completed 2026-11-28; ICC
+subsequently reported independent validation PASS. The original audit and bounded
+P2 correction status follow; no closure is claimed.
+
+The subsequent independent audit at `bf6287a917311e09ae7e787277607d88684420bd`
+reported FAIL (P2): an ordinary configured health policy named `decision_458`
+incorrectly excluded a healthy device from further scientific collection.
+The bounded developer correction now requires the existing confirmed scientific
+collection/recording observation types for exclusion and Controller's special
+early canonical failure path. Policy identifiers remain unrestricted. Regression-first
+checks reproduced warning/informational exclusion and the equivalent Controller
+ordering error; focused post-correction developer verification is recorded below.
+Independent validation and re-audit of this correction remain pending.
+
+Bounded P2 developer verification: 7/7 selected methods PASS (two new regression
+methods, including warning and informational sustained-acquisition cases, and five
+existing optional/mandatory collection, recording, partial-preservation and
+unconfirmed-finalization checks). The live transport fixture now retains its
+already-created node handler for these sustained checks, without replacing the
+older controlled fixture reference or creating another runtime implementation.
 
 DeviceManager.collect_products retains every identified failure and valid partial
 collection while continuing other participants. AcquisitionNode isolates confirmed
@@ -3923,8 +3941,10 @@ Public constructor and method signatures are unchanged.
 - ConfirmedAcquisitionFailureTests.iteration: Executes one node collection through the existing runtime command transport.
 - ConfirmedAcquisitionFailureTests.confirm_health: Confirms processing through the existing Controller health-processing interface.
 - ConfirmedAcquisitionFailureTests.rows: Reads flushed scientific event records for a selected source.
+- ConfirmedAcquisitionFailureTests.test_colliding_warning_policies_keep_sustained_scientific_collection: Exercises sustained acquisition with warning/informational policies named `decision_458` and verifies subsequent scientific rows, normal policy consequences and healthy-device continuation.
+- ConfirmedAcquisitionFailureTests.test_colliding_configured_fatal_policy_keeps_existing_finalization_order: Confirms that an ordinary configured fatal health condition sharing the identifier does not acquire confirmed-scientific-failure lifecycle ordering when finalization is unresolved.
 
-Developer verification: 14 new workflow tests and 10 directly affected existing
+Initial developer verification: 14 new workflow tests and 10 directly affected existing
 regressions passed (24/24), covering collection order, required/optional and shared
 failures, partial JSONL/HDF5 preservation, recording/finalization uncertainty,
 negative expiry, historical evidence, policy precedence, multiple nodes, blocked
